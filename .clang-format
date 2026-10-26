@@ -1,0 +1,89 @@
+# C++ follows daidai; TypeScript and JSON remain owned by Biome.
+---
+Language: Cpp
+BasedOnStyle: Google
+#缩进宽度
+IndentWidth: 2
+# case标签是否缩进
+IndentCaseLabels: true
+# 每行字符的限制，0表示没有限制 
+ColumnLimit: 120
+# 连续的空行保留几行
+MaxEmptyLinesToKeep: 1
+# 中括号两边空格 [] 
+SpacesInSquareBrackets: true
+# 小括号两边添加空格
+SpacesInParentheses: true
+# 等号两边的空格
+SpaceBeforeAssignmentOperators: true
+# 判断语句不压缩为单行
+AllowShortIfStatementsOnASingleLine: Never
+# 对齐连续的尾随的注释  
+AlignTrailingComments: true
+
+# 连续的赋值时,对齐所有的等号
+AlignConsecutiveAssignments:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: true
+  AlignCompound: false
+  PadOperators: true
+
+# 数组写法对齐
+AlignArrayOfStructures: Left
+# 业务代码块展开，保留逻辑层次。
+AllowShortBlocksOnASingleLine: Never
+# 比较短的case可以被缩成一行。
+AllowShortCaseLabelsOnASingleLine: true
+# 返回值声明不加换行。
+AlwaysBreakAfterReturnType: None
+# goto标签不缩进
+IndentGotoLabels: false
+# 多行声明语句按照 = 对齐
+AlignConsecutiveDeclarations:
+  Enabled: false
+  AcrossEmptyLines: false
+  AcrossComments: false
+  AlignCompound: false
+  PadOperators: true
+
+# 大括号使用的样式
+BreakBeforeBraces: Linux
+# 形参对齐方式
+AlignAfterOpenBracket: Align
+# 连续宏行对齐
+AlignConsecutiveMacros:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: false
+  AlignCompound: false
+  PadOperators: true
+
+#AllowAllConstructorInitializersOnNextLine: false
+
+# 指针的*的挨着哪边
+DerivePointerAlignment: false
+PointerAlignment: Right
+
+# include头文件排序
+SortIncludes: Never
+
+# 补齐遗失的空间名注释
+FixNamespaceComments: true
+
+SpaceBeforeCtorInitializerColon: true
+
+# 循环迭代for后面是否有空格
+SpaceBeforeRangeBasedForLoopColon: true
+
+InsertBraces: true
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortLoopsOnASingleLine: false
+
+---
+Language: JavaScript
+DisableFormat: true
+
+---
+Language: Json
+DisableFormat: true

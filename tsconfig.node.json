@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "tsBuildInfoFile": "./node_modules/.cache/tsconfig.node.tsbuildinfo",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node", "electron"]
+  },
+  "include": [
+    "package.json",
+    "electron.vite.config.ts",
+    "electron.package.ts",
+    "scripts/**/*.ts",
+    "src/desktop/**/*.ts",
+    "src/backend/**/*.ts",
+    "src/shared/**/*.ts",
+    "src/renderer/env.d.ts",
+    "src/renderer/**/*.ts",
+    "resources/mcp/**/*.ts",
+    "tests/**/*.ts"
+  ]
+}

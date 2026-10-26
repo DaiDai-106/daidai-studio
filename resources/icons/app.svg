@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Dai</title>
+  <rect x="48" y="48" width="928" height="928" rx="232" fill="#F4F1EA"/>
+  <path transform="translate(81 0) skewX(-9)" fill="#242527" fill-rule="evenodd" d="M304 248H491C654 248 758 348 758 512S654 776 491 776H304Q280 776 280 752V272Q280 248 304 248ZM424 384Q416 384 416 392V632Q416 640 424 640H487C570 640 620 594 620 512S570 384 487 384Z"/>
+</svg>

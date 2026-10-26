@@ -1,0 +1,13 @@
+add_executable(cad-core-tests core_test.cpp fixture.cpp)
+target_link_libraries(cad-core-tests PRIVATE cad_core TKPrim)
+target_include_directories(cad-core-tests SYSTEM PRIVATE ${OpenCASCADE_INCLUDE_DIR})
+target_include_directories(cad-core-tests PRIVATE "${dai_cad_SOURCE_DIR}/src")
+add_test(NAME cad-core COMMAND cad-core-tests "${CMAKE_CURRENT_BINARY_DIR}/data")
+add_executable(cad-meshing-tests meshing_test.cpp)
+target_link_libraries(cad-meshing-tests PRIVATE cad_core TKPrim)
+target_include_directories(cad-meshing-tests SYSTEM PRIVATE ${OpenCASCADE_INCLUDE_DIR})
+target_include_directories(cad-meshing-tests PRIVATE "${dai_cad_SOURCE_DIR}/src")
+add_test(NAME cad-meshing COMMAND cad-meshing-tests)
+
+add_executable(cad-protocol-fixture protocol_fixture.cpp)
+target_link_libraries(cad-protocol-fixture PRIVATE nlohmann_json::nlohmann_json)

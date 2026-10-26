@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.21)
+project(dai_builtin_tools LANGUAGES CXX)
+include(CTest)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+add_subdirectory(cad)

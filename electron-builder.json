@@ -1,0 +1,68 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "local.daidai.pi",
+  "productName": "Dai",
+  "directories": { "output": "release", "buildResources": "dist/icons" },
+  "files": ["dist/**", "package.json", "!dist/icons/*.icns"],
+  "asar": true,
+  "extraResources": [
+    { "from": "resources/skills", "to": "skills", "filter": ["**/SKILL.md"] },
+    { "from": "out/native-runtime", "to": "mcp/native" }
+  ],
+  "publish": null,
+  "artifactName": "Dai-${version}-${os}-${arch}.${ext}",
+  "mac": {
+    "target": ["dmg"],
+    "icon": "dist/icons/app.icns",
+    "category": "public.app-category.productivity",
+    "identity": "-",
+    "notarize": false
+  },
+  "dmg": {
+    "title": "Dai ${version}",
+    "icon": "dist/icons/app.icns",
+    "backgroundColor": "#F4F1EA",
+    "contents": [
+      { "x": 160, "y": 180, "type": "file" },
+      { "x": 380, "y": 180, "type": "link", "path": "/Applications" }
+    ]
+  },
+  "win": { "target": ["nsis"], "icon": "dist/icons/app.ico", "signExecutable": false },
+  "nsis": {
+    "artifactName": "Dai-Setup-${version}-${arch}.exe",
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Dai",
+    "deleteAppDataOnUninstall": false
+  },
+  "linux": {
+    "target": ["deb"],
+    "icon": "dist/icons",
+    "executableName": "daidai-pi",
+    "category": "Utility",
+    "desktop": { "entry": { "Name": "Dai", "StartupWMClass": "daidai-pi" } }
+  },
+  "deb": {
+    "artifactName": "daidai-pi_${version}_${arch}.${ext}",
+    "maintainer": "Dai contributors",
+    "recommends": ["hicolor-icon-theme"],
+    "depends": [
+      "libgtk-3-0",
+      "libnotify4",
+      "libnss3",
+      "libxss1",
+      "libxtst6",
+      "xdg-utils",
+      "libatspi2.0-0",
+      "libuuid1",
+      "libsecret-1-0",
+      "libssl3t64",
+      "libtbb12",
+      "libfreeimage3",
+      "libstdc++6"
+    ]
+  }
+}

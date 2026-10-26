@@ -1,0 +1,22 @@
+# Dependencies and generated output
+node_modules/
+dist/
+out/
+release/
+coverage/
+*.tsbuildinfo
+*.log
+
+# Local configuration and runtime data
+.env
+.env.*
+!.env.example
+.daidai-pi/
+.daidai/
+app.sqlite
+app.sqlite-wal
+app.sqlite-shm
+
+# OS metadata
+.DS_Store
+Thumbs.db

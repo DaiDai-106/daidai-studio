@@ -1,0 +1,240 @@
+.scene-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--subtle);
+  border-top: 1px solid var(--border);
+  container-type: inline-size;
+}
+.scene-panel[hidden] {
+  display: none;
+}
+.scene-source {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 0 16px;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 11px;
+}
+.scene-source svg {
+  flex-shrink: 0;
+}
+.scene-source span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.scene-heading {
+  min-height: 46px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12px;
+}
+.scene-heading > span,
+.scene-heading > div,
+.scene-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.scene-toolbar {
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.scene-toolbar .text-button {
+  font-size: 11px;
+}
+.scene-toolbar [aria-pressed="true"] {
+  color: var(--text);
+  background: var(--hover);
+}
+.scene-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.scene-viewport {
+  position: absolute;
+  inset: 0;
+}
+.scene-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  outline: none;
+}
+.scene-empty-hint {
+  position: absolute;
+  top: 24px;
+  left: 0;
+  right: 0;
+  margin: auto;
+  width: max-content;
+  max-width: calc(100% - 40px);
+  text-align: center;
+  pointer-events: none;
+}
+.scene-empty-hint h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 450;
+}
+.scene-empty-hint p {
+  margin: 9px 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.viewport-error {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  right: 16px;
+  color: var(--text);
+  background: var(--surface);
+  padding: 12px;
+  border-radius: 8px;
+}
+
+.object-tree,
+.object-tree ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.scene-object-panel {
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: min(220px, 42%);
+  max-height: calc(100% - 56px);
+  overflow: hidden;
+  padding: 10px 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 11px;
+}
+.scene-object-count {
+  display: block;
+  padding: 0 12px 8px;
+  color: var(--muted);
+}
+.scene-object-panel > .object-tree {
+  min-height: 0;
+  overflow: auto;
+}
+.scene-object-properties {
+  flex-shrink: 0;
+  min-width: 0;
+  margin: 6px 0 0;
+  padding: 10px 12px 2px;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+.scene-object-properties strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.scene-transparency-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 7px 0 4px;
+  color: var(--muted);
+}
+.scene-transparency-label output {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.scene-transparency-label .text-button {
+  padding: 2px 0 2px 4px;
+  font-size: inherit;
+}
+.scene-object-properties input {
+  display: block;
+  width: 100%;
+}
+.object-tree-row {
+  display: flex;
+  min-height: 29px;
+  padding-right: 8px;
+}
+.object-tree-row:has(> .object-tree-name:hover),
+.object-tree [data-selected="true"] > .object-tree-row {
+  background: var(--hover);
+}
+.object-tree-toggle {
+  width: 18px;
+  flex-shrink: 0;
+  padding: 0;
+  color: var(--muted);
+  background: none;
+  border: 0;
+}
+.object-tree-name {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 0;
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: 0;
+  font-size: inherit;
+}
+.object-tree-name span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.object-tree-name svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.scene-loading,
+.scene-selection {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  font-size: 11px;
+}
+.scene-selection {
+  right: auto;
+  left: 12px;
+}
+.scene-version-note {
+  margin: 0;
+  padding: 6px 16px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+}

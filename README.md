@@ -1,92 +1,200 @@
-# daidai_pi
+<p align="center">
+  <img src="resources/icons/app.svg" width="80" alt="Dai" />
+</p>
 
+<h1 align="center">Dai</h1>
 
+<p align="center">今天想和呆呆完成什么？</p>
+<p align="center">围绕本地项目，把 AI 对话、CAD 工具和三维查看放在同一个工作台。</p>
 
-## Getting started
+<p align="center">
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#工作方式">工作方式</a> ·
+  <a href="#构建与检查">构建与检查</a> ·
+  <a href="spec/README.md">开发规范</a>
+</p>
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+![Dai 工作台：左侧项目、中间 CAD 视图与右侧对话](resources/screenshots/workbench.png)
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+<p align="center"><sub>使用测试装配展示真实 CAD 导入、对象树、实体选择与透明度查看。</sub></p>
 
-## Add your files
+## 当前能力
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
+| 能力 | 说明 |
+| --- | --- |
+| 本地项目 | 直接打开文件夹，管理多条对话、草稿与历史；STEP 保留在原目录 |
+| 多模型对话 | 复用 pi-ai 的模型目录与认证，支持 API Key、账号授权及兼容服务 |
+| CAD 导入 | 模型根据提示词与 Skill 调用内置 CAD MCP，解析 STEP 并生成显示资源 |
+| 三维查看 | 原始层级、颜色、单位与实例位置；对象树联动、表面高亮、透明度与视角切换 |
+| 工具与技能 | 按项目和模式配置外部 stdio / Streamable HTTP MCP 与 Markdown Skill |
+| 桌面体验 | 深浅主题、一体化顶栏、快捷键、托盘隐藏与单实例恢复 |
 
+目前聚焦 **STEP 导入与只读查看**。关节装配、运动学、URDF 导出和场景编辑尚未接入。
+
+## 快速开始
+
+### 启动开发版
+
+需要 **Node.js ≥22.19.0、npm ≥10**，建议使用 `.node-version` 指定的版本。桌面启动与集成测试需要图形环境。
+
+```bash
+npm ci
+npm run dev
 ```
-cd existing_repo
-git remote add origin http://gitlab.roboticplus.com:2022/dairobot/daidai_agent/daidai_pi.git
-git branch -M master
-git push -uf origin master
+
+前端修改自动热更新。安装版与开发版默认共用数据目录和单实例锁；开发前通过托盘选择「退出 Dai」关闭安装版，避免再次启动时恢复旧窗口。
+
+没有原生 CAD 模块也可以使用普通对话。需要解析 STEP 时，按下面的步骤构建 CAD worker。
+
+### 启用 CAD
+
+先安装以下原生开发依赖；项目使用标准 `find_package` 查找，不在 CMake 构建时下载或修改第三方源码。
+
+| 依赖 | 要求 |
+| --- | --- |
+| 编译工具 | CMake ≥3.21、支持 C++20 的编译器 |
+| Open CASCADE | **7.9.2**，包含 XCAF / STEP |
+| nlohmann_json | ≥3.11 |
+| OpenSSL | ≥3.0 |
+| TinyGLTF | 带 CMake 包配置的编译库，本机验证版本为 2.9.6 |
+
+```bash
+npm run build:native
+npm run dev
 ```
 
-## Integrate with your tools
+`build:cad` 与 `build:native` 等价。默认读取 `out/native/dai-cad-worker`；Windows 多配置构建读取 `out/native/Release/dai-cad-worker.exe`。可通过绝对路径环境变量 `DAI_NATIVE_DIRECTORY` 指定原生程序目录，无需打开 FreeCAD。
 
-- [ ] [Set up project integrations](http://gitlab.roboticplus.com:2022/dairobot/daidai_agent/daidai_pi/-/settings/integrations)
+<details>
+<summary>依赖前缀与直接使用 CMake</summary>
 
-## Collaborate with your team
+依赖不在标准位置时，通过 `CMAKE_PREFIX_PATH` 指定安装前缀：
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Automatically merge when pipeline succeeds](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+```bash
+# Linux / macOS
+CMAKE_PREFIX_PATH=/absolute/deps/prefix npm run build:native
+```
 
-## Test and Deploy
+```powershell
+# Windows PowerShell
+$env:CMAKE_PREFIX_PATH = 'C:\deps'
+npm run build:native
+```
 
-Use the built-in continuous integration in GitLab.
+也可以直接构建和运行 C++ 测试：
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing(SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+```bash
+cmake -S resources/mcp -B out/native -DCMAKE_BUILD_TYPE=Release
+cmake --build out/native --config Release --parallel 4
+ctest --test-dir out/native --build-config Release --output-on-failure
+```
 
-***
+</details>
 
-# Editing this README
+### 开始使用
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thank you to [makeareadme.com](https://www.makeareadme.com/) for this template.
+1. **打开项目**，选择本地文件夹。在「设置 → AI 设置」配置服务并选择模型。
+2. **进入场景搭建**，在聊天栏「当前 STEP」中选择项目内的文件。
+3. 发送 **“解析选中的 STEP”**，等待工具完成，即可在中间视口查看模型。
 
-## Suggestions for a good README
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+DeepSeek 使用 API Key；OpenAI 订阅使用 OpenAI Codex 账号授权，是否可用取决于账号权限。其他提供方沿用已安装 pi-ai 的认证方式，也可配置本地或 OpenAI 兼容服务。
 
-## Name
-Choose a self-explaining name for your project.
+普通对话默认不启用 CAD、文件或编码工具；切到场景搭建即显示画布。前视从 +X 朝 −X，右视从 −Y 朝 +Y，顶视从 +Z 朝 −Z，统一以米显示。
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+## 工作方式
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+```mermaid
+flowchart LR
+  UI[React 工作台] <--> H[Node · durable Harness]
+  H <--> LLM[模型]
+  H <--> MCP[pi-mcp 客户端]
+  MCP <-->|标准 stdio| CAD[CAD MCP · TS SDK]
+  CAD <--> OCCT[C++ · OCCT]
+  H --> SAVE[校验并保存显示资源]
+  SAVE --> UI
+```
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+**模型决定调用，Harness 执行，真实工具结果驱动显示。** Harness 提供当前模式的提示词、Skill 与工具列表。桌面不预先串联导入步骤，也不从助手回复文字推断“模型已加载”。CAD 插件通过标准 stdio 接入，TS 负责 MCP 协议，C++ 负责几何计算；桌面管理项目授权、资源保存与前端通知。
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+一个应用数据目录使用 **一个 SQLite、一个 durable Harness**，对话保持独立上下文；当前桌面一次运行一条对话。同项目、同 STEP 的对话共用最近成功导入的模型，切换聊天保留画面、相机、选择和透明度。新导入产物清除旧查看覆盖值；跨来源或重启后重新加载保存结果。
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+部分面无法生成可靠网格时，只显示通过校验的部分，并提示未显示面数；原始 CAD 与诊断保留，`complete=false` 不伪装成完整。全部无可显示网格或资源加载失败时保留旧画面。高亮与透明度仅影响查看，不修改 STEP、GLB 或持久场景。
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+### 数据在哪里
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+| 位置 | 内容 |
+| --- | --- |
+| `~/.daidai/`；Windows 为 `%USERPROFILE%\.daidai` | 应用数据根，与启动目录无关 |
+| `app.sqlite` | 原生 durable 聊天、任务、设置、项目与显示索引 |
+| `credentials.enc` | Electron safeStorage 加密的凭据；系统安全存储不可用时仅本次保留 |
+| 项目 `.daidai/artifacts/<importId>/` | 已保存的只读显示清单、GLB 与对象映射 |
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+移除项目只隐藏导航，重新打开同一目录可恢复。删除对话会禁止后续访问，底层历史暂留；两者都保留本地文件和共享显示资源。重启恢复记录与已保存模型，不续跑中断的请求。
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+### 代码导航
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+```text
+src/
+  desktop/       Electron 窗口、托盘、系统能力与 Preload
+  renderer/      React 工作台与 Three.js 查看器
+  backend/       runtime 组合入口；settings / projects / agent / mcp / artifacts
+  shared/        跨进程契约、Schema 与推导类型
+resources/
+  mcp/cad/       标准 MCP 服务端、C++ include/cad 与 src
+  skills/        内置 scene-building Skill
+  icons/         暖白底 D 图标与托盘模板
+spec/            前端、后端与 CAD MCP 设计
+tests/           单元、协议、C++ 与 Electron 集成测试
+```
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+详细设计见 [前端交互](spec/frontend_spec/frontend.md)、[桌面后端](spec/backend_spec/backend.md)与 [CAD MCP](spec/mcp_spec/cad-mcp.md)。Runtime 负责启动、请求队列与退出，各领域模块处理自己的请求；优先复用 Pi、Electron、Three.js 与 OCCT 的现有能力。
 
-## License
-For open source projects, say how it is licensed.
+<details>
+<summary>外部工具与独立 CAD 服务</summary>
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+「设置 → 工具与技能」可配置全局或项目范围、适用模式及启用状态。Skill 提供工作说明，不授予工具权限；MCP「连接并查看工具」执行真实发现，结束后关闭连接。模型可在运行中发现外部工具，再通过 durable 加入后续请求。服务同名工具使用命名空间隔离。
+
+外部 stdio 的工作目录固定为授权项目；HTTP 不发送本地项目根。当前未提供自定义环境变量、HTTP Header 或 MCP OAuth 的设置界面，也未启用 MCP Task 协议工具。三维回显须遵守显示产物契约，不能仅返回任意文件路径。
+
+CAD 全部 12 个工具共用 [contract.ts](resources/mcp/cad/contract.ts)。独立客户端在 `npm run build` 后，可用 `node dist/main/cad-mcp.js /absolute/config.json` 启动相同服务。可信宿主提供配置：`executable`、`projectRoot`、`stagingRoot` 与可选 `limits`；详情见 CAD spec。stdout 仅承载 MCP 协议，原生进程按需启动。
+
+停止与退出会等待本轮连接及原生进程清理；取消不等于撤销远端业务副作用，未知的调用结果不会自动重放。
+
+</details>
+
+## 构建与检查
+
+| 命令 | 用途 |
+| --- | --- |
+| `npm run build` | 类型检查并构建桌面到 `dist/` |
+| `npm start` | 运行已构建的桌面 |
+| `npm run lint` / `npm run format` | Biome 检查 / 格式化 |
+| `npm test` | 构建并串行运行单元、MCP 与 Electron 集成测试 |
+| `npm run check` | 静态检查、构建与测试 |
+| `npm run test:cad` | 构建桌面与原生模块，运行 CTest 和 CAD 回归 |
+
+真实 CAD 用例按环境启用：`DAI_CAD_TEST_WORKER` 指向 worker，`DAI_CAD_TEST_FIXTURE` 指向 `cad-core-tests`，`DAI_CAD_REAL_STEP` 指向本机 STEP 样本。未提供相应路径时，条件用例会跳过。自动模型测试使用本地脚本协议服务，不消耗个人密钥或付费模型。
+
+TypeScript / TSX、CSS 与 JSON 使用 Biome；C++ 使用根目录 `.clang-format`，遵循 daidai 的命名与格式：类型 PascalCase、函数 camelCase、文件及字段 snake_case、私有成员 `_` 后缀。逻辑段落间留一个空行，相关短语句保持在一起。测试统一放在 `tests/`，运行数据、凭据、依赖目录和构建产物不提交。
+
+## 安装包与桌面行为
+
+| 目标系统 | 构建命令 | 产物 | 验证状态 |
+| --- | --- | --- | --- |
+| Linux | `npm run package:deb` | `.deb` | Ubuntu 24.04 x64 已验证 |
+| macOS | `npm run package:mac` | `.dmg` | 已配置，待目标系统构建验收 |
+| Windows | `npm run package:win` | NSIS `.exe` | 已配置，待目标系统构建验收 |
+
+安装包在对应系统构建，自动包含图标、应用菜单入口与 CAD 原生运行依赖；打包也需要上述原生开发依赖。`npm run package:dir` 生成不带安装器的应用目录。文件名以实际版本和架构为准，例如：
+
+```bash
+sudo apt install ./release/daidai-pi_0.1.14_amd64.deb
+```
+
+安装后从应用菜单打开 **Dai**，Linux 也可运行 `daidai-pi`。安装版无需额外安装 Node.js。关闭窗口隐藏到托盘，选择「退出 Dai」才结束进程；再次启动恢复原窗口。常用快捷键：`Ctrl/Cmd+N` 新建对话、`Ctrl/Cmd+O` 打开项目、`Ctrl/Cmd+,` 设置、`Ctrl/Cmd+B` 项目栏，`Ctrl/Cmd+加减号` 缩放、`Ctrl/Cmd+0` 还原。
+
+目前采用本地安装包更新，未配置自动更新或 APT 软件源；`apt update` 不会获取项目新版。macOS 未完成公证，Windows 未配置受信任签名，正式分发仍需在目标平台验收。当前实机验证以 Linux 为主。
+
+## 许可
+
+本项目当前标记为 **UNLICENSED**。第三方组件声明统一维护在根目录 [LICENSE](LICENSE)，不代表本项目原始代码采用这些第三方许可证。

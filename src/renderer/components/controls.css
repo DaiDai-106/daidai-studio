@@ -1,0 +1,135 @@
+.select-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 34px;
+  max-width: 100%;
+  padding: 7px 12px;
+  border-radius: 9px;
+  font-size: 12px;
+  box-shadow: 0 1px 2px #00000004;
+}
+.select-trigger > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.select-trigger > svg {
+  color: var(--muted);
+}
+.select-trigger[data-state="open"] {
+  background: var(--hover);
+}
+.select-content,
+.action-menu {
+  z-index: 100;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--popup-shadow);
+  outline: none;
+  overflow-y: auto;
+}
+.select-content[data-state="open"],
+.action-menu[data-state="open"] {
+  animation: popup-appear 100ms ease-out;
+}
+.select-content {
+  max-height: var(--radix-dropdown-menu-content-available-height);
+  min-width: var(--radix-dropdown-menu-trigger-width);
+  max-width: min(360px, calc(100vw - 24px));
+}
+.action-menu {
+  max-height: var(--radix-dropdown-menu-content-available-height);
+  min-width: 200px;
+  max-width: min(360px, calc(100vw - 24px));
+}
+.select-option,
+.menu-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+}
+.select-option > span:first-child {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.select-option[data-highlighted],
+.menu-option[data-highlighted] {
+  background: var(--hover);
+}
+.select-option[data-disabled],
+.menu-option[data-disabled] {
+  opacity: 0.4;
+  cursor: default;
+}
+.select-option[data-state="checked"] {
+  font-weight: 500;
+}
+.menu-option > svg {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.menu-option[data-danger] {
+  color: var(--danger);
+}
+.menu-option-copy {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.menu-option-copy small {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 3px;
+  line-height: 1.5;
+}
+.tooltip {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  z-index: 200;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--popup-shadow);
+  font-size: 11px;
+  user-select: none;
+  pointer-events: none;
+}
+kbd {
+  font-family: inherit;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+@keyframes popup-appear {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .select-content[data-state="open"],
+  .action-menu[data-state="open"] {
+    animation: none;
+  }
+}

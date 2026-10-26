@@ -1,0 +1,63 @@
+import type {
+  ApplicationEvent,
+  ConversationInfo,
+  ConversationView,
+  LoginInfo,
+  ModelChoice,
+  ProjectInfo,
+  ProviderConfig,
+  ProviderInfo,
+  ProviderTypeInfo,
+  SettingsInfo,
+  WorkspaceInfo,
+} from "./application.ts";
+import type { McpConfig, McpInspection, SkillConfig } from "./capabilities.ts";
+import type { Theme } from "./desktop.ts";
+import type { ImportedModel } from "./display.ts";
+
+export interface ApplicationBridge {
+  getDisplay(id: string): Promise<ImportedModel | null>;
+  saveMcp(config: McpConfig): Promise<McpConfig>;
+  removeMcp(id: string): Promise<null>;
+  inspectMcp(config: McpConfig, projectId: string): Promise<McpInspection>;
+  cancelMcpInspection(id: string): Promise<null>;
+  saveSkill(config: SkillConfig): Promise<SkillConfig>;
+  removeSkill(id: string): Promise<null>;
+  getWorkspace(cursor?: string): Promise<WorkspaceInfo>;
+  getProviderTypes(): Promise<ProviderTypeInfo[]>;
+  getModels(
+    config: ProviderConfig,
+    loginId: string | undefined,
+    discover: boolean,
+  ): Promise<ModelChoice[]>;
+  saveProvider(config: ProviderConfig, loginId?: string): Promise<ProviderInfo>;
+  removeProvider(id: string): Promise<null>;
+  updateSettings(change: { theme?: Theme; defaultModel?: string }): Promise<SettingsInfo>;
+  setCapabilityEnabled(
+    id: "builtin.cad" | "builtin-scene",
+    enabled: boolean,
+  ): Promise<SettingsInfo>;
+  startLogin(providerType: string, method: "api_key" | "oauth"): Promise<LoginInfo>;
+  answerLogin(id: string, promptId: string, value: string): Promise<LoginInfo>;
+  cancelLogin(id: string): Promise<null>;
+  getLogin(id: string): Promise<LoginInfo>;
+  openLogin(id: string): Promise<null>;
+  openProject(): Promise<ProjectInfo | null>;
+  refreshProject(id: string): Promise<ProjectInfo>;
+  removeProject(id: string): Promise<null>;
+  createConversation(projectId: string): Promise<ConversationInfo>;
+  deleteConversation(id: string): Promise<null>;
+  selectStep(id: string, relativePath: string): Promise<ConversationInfo>;
+  updateConversation(change: {
+    id: string;
+    title?: string;
+    mode?: "general" | "scene";
+    modelId?: string;
+    draft?: string;
+    archived?: boolean;
+  }): Promise<ConversationInfo>;
+  watchConversation(id: string): Promise<ConversationView>;
+  sendMessage(id: string, requestId: string, text: string): Promise<{ submissionId: string }>;
+  stopConversation(id: string): Promise<null>;
+  subscribe(listener: (event: ApplicationEvent) => void): () => void;
+}
