@@ -26,13 +26,17 @@ export function validMcpConfig(draft: McpServer): boolean {
     draft.timeout > 0 &&
     draft.timeout <= 300 &&
     draft.args.length <= 100 &&
-    draft.args.every((arg) => arg.length <= 4096)
+    draft.args.every((arg) => arg.length <= 4096) &&
+    (draft.secrets?.length ?? 0) <= 100 &&
+    (draft.secrets ?? []).every(
+      ({ name, value }) => !!name.trim() && name.length <= 200 && (value?.length ?? 0) <= 8192,
+    )
   );
 }
 
 export function parseMcpConfig(
   json: string,
-): Pick<McpServer, "name" | "transport" | "target" | "args"> {
+): Pick<McpServer, "name" | "transport" | "target" | "args" | "secrets"> {
   const data: unknown = JSON.parse(json);
   if (!isRecord(data) || !isRecord(data.mcpServers)) throw new Error("需要包含 mcpServers 对象。");
   const entries = Object.entries(data.mcpServers);
@@ -51,8 +55,18 @@ export function parseMcpConfig(
   const args = config.args ?? [];
   if (!Array.isArray(args) || !args.every((arg): arg is string => typeof arg === "string"))
     throw new Error("args 必须是字符串数组。");
+  const rawSecrets = typeof command === "string" ? config.env : config.headers;
+  if (
+    rawSecrets !== undefined &&
+    (!isRecord(rawSecrets) || Object.values(rawSecrets).some((value) => typeof value !== "string"))
+  )
+    throw new Error("env 和 headers 必须是字符串键值对象。");
+  const secrets = isRecord(rawSecrets)
+    ? Object.entries(rawSecrets).map(([name, value]) => ({ name, value: value as string }))
+    : [];
   return {
     name,
+    ...(secrets.length ? { secrets } : {}),
     transport: typeof command === "string" ? "stdio" : "http",
     target: typeof command === "string" ? command : typeof url === "string" ? url : "",
     args,
@@ -69,6 +83,7 @@ export function mcpConfig(server: McpServer): McpConfig {
     scope: server.scope,
     modes: server.modes,
     timeoutMs: server.timeout * 1000,
+    ...(server.secrets?.length ? { secrets: server.secrets } : {}),
   };
   return server.transport === "stdio"
     ? { ...common, transport: "stdio", command: server.target.trim(), args: server.args }
@@ -88,5 +103,6 @@ export function mcpServer(config: McpConfig): McpServer {
     transport: config.transport,
     target: config.transport === "stdio" ? config.command : config.url,
     args: config.transport === "stdio" ? config.args : [],
+    ...(config.secrets?.length ? { secrets: config.secrets } : {}),
   };
 }

@@ -15,8 +15,8 @@ interface Props {
   skills: Skill[];
   project: Project | undefined;
   projects: Project[];
-  onServers: (items: McpServer[]) => void;
-  onSkills: (items: Skill[]) => void;
+  onServers: (items: McpServer[]) => Promise<boolean>;
+  onSkills: (items: Skill[]) => Promise<boolean>;
   onInspect: (server: McpServer, projectId: string) => Promise<McpInspection>;
   onCancelInspection: (id: string) => Promise<unknown>;
 }
@@ -127,7 +127,7 @@ export function ToolsSettings(props: Props) {
             skill={skill}
             scopeLabel={scopeName(skill.scope)}
             onToggle={() =>
-              props.onSkills(
+              void props.onSkills(
                 props.skills.map((item) =>
                   item.id === skill.id ? { ...item, enabled: !item.enabled } : item,
                 ),
@@ -211,13 +211,14 @@ export function ToolsSettings(props: Props) {
             onClose={() => setEditor(null)}
             onInspect={props.onInspect}
             onCancel={props.onCancelInspection}
-            onSave={(server) => {
-              props.onServers(
+            onSave={async (server) => {
+              const saved = await props.onServers(
                 props.servers.some((item) => item.id === server.id)
                   ? props.servers.map((item) => (item.id === server.id ? server : item))
                   : [...props.servers, server],
               );
-              setEditor(null);
+              if (saved) setEditor(null);
+              return saved;
             }}
           />
         ))}
@@ -228,14 +229,13 @@ export function ToolsSettings(props: Props) {
           project={props.project}
           defaults={defaults}
           onClose={() => setEditor(null)}
-          onSave={(skill) => {
+          onSave={(skill) =>
             props.onSkills(
               props.skills.some((item) => item.id === skill.id)
                 ? props.skills.map((item) => (item.id === skill.id ? skill : item))
                 : [...props.skills, skill],
-            );
-            setEditor(null);
-          }}
+            )
+          }
         />
       )}
       {remove && (
@@ -251,7 +251,7 @@ export function ToolsSettings(props: Props) {
               onClick={() => {
                 if (remove.type === "mcp")
                   props.onServers(props.servers.filter((item) => item.id !== remove.id));
-                else props.onSkills(props.skills.filter((item) => item.id !== remove.id));
+                else void props.onSkills(props.skills.filter((item) => item.id !== remove.id));
                 setRemove(null);
               }}
             >

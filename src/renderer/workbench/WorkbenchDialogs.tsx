@@ -39,21 +39,29 @@ export function RenameDialog({
 export function FilesDialog({
   project,
   selected,
+  error,
   onSelect,
   onClose,
 }: {
   project: Project;
   selected: string;
-  onSelect: (file: string) => void;
+  error: string;
+  onSelect: (file: string) => Promise<boolean>;
   onClose: () => void;
 }) {
   const [filter, setFilter] = useState("");
-  const [stepOnly, setStepOnly] = useState(true);
-  const files = project.files.filter(
-    (file) =>
-      file.toLowerCase().includes(filter.toLowerCase()) &&
-      (!stepOnly || /\.(step|stp)$/i.test(file)),
-  );
+  const [relativePath, setRelativePath] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const files = project.files.filter((file) => file.toLowerCase().includes(filter.toLowerCase()));
+  async function select(file: string) {
+    if (!file.trim() || submitting) return;
+    setSubmitting(true);
+    try {
+      if (await onSelect(file)) onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  }
   return (
     <Dialog title="选择项目 STEP" onClose={onClose}>
       <div className="file-project">
@@ -68,25 +76,50 @@ export function FilesDialog({
           onChange={(event) => setFilter(event.target.value)}
         />
       </Field>
-      <label className="check-row">
-        <input
-          type="checkbox"
-          checked={stepOnly}
-          onChange={(event) => setStepOnly(event.target.checked)}
-        />
-        只显示 .step / .stp
-      </label>
+      {!project.filesComplete && (
+        <>
+          <p className="small muted" role="status">
+            当前 STEP 清单不完整。可输入项目内文件的完整相对路径来选择未列出的文件。
+          </p>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void select(relativePath);
+            }}
+          >
+            <Field label="STEP 相对路径">
+              <input
+                value={relativePath}
+                maxLength={4096}
+                placeholder="例如 models/part.step"
+                onChange={(event) => setRelativePath(event.target.value)}
+              />
+            </Field>
+            <div className="dialog-actions">
+              <button
+                type="submit"
+                className="primary"
+                disabled={!relativePath.trim() || submitting}
+              >
+                {submitting ? "正在选择…" : "选择此路径"}
+              </button>
+            </div>
+          </form>
+        </>
+      )}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
       <div className="file-list">
         {files.map((file) => (
           <button
             type="button"
             key={file}
             aria-pressed={selected === file}
-            disabled={!/\.(step|stp)$/i.test(file)}
-            onClick={() => {
-              onSelect(file);
-              onClose();
-            }}
+            disabled={submitting}
+            onClick={() => void select(file)}
           >
             <Icon name="file" />
             <span>

@@ -3,6 +3,7 @@ import type { Projects } from "../projects/handlers.ts";
 import type { Settings } from "../settings/handlers.ts";
 import type { Handlers } from "../types.ts";
 import { inspectMcp, normalizeMcpConfig } from "./catalog.ts";
+import { resolveMcpSecrets } from "./secrets.ts";
 
 export function createMcpHandlers(
   settings: Settings,
@@ -19,19 +20,40 @@ export function createMcpHandlers(
       const previous = settings.read().mcpServers ?? [];
       if (!previous.some((server) => server.id === value.id) && previous.length >= 100)
         throw new Error("最多可配置 100 个 MCP 服务。");
-      await settings.update((draft) => {
-        draft.mcpServers = previous.some((server) => server.id === value.id)
-          ? previous.map((server) => (server.id === value.id ? value : server))
-          : [...previous, value];
-      }, false);
-      return value;
+      const prior = previous.find((server) => server.id === value.id);
+      const secrets = await resolveMcpSecrets(settings, value, prior);
+      const secretRef = Object.keys(secrets).length
+        ? await settings.credentials.stage({ type: "api_key", key: JSON.stringify(secrets) }, true)
+        : undefined;
+      const stored = {
+        ...value,
+        ...(value.secrets
+          ? { secrets: value.secrets.map(({ name }) => ({ name: name.trim() })) }
+          : {}),
+        ...(secretRef ? { secretRef } : {}),
+      };
+      try {
+        await settings.update((draft) => {
+          draft.mcpServers = prior
+            ? previous.map((server) => (server.id === value.id ? stored : server))
+            : [...previous, stored];
+        }, false);
+      } catch (error) {
+        if (secretRef) await settings.credentials.remove(secretRef);
+        throw error;
+      }
+      if (prior?.secretRef) await settings.credentials.remove(prior.secretRef);
+      const { secretRef: _secretRef, ...publicConfig } = stored;
+      return publicConfig;
     },
     async "mcp.remove"({ id }) {
       idle();
       if (id.startsWith("builtin")) throw new Error("内置 MCP 服务只能停用。");
+      const prior = settings.read().mcpServers?.find((server) => server.id === id);
       await settings.update((draft) => {
         draft.mcpServers = (draft.mcpServers ?? []).filter((server) => server.id !== id);
       }, false);
+      if (prior?.secretRef) await settings.credentials.remove(prior.secretRef);
       return null;
     },
     async "mcp.inspect"({ config, projectId }) {
@@ -47,7 +69,9 @@ export function createMcpHandlers(
               controller.signal,
               AbortSignal.timeout(config.timeoutMs),
             ]);
-            return inspectMcp(config, project, signal);
+            const previous = settings.read().mcpServers?.find((server) => server.id === config.id);
+            const secrets = await resolveMcpSecrets(settings, config, previous);
+            return inspectMcp(config, project, signal, secrets);
           })
           .finally(() => {
             if (inspection === pending) inspection = null;

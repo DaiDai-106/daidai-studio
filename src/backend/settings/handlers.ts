@@ -2,6 +2,11 @@ import type { Draft } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { createModels, InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import type { Harness } from "@earendil-works/pi-durable";
+import {
+  addSkillImage,
+  readSkillImage,
+  removeSkillImages,
+} from "../../../resources/mcp/scene-profiles/images.ts";
 import type {
   ApplicationEvent,
   Arguments,
@@ -24,10 +29,18 @@ export async function createSettings(
   vault: VaultPort,
   getHarness: () => Harness,
   publish: (event: ApplicationEvent) => void,
+  imagesRoot: string,
 ) {
   let settings: SettingsRecord | undefined;
   const changed = () => publish({ type: "workspace" });
-  const credentials = await createCredentials(vault, () => settings?.providers ?? []);
+  const credentials = await createCredentials(
+    vault,
+    () => settings?.providers ?? [],
+    () =>
+      (settings?.mcpServers ?? []).flatMap((server) =>
+        server.secretRef ? [server.secretRef] : [],
+      ),
+  );
   const catalogStore = createCatalogStore(getHarness);
   const providers = createProviders(credentials.store, catalogStore);
   function read(): SettingsRecord {
@@ -57,7 +70,7 @@ export async function createSettings(
         (id) => !modeSkillIds.has(id),
       ),
       skills: value.skills ?? [],
-      mcpServers: value.mcpServers ?? [],
+      mcpServers: (value.mcpServers ?? []).map(({ secretRef: _secretRef, ...server }) => server),
     };
   }
   async function update(change: (draft: Draft<SettingsRecord>) => void, reconfigure = true) {
@@ -157,6 +170,9 @@ export async function createSettings(
       | "auth.cancel"
       | "auth.open"
       | "skill.save"
+      | "skill.image.add"
+      | "skill.image.read"
+      | "skill.image.remove"
       | "skill.remove"
     > = {
       async "provider.types"() {
@@ -288,6 +304,8 @@ export async function createSettings(
         if (config.id.startsWith("builtin")) throw new Error("内置技能不能通过自定义配置覆盖。");
         if (!config.name.trim() || !config.description.trim() || !config.body.trim())
           throw new Error("技能名称、描述和正文不能为空。");
+        if (config.sceneProfile && !config.modes.includes("scene"))
+          throw new Error("业务场景技能必须启用场景搭建模式。");
         if (config.scope.kind === "project") await projects.visible(config.scope.projectId);
         const previous = read().skills ?? [];
         if (!previous.some((skill) => skill.id === config.id) && previous.length >= 100)
@@ -303,7 +321,34 @@ export async function createSettings(
             ? previous.map((skill) => (skill.id === value.id ? value : skill))
             : [...previous, value];
         }, false);
+        const oldImages = previous.find((skill) => skill.id === value.id)?.images ?? [];
+        await removeSkillImages(
+          imagesRoot,
+          value.id,
+          oldImages
+            .filter((image) => !value.images?.some((item) => item.path === image.path))
+            .map((image) => image.path),
+        );
         return value;
+      },
+      async "skill.image.add"({ id, name, image }) {
+        idle();
+        if (id.startsWith("builtin")) throw new Error("请先复制内置技能再添加图片。");
+        return { name, path: await addSkillImage(imagesRoot, id, image) };
+      },
+      async "skill.image.read"({ id, path }) {
+        return readSkillImage(imagesRoot, id, path);
+      },
+      async "skill.image.remove"({ id, path }) {
+        if (id.startsWith("builtin")) throw new Error("内置技能图片不能移除。");
+        if (
+          read()
+            .skills?.find((skill) => skill.id === id)
+            ?.images?.some((image) => image.path === path)
+        )
+          throw new Error("已保存技能正在使用此图片。");
+        await removeSkillImages(imagesRoot, id, [path]);
+        return null;
       },
       async "skill.remove"({ id }) {
         idle();
@@ -311,6 +356,7 @@ export async function createSettings(
         await update((draft) => {
           draft.skills = (draft.skills ?? []).filter((skill) => skill.id !== id);
         }, false);
+        await removeSkillImages(imagesRoot, id);
         return null;
       },
     };
@@ -330,6 +376,7 @@ export async function createSettings(
     read,
     update,
     info,
+    credentials,
     requests,
     enabled: (id: string) => modeSkillIds.has(id) || !read().disabledCapabilities?.includes(id),
   };

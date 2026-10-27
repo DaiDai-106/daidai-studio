@@ -83,15 +83,9 @@ export async function loadDisplay(model: ImportedModel, signal: AbortSignal): Pr
       let owner: Object3D | null = object;
       while (owner && typeof owner.userData.objectId !== "string") owner = owner.parent;
       const id = owner?.userData.objectId;
-      const association = gltf.parser.associations.get(object);
       if (typeof id !== "string" || !objects.has(id))
         throw new Error("网格没有有效的 CAD 对象映射。");
       object.userData.sceneObjectId = id;
-      if (association?.meshes !== undefined && association.primitives !== undefined)
-        object.userData.cadPrimitive = {
-          meshIndex: association.meshes,
-          primitiveIndex: association.primitives,
-        };
     });
     root.updateMatrixWorld(true);
     return { importId: model.importId, root, manifest, dispose };

@@ -10,7 +10,10 @@ import { McpToolCatalog } from "./McpToolCatalog.tsx";
 
 const importExample =
   '{\n  "mcpServers": {\n    "my-cad": {\n      "command": "node",\n      "args": ["server.js"]\n    }\n  }\n}';
-type Draft = Omit<McpServer, "args"> & { args: { id: string; value: string }[] };
+type Draft = Omit<McpServer, "args" | "secrets"> & {
+  args: { id: string; value: string }[];
+  secrets?: { id: string; name: string; value?: string; saved?: boolean }[];
+};
 
 export function McpDialog({
   server,
@@ -26,7 +29,7 @@ export function McpDialog({
   importing: boolean;
   project: Project | undefined;
   defaults: Pick<McpServer, "scope" | "modes">;
-  onSave: (server: McpServer) => void;
+  onSave: (server: McpServer) => Promise<boolean>;
   onClose: () => void;
   onInspect: (server: McpServer, projectId: string) => Promise<McpInspection>;
   onCancel: (id: string) => Promise<unknown>;
@@ -44,16 +47,41 @@ export function McpDialog({
       timeout: 120,
       checked: false,
     };
-    return { ...initial, args: initial.args.map((value) => ({ id: crypto.randomUUID(), value })) };
+    const { args: initialArgs, secrets: initialSecrets, ...initialConfig } = initial;
+    return {
+      ...initialConfig,
+      args: initialArgs.map((value) => ({ id: crypto.randomUUID(), value })),
+      ...(initialSecrets
+        ? {
+            secrets: initialSecrets.map((item) => ({
+              ...item,
+              id: crypto.randomUUID(),
+              saved: item.value === undefined,
+            })),
+          }
+        : {}),
+    };
   });
   const [stage, setStage] = useState(importing ? "import" : "edit");
   const [json, setJson] = useState("");
   const [error, setError] = useState("");
   const [importNote, setImportNote] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [inspection, setInspection] = useState<McpInspection | null>(null);
   const cancelled = useRef(false);
-  const value: McpServer = { ...draft, args: draft.args.map((row) => row.value) };
+  const value: McpServer = {
+    ...draft,
+    args: draft.args.map((row) => row.value),
+    ...(draft.secrets
+      ? {
+          secrets: draft.secrets.map(({ name, value }) => ({
+            name,
+            ...(value !== undefined ? { value } : {}),
+          })),
+        }
+      : {}),
+  };
   const valid = validMcpConfig(value);
   function patch(value: Partial<Draft>) {
     setDraft({ ...draft, ...value, checked: false });
@@ -66,6 +94,9 @@ export function McpDialog({
         ...draft,
         ...parsed,
         args: parsed.args.map((value) => ({ id: crypto.randomUUID(), value })),
+        ...(parsed.secrets
+          ? { secrets: parsed.secrets.map((item) => ({ ...item, id: crypto.randomUUID() })) }
+          : { secrets: [] }),
         checked: false,
       });
       setJson("");
@@ -95,7 +126,9 @@ export function McpDialog({
       }}
       protectChanges
     >
-      <Notice>保存不会启动服务。连接检查会发现真实工具；环境变量和 Header 配置暂未接入。</Notice>
+      <Notice>
+        保存不会启动服务。连接检查会发现真实工具；环境变量和 Header 的值由系统安全存储加密保存。
+      </Notice>
       {stage === "import" ? (
         <>
           <Field label="mcpServers JSON">
@@ -117,12 +150,8 @@ export function McpDialog({
         </>
       ) : (
         <>
-          {importNote && (
-            <p className="small muted">
-              解析完成，请确认后保存。env / headers 的内容不导入；保存不会启动服务。
-            </p>
-          )}
-          <fieldset disabled={checking}>
+          {importNote && <p className="small muted">解析完成，请确认后保存。保存不会启动服务。</p>}
+          <fieldset disabled={checking || saving}>
             <Field label="服务名称">
               <input
                 value={draft.name}
@@ -134,7 +163,9 @@ export function McpDialog({
             <Field label="连接方式">
               <Select
                 value={draft.transport}
-                onValueChange={(transport) => patch({ transport, target: "", args: [] })}
+                onValueChange={(transport) =>
+                  patch({ transport, target: "", args: [], secrets: [] })
+                }
                 options={[
                   { value: "stdio", label: "本地命令 · stdio" },
                   { value: "http", label: "Streamable HTTP" },
@@ -197,6 +228,70 @@ export function McpDialog({
                 />
               </Field>
             )}
+            <Field
+              label={draft.transport === "stdio" ? "环境变量" : "HTTP Header"}
+              hint="值不会回显；留空表示保留已保存的值。请勿将敏感值写在启动参数或 URL 中。"
+            >
+              <div>
+                {(draft.secrets ?? []).map((item, index) => (
+                  <div className="mcp-argument" key={item.id}>
+                    <input
+                      aria-label={`${draft.transport === "stdio" ? "环境变量" : "Header"}名称 ${index + 1}`}
+                      value={item.name}
+                      placeholder="名称"
+                      onChange={(event) =>
+                        patch({
+                          secrets: (draft.secrets ?? []).map((row, i) =>
+                            i === index ? { ...row, name: event.target.value } : row,
+                          ),
+                        })
+                      }
+                    />
+                    <input
+                      aria-label={`${draft.transport === "stdio" ? "环境变量" : "Header"}值 ${index + 1}`}
+                      type="password"
+                      autoComplete="new-password"
+                      value={item.value ?? ""}
+                      placeholder={item.value === undefined ? "已保存（留空保留）" : "值"}
+                      onChange={(event) =>
+                        patch({
+                          secrets: (draft.secrets ?? []).map((row, i) => {
+                            if (i !== index) return row;
+                            if (row.saved && event.target.value === "") {
+                              const { value: _value, ...retained } = row;
+                              return retained;
+                            }
+                            return { ...row, value: event.target.value };
+                          }),
+                        })
+                      }
+                    />
+                    <IconButton
+                      icon="close"
+                      label={`移除配置 ${index + 1}`}
+                      onClick={() =>
+                        patch({ secrets: (draft.secrets ?? []).filter((_, i) => i !== index) })
+                      }
+                    />
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={(draft.secrets?.length ?? 0) >= 100}
+                  onClick={() =>
+                    patch({
+                      secrets: [
+                        ...(draft.secrets ?? []),
+                        { id: crypto.randomUUID(), name: "", value: "" },
+                      ],
+                    })
+                  }
+                >
+                  添加{draft.transport === "stdio" ? "环境变量" : "Header"}
+                </button>
+              </div>
+            </Field>
             <ScopeFields
               scope={draft.scope}
               modes={draft.modes}
@@ -261,13 +356,21 @@ export function McpDialog({
             <button
               type="button"
               className="primary"
-              disabled={checking}
+              disabled={checking || saving}
               onClick={() => {
                 if (!valid) setError("请填写名称、有效连接、至少一个模式和正整数超时。");
-                else onSave(value);
+                else {
+                  setSaving(true);
+                  void onSave(value)
+                    .then((saved) => {
+                      if (!saved) setError("保存失败，请检查系统安全存储或配置。");
+                    })
+                    .catch(() => setError("保存失败，请检查系统安全存储或配置。"))
+                    .finally(() => setSaving(false));
+                }
               }}
             >
-              保存配置{!draft.checked ? "（未验证）" : ""}
+              {saving ? "正在保存…" : `保存配置${!draft.checked ? "（未验证）" : ""}`}
             </button>
           </div>
         </>

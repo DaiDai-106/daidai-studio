@@ -50,6 +50,7 @@ test("run cleanup retains ownership on failure and delayed completion cannot rel
     { available: false, read: async () => "{}", write: async () => {} },
     () => harness,
     () => {},
+    join(root, "skill-images"),
   );
   const registry = createRegistry();
   const extension = createSessionExtension((id) => session?.skillFor(id));

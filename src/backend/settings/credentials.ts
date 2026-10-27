@@ -16,6 +16,7 @@ export interface VaultPort {
 export async function createCredentials(
   vault: VaultPort,
   providers: () => readonly StoredProvider[],
+  extraReferences: () => readonly string[] = () => [],
 ) {
   const memory = new InMemoryCredentialStore();
   let persisted: Record<string, Credential> = JSON.parse(await vault.read());
@@ -84,6 +85,7 @@ export async function createCredentials(
       await memory.modify(key, async () => credential);
       return key;
     },
+    readReference: (key: string) => memory.read(key),
     async remove(key: string) {
       if (!key) return;
       if (Object.hasOwn(persisted, key)) await persist(key);
@@ -92,7 +94,10 @@ export async function createCredentials(
     async prune() {
       // A crash between staging a credential and committing settings can leave an
       // unreferenced secret. Reconcile against the committed document on startup.
-      const referenced = new Set(providers().map((provider) => provider.secretRef));
+      const referenced = new Set([
+        ...providers().map((provider) => provider.secretRef),
+        ...extraReferences(),
+      ]);
       for (const key of Object.keys(persisted))
         if (!referenced.has(key)) {
           await persist(key);

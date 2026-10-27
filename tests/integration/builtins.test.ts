@@ -22,6 +22,16 @@ test("startup registers builtin metadata from the shared contract and actual ski
       builtins.catalog.servers[0]?.tools.map((tool) => tool.name),
       Object.keys(cadInputs),
     );
+    assert.ok(
+      builtins.catalog.servers
+        .find((server) => server.id === "builtin.alignment")
+        ?.tools.some((tool) => tool.name === "scene_inspect"),
+    );
+    assert.ok(
+      builtins.catalog.servers
+        .find((server) => server.id === "builtin.viewport")
+        ?.tools.some((tool) => tool.name === "viewport_capture"),
+    );
     assert.equal(builtins.catalog.skills[0]?.body, body);
     assert.equal(builtins.skills.get("scene-building"), body);
     assert.deepEqual(

@@ -33,7 +33,7 @@ test("cleanup removes editing APIs and native targets while retaining every CAD 
     const workspace = await app.request("workspace.get", {});
     assert.deepEqual(
       workspace.builtins.servers.map((service) => service.id),
-      ["builtin.cad", "builtin.alignment"],
+      ["builtin.cad", "builtin.alignment", "builtin.viewport", "builtin.scene-profiles"],
     );
     assert.deepEqual(
       workspace.builtins.servers[0]?.tools.map((tool) => tool.name),

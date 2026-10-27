@@ -1,6 +1,8 @@
 import type { AssistantMessage, Message, Models, Usage } from "@earendil-works/pi-ai";
 import type { EntryRecord, UsageState } from "@earendil-works/pi-durable";
+import { Value } from "typebox/value";
 import type { MessageInfo, ResponseInfo, UsageInfo } from "../../shared/application.ts";
+import { ChatImageSchema } from "../../shared/application.ts";
 import { modelRequestError } from "./errors.ts";
 import { displayArguments, preview, publicBlock, toolIdentity } from "./presentation.ts";
 import type { ProjectedToolCall } from "./types.ts";
@@ -87,14 +89,37 @@ export function createMessageFormatter(models: Pick<Models, "getModel" | "getMod
     entry: EntryRecord,
     calls: ReadonlyMap<string, ProjectedToolCall>,
   ): MessageInfo[] {
+    if (entry.kind === "app.scene-start")
+      return [{ id: `${entry.id}:event`, role: "event", text: "进入场景搭建", failed: false }];
     return (entry.model ?? []).flatMap<MessageInfo>((message, index) => {
       if (message.role === "toolResult") {
         const output = preview(messageText(message));
+        const identity = toolIdentity(message.details);
+        // Only expose the desktop-owned viewport image; external MCP images and
+        // other tool output stay in the model's execution context.
+        const image =
+          !message.isError &&
+          message.toolName === "viewport_capture" &&
+          identity.serverName === "viewport-mcp" &&
+          identity.displayName === "viewport_capture" &&
+          Array.isArray(message.content)
+            ? message.content.find((block) => block.type === "image")
+            : undefined;
+        const candidate =
+          image?.type === "image" ? { mimeType: image.mimeType, data: image.data } : undefined;
+        const images =
+          candidate &&
+          Value.Check(ChatImageSchema, candidate) &&
+          candidate.data.length % 4 === 0 &&
+          /^[A-Za-z0-9+/]*={0,2}$/.test(candidate.data)
+            ? [candidate]
+            : undefined;
         return [
           {
             id: `${entry.id}:${index}`,
             role: "tool" as const,
             text: output.text,
+            ...(images ? { images } : {}),
             timestamp: message.timestamp,
             outcome: stopped(entry) ? "stopped" : message.isError ? "failed" : "completed",
             failed: message.isError,
@@ -106,7 +131,7 @@ export function createMessageFormatter(models: Pick<Models, "getModel" | "getMod
                 calls.get(message.toolCallId)?.key ?? `tool:${entry.id}:${message.toolCallId}`,
               outputTruncated: output.truncated,
               durationMs: message.durationMs ?? null,
-              ...toolIdentity(message.details),
+              ...identity,
             },
           },
         ];

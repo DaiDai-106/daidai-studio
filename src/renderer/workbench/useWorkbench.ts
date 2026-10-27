@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import type { ApplicationState } from "../application/useApplication.ts";
 import type { Conversation, Mode } from "../types.ts";
+import { createDraftWriter } from "./draftWriter.ts";
+import {
+  loadSceneReferences,
+  type SceneReferenceDraft,
+  saveSceneReferences,
+  verifySceneReference,
+} from "./sceneReferenceDrafts.ts";
+
+export type { SceneReferenceDraft } from "./sceneReferenceDrafts.ts";
 
 type Action =
   | { type: "select"; id: string }
@@ -18,14 +27,75 @@ function withoutKey<T>(record: Record<string, T>, key: string) {
   return next;
 }
 
+function markReferenceStale(items: Record<string, SceneReferenceDraft>, id: string) {
+  const reference = items[id];
+  return reference && !reference.stale
+    ? { ...items, [id]: { ...reference, stale: true, checking: false } }
+    : items;
+}
+
 export function useWorkbench(application: ApplicationState) {
   const { api, workspace } = application;
   const [activeId, setActiveId] = useState("");
   const [projectId, setProjectId] = useState("");
   const [mobileTab, setMobileTab] = useState<"scene" | "chat">("scene");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [initialReferences] = useState(() => {
+    try {
+      return { items: loadSceneReferences(window.localStorage), available: true };
+    } catch {
+      return { items: {}, available: false };
+    }
+  });
+  const [sceneReferences, updateSceneReferences] = useState<Record<string, SceneReferenceDraft>>(
+    initialReferences.items,
+  );
+  const [referenceStorageAvailable, setReferenceStorageAvailable] = useState(
+    initialReferences.available,
+  );
+  const sceneReferencesRef = useRef(sceneReferences);
+  function setSceneReferences(
+    change: (items: Record<string, SceneReferenceDraft>) => Record<string, SceneReferenceDraft>,
+  ) {
+    const previous = sceneReferencesRef.current;
+    const next = change(previous);
+    if (next === previous) return;
+    sceneReferencesRef.current = next;
+    try {
+      saveSceneReferences(window.localStorage, next);
+      setReferenceStorageAvailable(true);
+    } catch {
+      setReferenceStorageAvailable(false);
+    }
+    updateSceneReferences(next);
+  }
+  const writerRef = useRef<ReturnType<typeof createDraftWriter> | null>(null);
+  writerRef.current ??= createDraftWriter(
+    (id, draft) => application.updateConversation({ id, draft }),
+    application.report,
+  );
+  const writer = writerRef.current;
   const initialized = useRef(false);
   const navigating = useRef(false);
+  useEffect(() => {
+    const flushOnUnload = () => {
+      void writer.flush().catch(application.report);
+    };
+    window.addEventListener("beforeunload", flushOnUnload);
+    const unsubscribe = window.desktop.onBeforeQuit(async () => {
+      try {
+        await writer.flush();
+      } catch (error) {
+        application.report(error);
+        throw error;
+      }
+    });
+    return () => {
+      window.removeEventListener("beforeunload", flushOnUnload);
+      unsubscribe();
+      flushOnUnload();
+    };
+  }, [writer, application.report]);
   const projects = workspace?.projects ?? [];
   const conversations: Conversation[] = (workspace?.conversations ?? []).map((item) => ({
     ...item,
@@ -48,6 +118,7 @@ export function useWorkbench(application: ApplicationState) {
     await application.activate(id);
     bind(id, value.projectId);
     setMobileTab("scene");
+    if (value.mode === "scene" && value.modelId && !value.draft.trim()) await api.startScene(id);
   }
   useEffect(() => {
     if (!workspace || initialized.current) return;
@@ -64,6 +135,8 @@ export function useWorkbench(application: ApplicationState) {
     await application.refresh();
     await application.activate(conversation.id);
     bind(conversation.id, target);
+    if (target === projectId && active?.mode === "scene" && conversation.modelId)
+      await api.startScene(conversation.id);
   }
   async function openProject() {
     const project = await api.openProject();
@@ -81,6 +154,8 @@ export function useWorkbench(application: ApplicationState) {
     if (first) {
       await application.activate(first.id);
       bind(first.id, project.id);
+      if (first.mode === "scene" && first.modelId && !first.draft.trim())
+        await api.startScene(first.id);
     } else if (hasHistory) {
       await application.activate("");
       setActiveId("");
@@ -110,7 +185,12 @@ export function useWorkbench(application: ApplicationState) {
       case "mode":
         if (!active) return;
         await application.updateConversation({ id: active.id, mode: action.mode });
-        if (action.mode === "scene") setMobileTab("scene");
+        if (action.mode !== "scene")
+          setSceneReferences((items) => markReferenceStale(items, active.id));
+        if (action.mode === "scene") {
+          setMobileTab("scene");
+          if (active.modelId && !active.draft.trim()) await api.startScene(active.id);
+        }
         return;
       case "archive":
       case "delete": {
@@ -118,6 +198,7 @@ export function useWorkbench(application: ApplicationState) {
           await application.updateConversation({ id: action.id, archived: true });
         else {
           await application.deleteConversation(action.id);
+          writer.clear(action.id);
           setDrafts((items) => withoutKey(items, action.id));
         }
         if (action.id === activeId) {
@@ -133,10 +214,9 @@ export function useWorkbench(application: ApplicationState) {
         return;
       }
       case "step":
-        if (!active || !project) return;
-        if (action.file && !project.files.includes(action.file))
-          throw new Error("请选择当前项目内的 STEP。");
+        if (!active) throw new Error("没有当前对话。");
         await api.selectStep(active.id, action.file);
+        setSceneReferences((items) => markReferenceStale(items, active.id));
         await application.refresh();
         return;
     }
@@ -149,6 +229,7 @@ export function useWorkbench(application: ApplicationState) {
         try {
           if (application.workspace?.busyConversationId)
             throw new Error("请先停止当前模型请求，再切换对话、模式或 STEP。");
+          await writer.flush();
           await apply(action);
           return true;
         } finally {
@@ -160,24 +241,57 @@ export function useWorkbench(application: ApplicationState) {
   function update(patch: Partial<Pick<Conversation, "draft" | "modelId" | "thinkingLevel">>) {
     if (!active) return;
     const id = active.id;
-    if (patch.draft !== undefined) setDrafts((items) => ({ ...items, [id]: patch.draft ?? "" }));
-    void application.run(async () => {
-      await application.updateConversation({
-        id,
-        ...(patch.draft !== undefined ? { draft: patch.draft } : {}),
-        ...(patch.modelId !== undefined ? { modelId: patch.modelId } : {}),
-        ...(patch.thinkingLevel !== undefined ? { thinkingLevel: patch.thinkingLevel } : {}),
+    if (patch.draft !== undefined) {
+      setDrafts((items) => ({ ...items, [id]: patch.draft ?? "" }));
+      writer.set(id, patch.draft);
+    }
+    if (patch.modelId !== undefined || patch.thinkingLevel !== undefined)
+      void application.run(async () => {
+        await application.updateConversation({
+          id,
+          ...(patch.modelId !== undefined ? { modelId: patch.modelId } : {}),
+          ...(patch.thinkingLevel !== undefined ? { thinkingLevel: patch.thinkingLevel } : {}),
+        });
+        if (patch.modelId && active.mode === "scene" && !active.draft.trim())
+          await api.startScene(id);
       });
-    });
   }
   async function send(images: import("../../shared/application.ts").ChatImage[] = []) {
-    if (!active || (!active.draft.trim() && !images.length)) return false;
+    if (
+      !active ||
+      (!active.draft.trim() && !images.length) ||
+      sceneReferences[active.id]?.stale ||
+      sceneReferences[active.id]?.checking
+    )
+      return false;
     const id = active.id;
     const draft = active.draft;
     const text = draft.trim();
+    const reference = sceneReferences[id];
+    const version = writer.version(id);
     const result = await application.run(async () => {
-      await api.sendMessage(id, crypto.randomUUID(), text, images);
-      setDrafts((items) => (items[id] === draft ? { ...items, [id]: "" } : items));
+      await writer.flush();
+      await api.sendMessage(
+        id,
+        crypto.randomUUID(),
+        text,
+        images,
+        reference && {
+          importId: reference.importId,
+          objectId: reference.objectId,
+          revision: reference.revision,
+        },
+      );
+      if (reference)
+        setSceneReferences((items) => (items[id] === reference ? withoutKey(items, id) : items));
+      if (writer.version(id) === version) {
+        writer.clear(id);
+        setDrafts((items) => ({ ...items, [id]: "" }));
+      } else {
+        // Sending clears the durable draft; preserve any edits made during submission.
+        writer.markDirty(id);
+        void writer.flush().catch(application.report);
+      }
       return true;
     });
     return result === true;
@@ -189,9 +303,22 @@ export function useWorkbench(application: ApplicationState) {
     project,
     projectId,
     step,
-    selectStep: (file: string) => {
-      if (file !== step) request({ type: "step", file });
+    sceneReference: active ? sceneReferences[active.id] : undefined,
+    referenceStorageAvailable,
+    setSceneReference: (reference: SceneReferenceDraft | null) => {
+      if (!active) return;
+      const id = active.id;
+      setSceneReferences((items) =>
+        reference ? { ...items, [id]: reference } : withoutKey(items, id),
+      );
     },
+    invalidateSceneReference: (importId: string, revision: number) => {
+      if (!active) return;
+      const id = active.id;
+      setSceneReferences((items) => verifySceneReference(items, id, importId, revision));
+    },
+    selectStep: (file: string) =>
+      file === step ? Promise.resolve(true) : request({ type: "step", file }),
     mobileTab,
     setMobileTab,
     update,

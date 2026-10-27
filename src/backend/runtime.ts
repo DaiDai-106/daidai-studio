@@ -28,10 +28,11 @@ export async function openRuntime(
   publish: (event: ApplicationEvent) => void,
   builtinPaths: BuiltinPaths = {},
 ) {
-  const builtins = await loadBuiltins(builtinPaths, join(root, "tmp"));
+  const imagesRoot = join(root, "skill-images");
+  const builtins = await loadBuiltins(builtinPaths, join(root, "tmp"), imagesRoot);
   const storage = await openNodeSqliteStorage(join(root, "app.sqlite"));
   let harness: Harness;
-  const settings = await createSettings(vault, () => harness, publish);
+  const settings = await createSettings(vault, () => harness, publish, imagesRoot);
   let session: AgentSession | undefined;
   const registry = createRegistry();
   const extension = createSessionExtension((id) => session?.skillFor(id));
@@ -167,6 +168,7 @@ export async function openRuntime(
       // Cancellation must reach discovery instead of waiting behind the request it cancels.
       if (method === "mcp.cancelInspect") return handlers[method](args);
       if (method === "shell.respond") return handlers[method](args);
+      if (method === "viewport.respond") return handlers[method](args);
       const result = mutations.then(() => handlers[method](args));
       mutations = result.then(
         () => {},

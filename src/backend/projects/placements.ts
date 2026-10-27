@@ -1,5 +1,5 @@
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import type { Cursor, EntryRecord, Harness, Storage } from "@earendil-works/pi-durable";
+import type { EntryId, EntryRecord, Harness, Storage } from "@earendil-works/pi-durable";
 import {
   decodePlacementChange,
   type PlacementChange,
@@ -10,6 +10,7 @@ import type { ImportedModel } from "../../shared/display.ts";
 import type { RunContext } from "../agent/types.ts";
 import { projectDataDirectory } from "../artifacts/location.ts";
 import { CurrentDisplayDoc, ImportedModelDoc } from "../artifacts/store.ts";
+import { scanJournalEntries } from "../journal.ts";
 import { ProjectDoc } from "./documents.ts";
 
 // A committed tool result is the journal; the small project file is the shared current placement.
@@ -86,29 +87,7 @@ export function createPlacements(
   async function rebuildFiles() {
     let failed = false;
     const saved: ReturnType<typeof publications> = [];
-    let conversations: Cursor | undefined;
-    do {
-      const page = await storage.scanConversations(
-        { order: "ascending" },
-        100,
-        conversations,
-        context,
-      );
-      for (const conversation of page.items) {
-        let cursor: Cursor | undefined;
-        do {
-          const entries = await storage.scanEntries(
-            { conversationId: conversation.id, order: "ascending" },
-            100,
-            cursor,
-            context,
-          );
-          for (const entry of entries.items) saved.push(...publications(entry));
-          cursor = entries.next;
-        } while (cursor);
-      }
-      conversations = page.next;
-    } while (conversations);
+    for await (const entry of scanJournalEntries(storage)) saved.push(...publications(entry));
     // Rebuild the derived files from the successful journal in global causal order.
     const latest = new Map<string, ReturnType<typeof publications>[number]>();
     for (const value of saved.sort((a, b) => a.entryId - b.entryId)) {
@@ -147,31 +126,71 @@ export function createPlacements(
     await pending;
     if (recoveryNeeded) await recover();
   }
+  async function prepare(value: unknown, run: RunContext): Promise<PlacementChange> {
+    await flush();
+    const change = decodePlacementChange(value);
+    const sourceId = run.sourceId;
+    if (!change || !sourceId) throw new Error("定位结果无效。");
+    const { model, project } = await target(change);
+    const currentDisplay = await harness.snapshot(CurrentDisplayDoc, sourceId, context);
+    if (
+      project.hidden ||
+      project.id !== run.project.id ||
+      model.sourceId !== sourceId ||
+      currentDisplay?.importId !== model.importId
+    )
+      throw new Error("定位结果不属于当前项目、STEP 或显示版本。");
+    const current = await readPlacement(
+      await projectDataDirectory(dataRoot, project.id),
+      model.importId,
+      model.sourceHash,
+    );
+    if (current.revision !== change.expectedRevision)
+      throw new Error("定位基准已过期，请重新读取当前状态。");
+    return change;
+  }
   return {
     recover,
     flush,
-    async prepare(value: unknown, run: RunContext): Promise<PlacementChange> {
+    prepare,
+    async undo(importId: string, expectedRevision: number, run: RunContext) {
       await flush();
-      const change = decodePlacementChange(value);
-      const sourceId = run.sourceId;
-      if (!change || !sourceId) throw new Error("定位结果无效。");
-      const { model, project } = await target(change);
-      const currentDisplay = await harness.snapshot(CurrentDisplayDoc, sourceId, context);
-      if (
-        project.hidden ||
-        project.id !== run.project.id ||
-        model.sourceId !== sourceId ||
-        currentDisplay?.importId !== model.importId
-      )
-        throw new Error("定位结果不属于当前项目、STEP 或显示版本。");
-      const current = await readPlacement(
-        await projectDataDirectory(dataRoot, project.id),
-        model.importId,
-        model.sourceHash,
+      if (!Number.isSafeInteger(expectedRevision) || expectedRevision <= 0)
+        throw new Error("当前定位没有可撤销的记录。");
+      const entry = await storage.entry(expectedRevision as EntryId, context);
+      const latest =
+        entry && publications(entry.entry).find((item) => item.change.importId === importId);
+      if (!latest) throw new Error("无法读取当前定位的历史记录。");
+      const previousRevision = latest.change.expectedRevision;
+      let previous: Pick<PlacementChange, "translation" | "rotation"> = {
+        translation: [0, 0, 0],
+        rotation: [0, 0, 0, 1],
+      };
+      if (previousRevision) {
+        const previousEntry = await storage.entry(previousRevision as EntryId, context);
+        const previousChange =
+          previousEntry &&
+          publications(previousEntry.entry).find(
+            (item) =>
+              item.change.importId === importId &&
+              item.change.sourceHash === latest.change.sourceHash,
+          );
+        if (!previousChange || previousRevision >= expectedRevision)
+          throw new Error("无法读取上一步定位的历史记录。");
+        previous = previousChange.change;
+      }
+      const change = await prepare(
+        {
+          schemaVersion: 2,
+          importId,
+          sourceHash: latest.change.sourceHash,
+          expectedRevision,
+          translation: previous.translation,
+          rotation: previous.rotation,
+        },
+        run,
       );
-      if (current.revision !== change.expectedRevision)
-        throw new Error("定位基准已过期，请重新读取当前状态。");
-      return change;
+      return { change, previousRevision };
     },
     async get(model: ImportedModel) {
       await flush();

@@ -1,4 +1,5 @@
 #include "alignment/alignment.h"
+#include "alignment/inspection.h"
 #include <iostream>
 #include <nlohmann/json.hpp>
 
@@ -79,7 +80,21 @@ int main()
     request.placement                    = placement( input.at( "placement" ) );
     const auto &args                     = input.at( "arguments" );
     const auto operation                 = input.at( "operation" ).get<std::string>();
-    if ( operation == "alignment_get_bounds" ) {
+    if ( operation == "scene_inspect" ) {
+      std::cout << Json( {
+                             { "ok", true },
+                             { "data", inspectScene( request, args ) }
+      } )
+                       .dump()
+                << '\n';
+      return 0;
+    } else if ( operation == "scene_get_features" ) {
+      std::cout << Json( { { "ok", true }, { "data", inspectFeatures( request, args ) } } ).dump() << '\n';
+      return 0;
+    } else if ( operation == "scene_find_features" ) {
+      std::cout << Json( { { "ok", true }, { "data", findFeatures( request, args ) } } ).dump() << '\n';
+      return 0;
+    } else if ( operation == "alignment_get_bounds" ) {
       request.object_id = args.value( "objectId", std::string() );
     } else if ( operation == "alignment_align_min_corner" ) {
       request.operation = Operation::MIN_CORNER;
@@ -89,6 +104,23 @@ int main()
       request.pivot         = args.at( "pivot" ).get<Vec3>();
       request.angle_degrees = args.at( "angleDegrees" );
       request.model_space   = args.at( "space" ) == "model";
+    } else if ( operation == "alignment_align_direction" ) {
+      request.operation        = Operation::ALIGN_DIRECTION;
+      request.source_direction = direction( args.at( "sourceDirection" ) );
+      request.target_direction = args.at( "targetDirection" ).get<Vec3>();
+      const auto &pivot        = args.at( "pivot" );
+      const auto kind          = pivot.at( "kind" ).get<std::string>();
+      if ( kind == "bounds_center" && !pivot.contains( "position" ) ) {
+        request.pivot_bounds_center = true;
+      } else if ( kind == "world_point" && pivot.contains( "position" ) ) {
+        request.pivot = pivot.at( "position" ).get<Vec3>();
+      } else {
+        throw AlignmentError( "INVALID_ARGUMENT", "Choose bounds_center or a world_point with position." );
+      }
+    } else if ( operation == "alignment_ground" ) {
+      request.operation = Operation::GROUND;
+      request.ground_z = args.at( "groundZ" ).get<double>();
+      for ( const auto &contact : args.at( "contacts" ) ) request.contacts.push_back( feature( contact ) );
     } else if ( operation == "alignment_align_frame" ) {
       request.operation      = Operation::ALIGN_FRAME;
       request.source_up      = direction( args.at( "sourceUp" ) );
@@ -120,6 +152,31 @@ int main()
             {"objectId",  ref.object_id },
             {"featureId", ref.feature_id}
         } );
+      }
+    }
+    if ( result.resolved_direction ) {
+      const auto &value           = *result.resolved_direction;
+      data[ "resolvedDirection" ] = {
+          {"source",       value.source       },
+          {"target",       value.target       },
+          {"axis",         value.axis         },
+          {"angleDegrees", value.angle_degrees},
+          {"pivot",        value.pivot        }
+      };
+      data[ "usedReferences" ] = Json::array();
+      for ( const auto &ref : result.used_references ) {
+        data[ "usedReferences" ].push_back( {
+            {"objectId",  ref.object_id },
+            {"featureId", ref.feature_id}
+        } );
+      }
+    }
+    if ( !result.ground_contacts.empty() ) {
+      data[ "groundContacts" ] = Json::array();
+      for ( const auto &contact : result.ground_contacts ) {
+        data[ "groundContacts" ].push_back( { { "objectId", contact.feature.object_id },
+                                              { "featureId", contact.feature.feature_id },
+                                              { "beforeZ", contact.before_z }, { "afterZ", contact.after_z } } );
       }
     }
     std::cout << Json( {

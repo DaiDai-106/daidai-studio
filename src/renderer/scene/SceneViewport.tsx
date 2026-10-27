@@ -1,10 +1,20 @@
 import { type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
-import type { DisplayState, MeshPick, ViewportHandle } from "./types.ts";
+import {
+  type ComparisonIdentity,
+  canComparePlacement,
+  labelPlacementComparison,
+  type PlacementComparison,
+} from "./placementComparison.ts";
+import type { DisplayState, ViewportHandle } from "./types.ts";
 import { createViewport } from "./viewport.ts";
 
 type Props = DisplayState & {
   ref: Ref<ViewportHandle>;
-  onPick?: (id: string | null, face?: MeshPick) => void;
+  onPick?: (id: string | null) => void;
+  importId?: string | undefined;
+  sceneReady?: boolean;
+  comparisonEnabled?: boolean;
+  onComparison?: (value: PlacementComparison | null) => void;
 };
 
 export function SceneViewport({
@@ -16,21 +26,29 @@ export function SceneViewport({
   selectedId,
   transparency,
   placement,
+  importId,
+  sceneReady = false,
+  comparisonEnabled = false,
+  onComparison,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewport = useRef<ReturnType<typeof createViewport> | null>(null);
   const pick = useRef(onPick);
+  const comparison = useRef(onComparison);
+  const previous = useRef<ComparisonIdentity | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
     pick.current = onPick;
   }, [onPick]);
+  useEffect(() => {
+    comparison.current = onComparison;
+  }, [onComparison]);
   useImperativeHandle(
     ref,
     () => ({
       fit: () => viewport.current?.fit(),
       setView: (view) => viewport.current?.setView(view),
-      zoom: (factor) => viewport.current?.zoom(factor),
-      invalidate: () => viewport.current?.invalidate(),
+      capture: (view) => viewport.current?.capture(view) ?? null,
     }),
     [],
   );
@@ -46,7 +64,7 @@ export function SceneViewport({
       viewport.current?.requestRender();
     };
     try {
-      viewport.current = createViewport(element, (id, face) => pick.current?.(id, face));
+      viewport.current = createViewport(element, (id) => pick.current?.(id));
     } catch {
       setError("无法启动三维显示，请检查系统图形加速支持。聊天仍可使用。");
       return;
@@ -62,15 +80,40 @@ export function SceneViewport({
     };
   }, []);
   useEffect(() => {
-    viewport.current?.update({
+    const engine = viewport.current;
+    if (!engine) {
+      previous.current = null;
+      return;
+    }
+    const next = {
       showGrid,
       showAxes,
       selectedId: selectedId ?? null,
       placement: placement ?? null,
       ...(transparency ? { transparency } : {}),
       ...(model ? { model } : {}),
-    });
-  }, [showGrid, showAxes, model, selectedId, transparency, placement]);
+    };
+    const identity =
+      sceneReady && importId && model
+        ? { importId, revision: placement?.revision ?? 0, model }
+        : null;
+    const prior = previous.current;
+    if (identity && prior && canComparePlacement(prior, identity, comparisonEnabled)) {
+      const images = engine.updateWithComparison(next);
+      comparison.current?.(images ? labelPlacementComparison(prior, identity, images) : null);
+    } else engine.update(next);
+    previous.current = identity;
+  }, [
+    showGrid,
+    showAxes,
+    model,
+    selectedId,
+    transparency,
+    placement,
+    importId,
+    sceneReady,
+    comparisonEnabled,
+  ]);
   return (
     <>
       <div ref={host} className="scene-viewport" />

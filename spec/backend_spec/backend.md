@@ -4,7 +4,7 @@
 
 ## 1. 职责与进程
 
-Electron Main 管窗口、系统能力和受控资源协议；Preload 暴露有限类型化 API；独立 Node 后端管理应用数据、AI、Harness、MCP 连接及显示产物。builtin 读取 CAD 与 Alignment 插件随附描述，通过 pi-mcp 标准 stdio 接入；TS SDK 服务端负责协议，插件各自的 C++ 程序负责几何计算。发现阶段不启动原生计算，执行时按需启动。
+Electron Main 管窗口、系统能力和受控资源协议；Preload 暴露有限类型化 API；独立 Node 后端管理应用数据、AI、Harness、MCP 连接及显示产物。builtin 通过 pi-mcp 标准 stdio 接入 CAD、Alignment 和 Viewport 插件；TS SDK 服务端负责协议，CAD 与 Alignment 的 C++ 程序负责几何计算，Viewport 通过宿主接口获取渲染器画面。发现阶段不启动原生计算，执行时按需启动。
 
 一个应用数据目录只打开一个 SQLite 和一个 durable Harness，各对话保持原生身份与独立上下文。首阶段保持一个前台 Run，工具按顺序执行；不新增执行器、工作流状态机、任务队列或第二份聊天记录。
 
@@ -31,6 +31,7 @@ src/backend/
   agent/presentation.ts    # 展示参数遮蔽、有界预览和公开内容块
   agent/                   # 模式提示词、Skill、工具注册及事件投影
   mcp/handlers.ts           # MCP 配置与可取消的工具发现请求
+  mcp/secrets.ts            # 传输字段校验与系统凭据恢复
   mcp/                     # builtin、连接、发现、调用、取消和资源读取
   artifacts/               # 显示产物接管、持久索引和资源查询
 src/shared/
@@ -53,6 +54,8 @@ resources/skills/scene-building/SKILL.md
 产物校验的稳定入口仍为 `artifacts/validation.ts`，按格式转出 `validation/manifest.ts`、`validation/geometry.ts`、`validation/features.ts`。GLB 对象、面映射、排除面与三角形覆盖检查留在同一几何校验模块；有界 JSON 文件读取集中在 `artifacts/files.ts`。`prepare.ts` 保持原有校验与接管顺序，不新增管理器或校验框架。
 
 聊天投影由 `createProjection` 独占 calls/seen/live/outputWindows 与 ConversationView；快照和增量事件共用同一状态。`projectionMessages.ts` 仅根据条目、只读调用索引和模型目录转换消息/用量，不拥有历史或事件状态。`presentation.ts` 集中参数脱敏、公开内容预览与工具展示元数据。外部接口、事件处理顺序和一次返回一次拷贝保持不变。
+
+普通流式事件按最多 50ms 合并后生成并发布完整视图；终态和失败立即发布。切换观察时丢弃旧待发批次，通过新的 watch 快照恢复。当前 IPC 仍传完整视图。产物与定位恢复共用条目分页扫描，仍各自维护队列；定位重建保持按条目 ID 的全局因果顺序。
 
 运行目标类型集中于 agent/types.ts，持久结构与所属模块的 durable 文档一起定义；跨模块类型只在其所属模块导出，跨进程契约集中于 shared。领域处理器使用普通函数和明确依赖，不新增通用容器、路由框架或继承层。保留成熟的小函数，不重新实现 SDK 提供的能力。
 
@@ -167,6 +170,8 @@ Main 与后端之间使用私有 resource 消息解析 importId/resourceId，Pre
 
 通用对话与场景搭建使用简短模式提示词，业务执行规则集中在 scene-building / scene-alignment Skill，不在系统提示词中重复维护。两个内置基础 Skill 随场景模式自动加载，首次模型请求即包含；忽略旧配置里针对它们的 disabledCapabilities，不改写历史配置。设置展示“随模式加载”，MCP 工具和自定义 Skill 仍独立启停。资源文件缺失时场景请求明确失败，不能静默缺少基础说明。durable sections 只对变化内容追加更新；压缩后重建有效基线，不另建注入缓存或重复追加每份 Skill。
 
+外部 MCP 的 stdio 环境变量和 HTTP Header 值作为一个独立凭据项交给系统安全存储，设置文档仅保存名称与随机引用，配置查询不返回引用或值。保存时先暂存凭据再提交配置，提交失败回收暂存；更新或删除后回收旧引用，启动时清理未引用项。安全存储不可用时含值的配置不能保存，连接检查仍可使用本次提交的临时值。配置名称按传输校验并拒绝重复、协议保留 Header 和非法值；携带自定义 Header 的请求禁止重定向。命令参数和 URL 是普通配置，不纳入凭据保护。
+
 运行前冻结模型/账号、项目、STEP、MCP 与 Skill 配置。运行中拒绝换源或配置；用户先停止再切换。停止等待真实工具终止，不能只结束请求等待就声称计算已停止。已接管且记录成功的产物保留；取消/失败不发布未完成产物。
 
 恢复只打开已有记录和成功导入，不续跑上次未完成任务。复用已核查的 durable inspect/abortTask/abortSubmission 等公开能力，先标记旧工作取消，再启用调度完成清理；不 fork SDK 或读取私有任务结构。订阅重连使用原生快照及批次，无第二套事件重放队列。
@@ -212,7 +217,7 @@ Alignment 工具与 Skill 见 [Alignment MCP](../mcp_spec/alignment-mcp.md)。sc
 
 | 上下文字段 | 内容 |
 | --- | --- |
-| selectedSourcePath / currentFileHash / sourceStatus | 所选绝对路径、本次实际可读文件 hash（缺失为 null）、当前文件与保存版本的关系；后端另保留持久 sourceId |
+| selectedSourcePath / currentFileHash / sourceStatus | 所选绝对路径、本次实际可读文件 hash（缺失为 null）、当前文件与保存版本的关系；未选文件为 unselected，已选但无法读取为 missing；后端另保留持久 sourceId |
 | currentDisplay | 已授权 importId、sourceHash、importFingerprint、当前 placement/revision；明确是否来自当前文件版本 |
 | files | manifest/features/placement 绝对路径、objects/references 有界目录页、catalogError；仅供模型 read，renderer 继续使用受控 URL |
 | selection（后续） | 计划传用户发送时的 objectId 列表及所属 importId；当前尚未发送选中项 |
@@ -248,7 +253,7 @@ OpenAI 的 ChatGPT OAuth 配置使用应用内部提供方 ID；当前 pi-ai 按
 
 ## 13. 已有场景目录与临时几何查询
 
-场景模式不表示每轮导入。scene-building Skill 明确区分查询、导入、定位和未缓存精确计算；系统层仅保留身份、真实能力和状态约定。前端选中项与截图仍按前端设计第 8 节后续实施，没有图像不能声称看到了画面。
+场景模式不表示每轮导入。scene-building Skill 明确区分查询、导入、定位和未缓存精确计算；系统层仅保留身份、真实能力和状态约定。截图按前端设计第 8 节按需提供，没有图像不能声称看到了画面。用户显式引用对象时，发送携带 importId、objectId 和 revision；后端检查当前保存模型、定位版本及已校验对象目录，并将已解析的对象信息写入本轮消息和 app.input。未引用时不推断当前选中对象。
 
 ### 13.1 可完整读取的目录
 
@@ -284,6 +289,12 @@ Alignment 的可信启动配置提供当前项目的用户场景数据根，不�
 
 会话输入可包含文字和图片。后端验证类型、内容、大小和所选模型的图片能力，将图文内容交给 durable 和 pi-ai；图片属于聊天历史，不写入项目或 CAD 产物。durable 保存消息内容，产品层删除会话暂不物理释放历史。自定义兼容模型可在配置中声明图片能力，未知时默认为不支持。请求指纹包含图片内容，避免重复请求混淆。
 
-场景技能应根据用户意图区分只读朝向分析和定位修改：用户要求分析朝向或自动摆正时，已发布对象目录和 `read` 可用的情况下先读取全部目录页，再按候选对象按需读取参照和几何特征；目录不可用或读取失败时明确说明。综合这些信息和用户提供的图片分析，依据足以确定所需变换时调用现有定位工具，依据不足时说明不确定性并澄清。用户明确指定旋转参数时无需为执行旋转而读取目录。归零不等同于摆正。技能不保证能从任意 STEP 自动识别设备语义，不能以包围盒或单个局部变换推断唯一朝向。
+场景技能根据用户意图区分只读朝向分析和定位修改。`scene_inspect` 由 Alignment MCP 暴露，由插件的 C++ worker 读取已保存场景并按页返回对象摘要和整机显示边界；可针对少量对象查询显示边界及缓存的 CAD 特征。截图工具由独立 viewport MCP 暴露，插件通过 MCP 扩展请求桌面渲染器捕获图像；后端只提供宿主桥接并校验场景身份和版本。结合这些信息和实际获得的图片分析，证据足够时调用定位工具，依据不足时说明不确定性并澄清。明确旋转参数无需先读取目录。归零不等同于摆正；不能以包围盒或单个局部变换推断唯一朝向。
+
+进入场景模式且当前对话尚无场景任务时，应用提交一次带 `app.scene-start` 标识的初始化事件，让 LLM 询问业务场景和任务；该事件在界面不伪装为用户消息，不执行 CAD 或定位。相同对话的事件请求幂等，已有场景任务的旧对话不会重复询问。模型可通过 scene-profiles MCP 列出场景并在用户明确指定后选择；插件返回对应 Skill，桌面仅保存场景选择。项目保存默认类型，STEP 可保存独立覆盖；后续运行只加载当前类型的专用 Skill，用户配置的同场景 Skill 覆盖内置示例。切换场景时更新当前技能并标明旧规则不再适用。插件不可用或类型没有专用 Skill 时继续使用可用的通用能力，不推断用户未确认的类型。
+
+场景 Skill 可携带参考图片。选择场景时提供技能标识和图片相对路径，模型需要时调用 scene-profiles MCP 的 `scene_read_skill_image`；插件以 MCP 图片内容返回真实图片。用户图片保存在本地技能附件目录，内置图片随技能打包。图片不随场景选择自动发送；不支持图片的模型不提供该工具，仍可使用文本技能。
+
+需要导入而尚未选中 STEP 时，模型可调用场景插件的 `scene_list_steps` 和 `scene_select_step`。完整列表只有一个文件时可直接选择；多个文件或列表不完整时，模型应询问用户，除非用户已指定文件。明确指定的路径独立验证项目边界和符号链接，不要求出现在有上限的列表中。选择前先准备文件和对应场景技能，再提交当前对话与项目的来源身份，并在同一轮更新场景上下文；选择本身不导入文件。已有选中来源时仍由界面切换，不能在运行中悄悄替换。
 
 场景模式使用 Pi 原生 Bash（Windows 使用 PowerShell），工作目录为当前项目。Shell 具有当前用户的本机读写权限；由于无法可靠地从任意命令判断其是否写入，每次执行前展示完整命令和工作目录，由用户确认或拒绝。普通 Pi read 不需要确认，取消对话和退出时撤销待确认命令。Skill 优先使用场景查询工具，需要时才用 Shell 分析；不得以 Shell 绕过场景产物的保存流程。

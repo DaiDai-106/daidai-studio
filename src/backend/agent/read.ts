@@ -39,7 +39,7 @@ export function createSceneReadTool(
   const read = createReadTool();
   return {
     ...read,
-    description: `${read.description} For scene contents and hierarchy, read scene-context.files.objects pages first, without offset or limit: each page fits one complete read. files.references pages map saved object IDs to sourceKey and exact feature line ranges; read them only for the selected objects' geometry references. The large manifest is rendering data, not the default scene inventory. Saved files remain usable after CAD document release. Copy the exact absolute path (page.path for catalogue pages) from the latest scene-context.files.`,
+    description: `${read.description} For saved scene details, use the exact paths from scene-context.files. Object catalogue pages fit one complete read; references map object IDs to sourceKey and feature line ranges. The manifest is rendering data. Saved files remain usable after CAD document release.`,
     parameters: {
       ...read.parameters,
       properties: {

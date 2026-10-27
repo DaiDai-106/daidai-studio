@@ -5,6 +5,9 @@ import {
   type DesktopBridge,
   EVENT_CHANNEL,
   PROJECT_OPEN_CHANNEL,
+  QUIT_FLUSH_CHANNEL,
+  QUIT_FLUSH_READY_CHANNEL,
+  QUIT_FLUSH_REGISTER_CHANNEL,
   REQUEST_CHANNEL,
   THEME_CHANNEL,
 } from "../../shared/desktop.ts";
@@ -15,6 +18,17 @@ function call<K extends Method>(method: K, args: Arguments<K>): Promise<Results[
 const desktop: DesktopBridge = {
   getAppInfo: () => ipcRenderer.invoke(APP_INFO_CHANNEL),
   setTheme: (theme) => ipcRenderer.invoke(THEME_CHANNEL, theme),
+  onBeforeQuit(flush) {
+    const receive = (_event: Electron.IpcRendererEvent, requestId: string) => {
+      void flush().then(
+        () => ipcRenderer.send(QUIT_FLUSH_READY_CHANNEL, requestId, true),
+        () => ipcRenderer.send(QUIT_FLUSH_READY_CHANNEL, requestId, false),
+      );
+    };
+    ipcRenderer.on(QUIT_FLUSH_CHANNEL, receive);
+    ipcRenderer.send(QUIT_FLUSH_REGISTER_CHANNEL);
+    return () => ipcRenderer.removeListener(QUIT_FLUSH_CHANNEL, receive);
+  },
   application: {
     getDisplay: (id) => call("display.get", { id }),
     saveMcp: (config) => call("mcp.save", { config }),
@@ -22,6 +36,9 @@ const desktop: DesktopBridge = {
     inspectMcp: (config, projectId) => call("mcp.inspect", { config, projectId }),
     cancelMcpInspection: (id) => call("mcp.cancelInspect", { id }),
     saveSkill: (config) => call("skill.save", { config }),
+    addSkillImage: (id, name, image) => call("skill.image.add", { id, name, image }),
+    readSkillImage: (id, path) => call("skill.image.read", { id, path }),
+    removeSkillImage: (id, path) => call("skill.image.remove", { id, path }),
     removeSkill: (id) => call("skill.remove", { id }),
     getWorkspace: (cursor) => call("workspace.get", cursor ? { cursor } : {}),
     getProviderTypes: () => call("provider.types", {}),
@@ -45,10 +62,18 @@ const desktop: DesktopBridge = {
     selectStep: (id, relativePath) => call("conversation.selectStep", { id, relativePath }),
     updateConversation: (change) => call("conversation.update", change),
     watchConversation: (id) => call("conversation.watch", { id }),
-    sendMessage: (id, requestId, text, images) =>
-      call("conversation.send", { id, requestId, text, ...(images?.length ? { images } : {}) }),
+    sendMessage: (id, requestId, text, images, sceneReference) =>
+      call("conversation.send", {
+        id,
+        requestId,
+        text,
+        ...(images?.length ? { images } : {}),
+        ...(sceneReference ? { sceneReference } : {}),
+      }),
+    startScene: (id) => call("conversation.startScene", { id }),
     stopConversation: (id) => call("conversation.stop", { id }),
     respondShell: (id, approved) => call("shell.respond", { id, approved }),
+    respondViewport: (id, capture) => call("viewport.respond", { id, capture }),
     subscribe(listener) {
       const receive = (_event: Electron.IpcRendererEvent, value: ApplicationEvent) =>
         listener(value);

@@ -1,5 +1,6 @@
 import type {
   ApplicationEvent,
+  ChatImage,
   ConversationInfo,
   ConversationView,
   LoginInfo,
@@ -12,7 +13,7 @@ import type {
   ThinkingLevel,
   WorkspaceInfo,
 } from "./application.ts";
-import type { McpConfig, McpInspection, SkillConfig } from "./capabilities.ts";
+import type { McpConfig, McpInspection, SkillConfig, SkillImage } from "./capabilities.ts";
 import type { Theme } from "./desktop.ts";
 import type { ImportedModel } from "./display.ts";
 
@@ -23,6 +24,9 @@ export interface ApplicationBridge {
   inspectMcp(config: McpConfig, projectId: string): Promise<McpInspection>;
   cancelMcpInspection(id: string): Promise<null>;
   saveSkill(config: SkillConfig): Promise<SkillConfig>;
+  addSkillImage(id: string, name: string, image: ChatImage): Promise<SkillImage>;
+  readSkillImage(id: string, path: string): Promise<ChatImage>;
+  removeSkillImage(id: string, path: string): Promise<null>;
   removeSkill(id: string): Promise<null>;
   getWorkspace(cursor?: string): Promise<WorkspaceInfo>;
   getProviderTypes(): Promise<ProviderTypeInfo[]>;
@@ -39,7 +43,13 @@ export interface ApplicationBridge {
     showThinking?: boolean;
   }): Promise<SettingsInfo>;
   setCapabilityEnabled(
-    id: "builtin.cad" | "builtin.alignment" | "builtin-scene" | "builtin-alignment-skill",
+    id:
+      | "builtin.cad"
+      | "builtin.alignment"
+      | "builtin.viewport"
+      | "builtin.scene-profiles"
+      | "builtin-scene"
+      | "builtin-alignment-skill",
     enabled: boolean,
   ): Promise<SettingsInfo>;
   startLogin(providerType: string, method: "api_key" | "oauth"): Promise<LoginInfo>;
@@ -68,8 +78,14 @@ export interface ApplicationBridge {
     requestId: string,
     text: string,
     images?: import("./application.ts").ChatImage[],
+    sceneReference?: import("./application.ts").SceneReference,
   ): Promise<{ submissionId: string }>;
+  startScene(id: string): Promise<null>;
   stopConversation(id: string): Promise<null>;
   respondShell(id: string, approved: boolean): Promise<null>;
+  respondViewport(
+    id: string,
+    capture: import("./application.ts").ViewportCapture | null,
+  ): Promise<null>;
   subscribe(listener: (event: ApplicationEvent) => void): () => void;
 }

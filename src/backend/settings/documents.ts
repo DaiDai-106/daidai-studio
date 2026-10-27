@@ -3,6 +3,8 @@ import type { McpConfig, SkillConfig } from "../../shared/capabilities.ts";
 import type { Theme } from "../../shared/desktop.ts";
 import type { StoredProvider } from "./credentials.ts";
 
+export type StoredMcpConfig = McpConfig & { secretRef?: string };
+
 export type SettingsRecord = {
   providers: StoredProvider[];
   defaultModel: string;
@@ -11,7 +13,7 @@ export type SettingsRecord = {
   deviceId: string;
   disabledCapabilities?: string[];
   skills?: SkillConfig[];
-  mcpServers?: McpConfig[];
+  mcpServers?: StoredMcpConfig[];
 };
 
 export const SettingsDoc = defineDoc<SettingsRecord>({

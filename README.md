@@ -132,7 +132,7 @@ flowchart LR
 | --- | --- |
 | `~/.daidai/`；Windows 为 `%USERPROFILE%\.daidai` | 应用数据根，与启动目录无关 |
 | `app.sqlite` | 原生 durable 聊天、任务、设置、项目与显示索引 |
-| `credentials.enc` | Electron safeStorage 加密的凭据；系统安全存储不可用时仅本次保留 |
+| `credentials.enc` | Electron safeStorage 加密的模型与 MCP 凭据；MCP 配置的值需要系统安全存储才能保存 |
 | 项目 `.daidai/artifacts/<importId>/` | 已保存的只读显示清单、GLB 与对象映射 |
 | 项目 `.daidai/placements/<importId>.json` | 整机旋转、平移与生产条目版本；插件读取，桌面在 Harness 成功后保存 |
 
@@ -162,7 +162,9 @@ tests/           单元、协议、C++ 与 Electron 集成测试
 
 「设置 → 工具与技能」可配置全局或项目范围、适用模式及启用状态。Skill 提供工作说明，不授予工具权限；MCP「连接并查看工具」执行真实发现，结束后关闭连接。模型可在运行中发现外部工具，再通过 durable 加入后续请求。服务同名工具使用命名空间隔离。
 
-外部 stdio 的工作目录固定为授权项目；HTTP 不发送本地项目根。当前未提供自定义环境变量、HTTP Header 或 MCP OAuth 的设置界面，也未启用 MCP Task 协议工具。三维回显须遵守显示产物契约，不能仅返回任意文件路径。
+外部 stdio 的工作目录固定为授权项目，可在配置中填写环境变量；Streamable HTTP 可填写自定义 Header，且不会发送本地项目根。值由系统安全存储加密保存，设置列表和重新打开的表单只显示名称；编辑时值留空保留已保存值，移除条目会删除该值。若系统安全存储不可用，含这些值的配置无法保存，但仍可在表单中临时填写并执行连接检查；无这些值的配置不受影响。请勿将密钥放在命令参数或 URL 中，它们属于普通配置，不受凭据加密保护。带自定义 Header 的 HTTP 请求不跟随重定向；远程服务建议使用 HTTPS。
+
+导入 `mcpServers` JSON 一次只接受一个服务：stdio 导入 `command`、`args` 和 `env`，HTTP 导入 `url` 和 `headers`；环境变量与 Header 的值必须是字符串，其他字段不导入。导入后先检查预览，再保存；粘贴内容可能包含敏感信息，请勿使用真实密钥制作可分享的示例。当前未提供 MCP OAuth 的设置界面，也未启用 MCP Task 协议工具。三维回显须遵守显示产物契约，不能仅返回任意文件路径。
 
 CAD 全部 12 个工具共用 [contract.ts](resources/mcp/cad/contract.ts)。独立客户端在 `npm run build` 后，可用 `node dist/main/cad-mcp.js /absolute/config.json` 启动相同服务。可信宿主提供配置：`executable`、`projectRoot`、`stagingRoot` 与可选 `limits`；详情见 CAD spec。stdout 仅承载 MCP 协议，原生进程按需启动。
 

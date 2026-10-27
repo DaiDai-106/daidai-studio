@@ -27,6 +27,9 @@ interface Props {
   onFiles: () => void;
   step: string;
   onClearStep: () => void;
+  sceneReference?: import("./useWorkbench.ts").SceneReferenceDraft | undefined;
+  referenceStorageAvailable: boolean;
+  onClearSceneReference: () => void;
   onConfigure: () => void;
   stream: ConversationView | null;
   shellApproval: ShellApproval | null;
@@ -201,7 +204,11 @@ export function ChatPanel(props: Props) {
               <Icon name="box" size={30} />
             </div>
             <h1>从一个场景需求开始</h1>
-            <p>描述需求；有多个 STEP 时可先选择文件。</p>
+            <p>
+              {activeModel
+                ? "描述需求；有多个 STEP 时可先选择文件。"
+                : "配置并选择模型后，助手会询问场景类型和任务。"}
+            </p>
           </div>
         ) : (
           <Welcome />
@@ -240,6 +247,28 @@ export function ChatPanel(props: Props) {
                 <IconButton icon="close" label="取消 STEP 关联" onClick={props.onClearStep} />
               )}
             </div>
+          )}
+          {props.sceneReference && (
+            <div className="step-binding">
+              <span>已引用对象</span>
+              <strong title={props.sceneReference.objectId}>{props.sceneReference.name}</strong>
+              <IconButton icon="close" label="移除对象引用" onClick={props.onClearSceneReference} />
+            </div>
+          )}
+          {props.sceneReference?.stale && (
+            <p className="error" role="alert">
+              场景或定位已变化，请移除旧引用并重新选择对象。
+            </p>
+          )}
+          {props.sceneReference?.checking && (
+            <p className="notice" role="status">
+              正在验证恢复的对象引用；若场景无法加载，请移除引用并重新选择。
+            </p>
+          )}
+          {props.sceneReference && !props.referenceStorageAvailable && (
+            <p className="error" role="alert">
+              对象引用无法保存在本机，重新打开应用后请重新选择。
+            </p>
           )}
           {!!images.length && (
             <div className="composer-images">
@@ -288,6 +317,8 @@ export function ChatPanel(props: Props) {
                 event.key === "Enter" &&
                 !event.shiftKey &&
                 !event.nativeEvent.isComposing &&
+                !props.sceneReference?.stale &&
+                !props.sceneReference?.checking &&
                 !props.stream?.busy
               ) {
                 event.preventDefault();
@@ -369,7 +400,12 @@ export function ChatPanel(props: Props) {
               type="button"
               className="send-button"
               aria-label={props.stream?.busy ? "停止回复" : "发送消息"}
-              disabled={!props.stream?.busy && !props.conversation.draft.trim() && !images.length}
+              disabled={
+                !props.stream?.busy &&
+                (props.sceneReference?.stale ||
+                  props.sceneReference?.checking ||
+                  (!props.conversation.draft.trim() && !images.length))
+              }
               onClick={props.stream?.busy ? props.onStop : () => void send()}
             >
               <Icon name={props.stream?.busy ? "stop" : "arrow"} size={20} />
@@ -378,7 +414,7 @@ export function ChatPanel(props: Props) {
         </fieldset>
         {props.stream && <ConversationUsage key={props.conversation.id} view={props.stream} />}
         <p className="composer-note">
-          {props.compact ? "当前 STEP 由工具处理 · 聊天上下文独立" : "真实模型对话"}
+          {props.compact ? "对象引用随草稿保存在本机，发送前检查场景版本" : "真实模型对话"}
         </p>
       </div>
     </section>

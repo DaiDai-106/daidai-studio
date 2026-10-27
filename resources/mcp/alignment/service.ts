@@ -14,6 +14,9 @@ import {
   alignmentTools,
   type Placement,
   PlacementChangeSchema,
+  SceneFeatureCandidatesSchema,
+  SceneFeaturesSchema,
+  SceneSummarySchema,
   validRotation,
 } from "./contract.ts";
 
@@ -45,6 +48,13 @@ const nativeEnvelope = Type.Union([
     },
     { additionalProperties: false },
   ),
+]);
+const nativeSummaryEnvelope = Type.Union([
+  Type.Object({ ok: Type.Literal(true), data: Type.Unknown() }),
+  Type.Object({
+    ok: Type.Literal(false),
+    error: Type.Object({ code: Type.String(), message: Type.String() }),
+  }),
 ]);
 function failure(code: string, message: string, currentPlacement?: Placement) {
   const result = {
@@ -138,6 +148,13 @@ export function createAlignmentServer(config: AlignmentConfig) {
         importId,
         saved.manifest.source.sourceHash,
       );
+      const preview = "preview" in args && args.preview === true;
+      if (preview && (!("expectedRevision" in args) || args.expectedRevision === undefined))
+        return failure(
+          "REVISION_REQUIRED",
+          "Preview requires the current expectedRevision.",
+          placement,
+        );
       if (
         "expectedRevision" in args &&
         args.expectedRevision !== undefined &&
@@ -160,9 +177,55 @@ export function createAlignmentServer(config: AlignmentConfig) {
         },
         signal,
       );
+      if (
+        tool.name === "scene_inspect" ||
+        tool.name === "scene_get_features" ||
+        tool.name === "scene_find_features"
+      ) {
+        if (!Value.Check(nativeSummaryEnvelope, response))
+          throw new Error("Invalid native scene summary.");
+        if (!response.ok) return failure(response.error.code, response.error.message);
+        const current = await readPlacement(config.sceneRoot, importId, placement.sourceHash);
+        if (current.revision !== placement.revision)
+          return failure(
+            "REVISION_CONFLICT",
+            "Placement changed during inspection; query the current scene again.",
+            current,
+          );
+        const data = {
+          ...(response.data as object),
+          importId,
+          revision: placement.revision,
+          ...(tool.name === "scene_inspect" ? { placement } : {}),
+        };
+        if (
+          !Value.Check(
+            tool.name === "scene_inspect"
+              ? SceneSummarySchema
+              : tool.name === "scene_get_features"
+                ? SceneFeaturesSchema
+                : SceneFeatureCandidatesSchema,
+            data,
+          )
+        )
+          throw new Error("Invalid native scene summary data.");
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(data) }],
+          structuredContent: data,
+        };
+      }
       if (!Value.Check(nativeEnvelope, response))
         throw new Error("Invalid native alignment response.");
       if (!response.ok) return failure(response.error.code, response.error.message);
+      if (preview) {
+        const current = await readPlacement(config.sceneRoot, importId, placement.sourceHash);
+        if (current.revision !== placement.revision)
+          return failure(
+            "REVISION_CONFLICT",
+            "Placement changed during preview; inspect the current scene again.",
+            current,
+          );
+      }
       const result = response.data;
       if (!validRotation(result.after.placement.rotation))
         throw new Error("Invalid native rotation.");
@@ -183,7 +246,11 @@ export function createAlignmentServer(config: AlignmentConfig) {
               placement: result.before.placement,
               bounds: result.before.bounds,
             }
-          : { baseRevision: placement.revision, ...result }),
+          : {
+              baseRevision: placement.revision,
+              ...(preview ? { preview: true as const } : {}),
+              ...result,
+            }),
       };
       const change = {
         schemaVersion: 2 as const,
@@ -198,7 +265,7 @@ export function createAlignmentServer(config: AlignmentConfig) {
       return {
         content: [{ type: "text", text: JSON.stringify(envelope) }],
         structuredContent: envelope,
-        ...(!query ? { _meta: { "dai/placement": change } } : {}),
+        ...(!query && !preview ? { _meta: { "dai/placement": change } } : {}),
       };
     } catch (error) {
       signal.throwIfAborted();

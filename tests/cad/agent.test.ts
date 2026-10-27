@@ -33,13 +33,48 @@ test("Harness scopes CAD and alignment tools to scene mode and executes explicit
       return { text: "你好。" };
     }
     if (user === "停用 CAD 后讨论") {
-      assert.ok(names.every((name) => name.startsWith("alignment_") || name === "read"));
+      assert.ok(
+        names.every(
+          (name) =>
+            name.startsWith("alignment_") ||
+            [
+              "scene_list_steps",
+              "scene_select_step",
+              "read",
+              "scene_inspect",
+              "scene_get_features",
+              "scene_find_features",
+              "scene_list_profiles",
+              "scene_read_skill_image",
+              "scene_select_profile",
+              "bash",
+              "powershell",
+              "viewport_capture",
+            ].includes(name),
+        ),
+      );
       return { text: "可以继续讨论。" };
     }
     assert.equal(names.filter((name) => name.startsWith("cad_")).length, 12);
     assert.ok(
       names.every(
-        (name) => name.startsWith("cad_") || name.startsWith("alignment_") || name === "read",
+        (name) =>
+          name.startsWith("cad_") ||
+          name.startsWith("alignment_") ||
+          name === "read" ||
+          [
+            "scene_list_steps",
+            "scene_select_step",
+            "scene_inspect",
+            "scene_get_features",
+            "scene_find_features",
+            "scene_list_profiles",
+            "scene_read_skill_image",
+            "scene_select_profile",
+            "bash",
+            "powershell",
+            "viewport_capture",
+          ].includes(name),
       ),
     );
     assert.equal(selectedStepPath(request), step);
@@ -112,7 +147,10 @@ test("Harness scopes CAD and alignment tools to scene mode and executes explicit
       [],
       "Run completion releases native documents and temporary resources",
     );
-    assert.equal((await app.request("workspace.get", {})).builtins.servers.length, 2);
+    assert.deepEqual(
+      (await app.request("workspace.get", {})).builtins.servers.map((server) => server.id),
+      ["builtin.cad", "builtin.alignment", "builtin.viewport", "builtin.scene-profiles"],
+    );
     await app.request("capability.setEnabled", { id: "builtin.cad", enabled: false });
     await send(id, "停用 CAD 后讨论");
     assert.deepEqual(planner.failures, []);

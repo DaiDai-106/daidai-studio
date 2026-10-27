@@ -19,6 +19,7 @@ test("durable discovers scoped external tools, loads native declarations, valida
   const planner = await servePlanner((request) => {
     const user =
       request.messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
+    assert.equal(JSON.stringify(request).includes("mock-mcp-credential-not-for-database"), false);
     assert.equal(
       JSON.stringify(request).includes(path),
       false,
@@ -28,9 +29,14 @@ test("durable discovers scoped external tools, loads native declarations, valida
     if (user === "no-tools") {
       assert.ok(
         (request.tools ?? []).every((tool) =>
-          ["read", process.platform === "win32" ? "powershell" : "bash"].includes(
-            tool.function.name,
-          ),
+          [
+            "scene_list_steps",
+            "scene_select_step",
+            "scene_list_profiles",
+            "scene_select_profile",
+            "read",
+            process.platform === "win32" ? "powershell" : "bash",
+          ].includes(tool.function.name),
         ),
       );
       return { text: "No external tools." };
@@ -38,7 +44,15 @@ test("durable discovers scoped external tools, loads native declarations, valida
     if (results.count === 0) {
       assert.deepEqual(
         request.tools?.map((tool) => tool.function.name),
-        ["read", process.platform === "win32" ? "powershell" : "bash", "mcp_list_tools"],
+        [
+          "scene_list_steps",
+          "scene_select_step",
+          "scene_list_profiles",
+          "scene_select_profile",
+          "read",
+          process.platform === "win32" ? "powershell" : "bash",
+          "mcp_list_tools",
+        ],
       );
       return { id: "discover", name: "mcp_list_tools", args: { serverId } };
     }
@@ -66,7 +80,14 @@ test("durable discovers scoped external tools, loads native declarations, valida
       );
     return { text: "External tool completed." };
   });
-  const vault = { available: false, read: async () => "{}", write: async () => {} };
+  let vaultContent = "{}";
+  const vault = {
+    available: true,
+    read: async () => vaultContent,
+    write: async (value: string) => {
+      vaultContent = value;
+    },
+  };
   let app = await openRuntime(root, vault, () => {});
   async function send(id: string, text: string) {
     await app.request("conversation.send", { id, requestId: crypto.randomUUID(), text });
@@ -101,8 +122,14 @@ test("durable discovers scoped external tools, loads native declarations, valida
       modes: ["scene" as const],
       transport: "stdio" as const,
       command: process.execPath,
-      args: ["--experimental-strip-types", resolve("tests/fixtures/mcp-stdio.ts"), marker, calls],
+      args: [
+        "--experimental-strip-types",
+        resolve("tests/fixtures/mcp-secret-stdio.ts"),
+        marker,
+        calls,
+      ],
       timeoutMs: 5000,
+      secrets: [{ name: "DAI_TEST_SECRET", value: "mock-mcp-credential-not-for-database" }],
     };
     await app.request("mcp.save", { config });
     const id = (await app.request("conversation.create", { projectId: project.id })).id;

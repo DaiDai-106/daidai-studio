@@ -22,6 +22,9 @@ import {
   BACKEND_SHUTDOWN,
   EVENT_CHANNEL,
   PROJECT_OPEN_CHANNEL,
+  QUIT_FLUSH_CHANNEL,
+  QUIT_FLUSH_READY_CHANNEL,
+  QUIT_FLUSH_REGISTER_CHANNEL,
   REQUEST_CHANNEL,
   THEME_CHANNEL,
 } from "../../shared/desktop.ts";
@@ -49,6 +52,9 @@ let mainWindow: BrowserWindow | undefined;
 let backend: UtilityProcess | undefined;
 let tray: Tray | undefined;
 let quitting = false;
+let preparingQuit = false;
+let flushRegistered = false;
+let quitFlush: { id: string; resolve: (success: boolean) => void } | undefined;
 
 app.setName("daidai_pi");
 const paths = configureDataPaths(app);
@@ -165,6 +171,9 @@ async function createWindow(): Promise<void> {
   });
   if (process.platform !== "darwin") window.removeMenu();
   mainWindow = window;
+  window.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
+    if (isMainFrame && !isInPlace) flushRegistered = false;
+  });
   installZoomShortcuts(window.webContents);
   window.webContents.setWindowOpenHandler(({ url }) => {
     try {
@@ -267,6 +276,44 @@ ipcMain.handle(PROJECT_OPEN_CHANNEL, async (event) => {
   return backend.request("project.open", { path });
 });
 
+ipcMain.on(QUIT_FLUSH_REGISTER_CHANNEL, (event) => {
+  if (event.sender === mainWindow?.webContents && event.senderFrame === event.sender.mainFrame)
+    flushRegistered = true;
+});
+ipcMain.on(QUIT_FLUSH_READY_CHANNEL, (event, id: unknown, success: unknown) => {
+  if (event.sender !== mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame)
+    return;
+  if (quitFlush && quitFlush.id === id && typeof success === "boolean") quitFlush.resolve(success);
+});
+
+async function flushRendererBeforeQuit(): Promise<boolean> {
+  if (!mainWindow || mainWindow.isDestroyed() || !flushRegistered) return true;
+  const window = mainWindow;
+  const contents = window.webContents;
+  window.setEnabled(false);
+  return new Promise((resolve) => {
+    const id = crypto.randomUUID();
+    const deadline = setTimeout(() => finish(false), 5000);
+    function finish(success: boolean) {
+      clearTimeout(deadline);
+      contents.removeListener("destroyed", destroyed);
+      quitFlush = undefined;
+      if (!success && !window.isDestroyed()) window.setEnabled(true);
+      resolve(success);
+    }
+    function destroyed() {
+      finish(false);
+    }
+    quitFlush = { id, resolve: finish };
+    contents.once("destroyed", destroyed);
+    try {
+      contents.send(QUIT_FLUSH_CHANNEL, id);
+    } catch {
+      finish(false);
+    }
+  });
+}
+
 app.on("before-quit", (event) => {
   const child = backend;
   if (!child) {
@@ -274,18 +321,35 @@ app.on("before-quit", (event) => {
     return;
   }
   event.preventDefault();
-  if (quitting) return;
-  quitting = true;
-
-  const deadline = setTimeout(() => {
-    console.error("Application backend shutdown timed out; terminating the process.");
-    child.kill();
-  }, 10_000);
-  child.once("exit", () => {
-    clearTimeout(deadline);
-    app.quit();
+  if (quitting || preparingQuit) return;
+  preparingQuit = true;
+  void flushRendererBeforeQuit().then((flushed) => {
+    if (!flushed) {
+      preparingQuit = false;
+      console.error("Unable to save draft before quitting.");
+      showMainWindow();
+      void dialog.showMessageBox({
+        type: "error",
+        title: "无法退出",
+        message: "草稿未能保存，请检查应用状态后重试。",
+      });
+      return;
+    }
+    quitting = true;
+    if (backend !== child) {
+      app.quit();
+      return;
+    }
+    const deadline = setTimeout(() => {
+      console.error("Application backend shutdown timed out; terminating the process.");
+      child.kill();
+    }, 10_000);
+    child.once("exit", () => {
+      clearTimeout(deadline);
+      app.quit();
+    });
+    child.postMessage(BACKEND_SHUTDOWN);
   });
-  child.postMessage(BACKEND_SHUTDOWN);
 });
 
 app.on("window-all-closed", () => {

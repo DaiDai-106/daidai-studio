@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import packageInfo from "../../package.json" with { type: "json" };
 import { BACKEND_READY, BACKEND_SHUTDOWN } from "../../src/shared/desktop.ts";
+import { openTestProject } from "./support.ts";
 
 // Copy the built entry and replace only the backend when a test needs controlled timing.
 // Production code has no test flags or alternate startup paths.
@@ -194,4 +195,21 @@ test("a backend crash while hidden exits the app instead of leaving a stale tray
   const [code] = await fixture.exited;
   assert.equal(code, 1);
   assert.throws(() => process.kill(backendPid, 0), { code: "ESRCH" });
+});
+
+test("backend crash while the renderer is flushing a draft does not hang quitting", {
+  timeout: 25_000,
+}, async (context) => {
+  const fixture = await launchFixture(context);
+  const page = await fixture.application.firstWindow();
+  await openTestProject(fixture.application, page, fixture.directory);
+  await page.getByRole("textbox", { name: "消息内容" }).fill("待保存草稿");
+  await fixture.application.evaluate(({ app }) => {
+    const pid = app.getAppMetrics().find((metric) => metric.name === "daidai-pi-backend")?.pid;
+    if (!pid) throw new Error("Missing backend");
+    app.quit();
+    process.kill(pid, "SIGKILL");
+  });
+  const [code] = await fixture.exited;
+  assert.equal(code, 1);
 });

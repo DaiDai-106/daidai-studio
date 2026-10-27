@@ -40,16 +40,18 @@ test("Electron selects native reasoning, renders streamed/history GFM and keeps 
   const finished = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const planner = await servePlanner((request) =>
-    !turnResults(request).count
+  const planner = await servePlanner((request) => {
+    const user = request.messages.filter((message) => message.role === "user").at(-1)?.content;
+    if (user?.includes("应用事件：用户已进入场景搭建")) return { text: "请问是什么场景？" };
+    return !turnResults(request).count
       ? {
           id: "read",
           name: "read",
           args: { path: join(root, "project", "missing.json") },
           thinking: "**公开摘要**：检查模型状态。",
         }
-      : { text: response, splitAt: response.indexOf("| 状态"), beforeFinish: finished },
-  );
+      : { text: response, splitAt: response.indexOf("| 状态"), beforeFinish: finished };
+  });
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
       (item): item is [string, string] =>
@@ -104,6 +106,7 @@ test("Electron selects native reasoning, renders streamed/history GFM and keeps 
     );
     await page.getByRole("button", { name: "通用对话", exact: true }).click();
     await page.getByRole("menuitem", { name: /^场景搭建/ }).click();
+    await page.getByText("请问是什么场景？", { exact: true }).waitFor();
     await page
       .getByRole("textbox", { name: "消息内容", exact: true })
       .fill("检查状态，以 Markdown 返回");
@@ -117,7 +120,7 @@ test("Electron selects native reasoning, renders streamed/history GFM and keeps 
     release();
     await page.getByRole("cell", { name: "已保存", exact: true }).waitFor();
     await page.getByRole("button", { name: "发送消息", exact: true }).waitFor();
-    assert.equal(planner.requests.length, 2);
+    assert.equal(planner.requests.length, 3);
     assert.ok(
       planner.requests.every(
         (request) => request.thinking?.type === "enabled" && request.reasoning_effort === "high",
@@ -158,7 +161,7 @@ test("Electron selects native reasoning, renders streamed/history GFM and keeps 
       (await page.getByRole("button", { name: "推理档位", exact: true }).textContent()) ?? "",
       /high/,
     );
-    assert.equal(planner.requests.length, 2, "Restoring history must not replay a model request");
+    assert.equal(planner.requests.length, 3, "Restoring history must not replay a model request");
     assert.deepEqual(planner.failures, []);
     assert.deepEqual(errors, []);
   } finally {

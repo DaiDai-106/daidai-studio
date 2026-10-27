@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -24,7 +25,42 @@ test("real STEP partial display reaches Electron through Harness and survives a 
   await copyFile(source, join(project, name));
   const planner = await servePlanner((request) => {
     const user =
-      request.messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
+      request.messages
+        .filter((message) => message.role === "user" && typeof message.content === "string")
+        .at(-1)?.content ?? "";
+    if (user.includes("应用事件：用户已进入场景搭建")) return { text: "请问是什么场景？" };
+    if (user === "观察六视图") {
+      const index = request.messages.findIndex(
+        (message) => message.tool_call_id === "real-overview",
+      );
+      if (index < 0) {
+        const current = sceneContext(request).currentDisplay;
+        assert.ok(current);
+        return {
+          id: "real-overview",
+          name: "viewport_capture",
+          args: {
+            importId: current.importId,
+            revision: current.placement.revision,
+            view: "overview",
+          },
+        };
+      }
+      const message = request.messages
+        .slice(index + 1)
+        .find((item) => item.role === "user" && Array.isArray(item.content));
+      const blocks = message?.content as unknown as
+        | { type: string; image_url?: { url: string } }[]
+        | undefined;
+      const url = blocks?.find((item) => item.type === "image_url")?.image_url?.url ?? "";
+      assert.match(url, /^data:image\/jpeg;base64,/);
+      if (process.env.DAI_OVERVIEW_TEST_OUTPUT)
+        writeFileSync(
+          process.env.DAI_OVERVIEW_TEST_OUTPUT,
+          Buffer.from(url.split(",")[1] ?? "", "base64"),
+        );
+      return { text: "已观察六视图。" };
+    }
     if (user.includes("重新定向")) {
       const current = sceneContext(request).currentDisplay;
       if (!turnResults(request).has("frame"))
@@ -84,7 +120,16 @@ test("real STEP partial display reaches Electron through Harness and survives a 
         endpoint,
         enabled: true,
         persistCredentials: false,
-        models: [{ id: "test", name: "test", context: 128000, output: 2048, reasoning: "标准" }],
+        models: [
+          {
+            id: "test",
+            name: "test",
+            context: 128000,
+            output: 2048,
+            reasoning: "标准",
+            supportsImages: true,
+          },
+        ],
       });
       const state = await api.getWorkspace();
       const id = state.conversations[0]?.id;
@@ -94,12 +139,17 @@ test("real STEP partial display reaches Electron through Harness and survives a 
     }, planner.endpoint);
     await page.getByRole("button", { name: "通用对话", exact: true }).click();
     await page.getByRole("menuitem", { name: /^场景搭建/ }).click();
+    await page.getByText("请问是什么场景？", { exact: true }).waitFor();
     await page.getByRole("button", { name: "当前 STEP", exact: true }).click();
     await page.getByRole("button", { name, exact: false }).click();
     await page.getByRole("textbox", { name: "消息内容", exact: true }).fill("解析选中的 STEP");
     await page.getByRole("button", { name: "发送消息", exact: true }).click();
     const ready = '.scene-stage[data-display-status="ready"][data-scene-loaded="true"]';
     await page.locator(ready).waitFor({ timeout: 130_000 });
+    await page.getByRole("button", { name: "发送消息", exact: true }).waitFor();
+    await page.getByRole("textbox", { name: "消息内容", exact: true }).fill("观察六视图");
+    await page.getByRole("button", { name: "发送消息", exact: true }).click();
+    await page.getByText("已观察六视图。", { exact: true }).waitFor();
     const result = (await page.evaluate(async (conversationId) => {
       const model = await window.desktop.application.getDisplay(conversationId);
       if (!model) throw new Error("Missing display");

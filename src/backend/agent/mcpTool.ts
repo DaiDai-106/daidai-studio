@@ -12,6 +12,7 @@ export function registerMcpTool(options: {
   serverName: string;
   tool: Tool;
   deferred?: boolean;
+  maxOutputBytes?: number;
   target(conversationId: string): void;
   invoke(args: Record<string, unknown>, invocation: ToolInvocation): Promise<CallToolResult>;
   prepareDisplay?(artifact: unknown, signal: AbortSignal): Promise<ImportedModelRef>;
@@ -25,7 +26,7 @@ export function registerMcpTool(options: {
     parameters: tool.inputSchema,
     ...(options.deferred ? { deferred: true } : {}),
     replay: "unsafe",
-    outputLimits: { maxBytes: 64000, maxLines: 500 },
+    outputLimits: { maxBytes: options.maxOutputBytes ?? 64000, maxLines: 500 },
     async execute(args, api, context) {
       options.target(String(api.conversationId));
       const identity = { serverName: options.serverName, toolName: tool.name };

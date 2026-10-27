@@ -35,6 +35,55 @@ test("Harness aligns saved CAD through independent stdio/C++, shares placement a
     const user =
       request.messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
     const state = sceneContext(request);
+    if (user.includes("撤销定位")) {
+      if (!results.has("undo"))
+        return {
+          id: "undo",
+          name: "scene_undo_placement",
+          args: {
+            importId,
+            expectedRevision: user.includes("过期") ? 0 : state.currentDisplay?.placement?.revision,
+          },
+        };
+      if (user.includes("过期"))
+        assert.equal(
+          results.read<{ error: { code: string } }>("undo").error.code,
+          "REVISION_CONFLICT",
+        );
+      else assert.equal(results.read<{ ok: boolean }>("undo").ok, true);
+      return { text: "撤销处理完成" };
+    }
+    if (user.includes("预览旋转")) {
+      if (!results.has("preview"))
+        return {
+          id: "preview",
+          name: "alignment_rotate",
+          args: {
+            importId,
+            expectedRevision: user.includes("过期") ? 0 : state.currentDisplay?.placement?.revision,
+            axis: [0, 0, 1],
+            angleDegrees: 90,
+            pivot: [0, 0, 0],
+            space: "world",
+            preview: true,
+          },
+        };
+      if (user.includes("过期"))
+        assert.equal(
+          results.read<{ error: { code: string } }>("preview").error.code,
+          "REVISION_CONFLICT",
+        );
+      else {
+        const result = results.read<{
+          ok: boolean;
+          data: { preview: boolean; before: { placement: unknown }; after: { placement: unknown } };
+        }>("preview");
+        assert.equal(result.ok, true);
+        assert.equal(result.data.preview, true);
+        assert.notDeepEqual(result.data.before.placement, result.data.after.placement);
+      }
+      return { text: "预览处理完成" };
+    }
     if (user.includes("旋转90")) {
       if (!results.has("rotate"))
         return {
@@ -68,6 +117,22 @@ test("Harness aligns saved CAD through independent stdio/C++, shares placement a
         };
       assert.equal(results.read<{ ok: boolean }>("frame").ok, true);
       return { text: "Oriented" };
+    }
+    if (user.includes("单方向")) {
+      if (!results.has("direction"))
+        return {
+          id: "direction",
+          name: "alignment_align_direction",
+          args: {
+            importId,
+            expectedRevision: state.currentDisplay?.placement?.revision,
+            sourceDirection: { kind: "model_axis", axis: "Y" },
+            targetDirection: [0, 0, 1],
+            pivot: { kind: "bounds_center" },
+          },
+        };
+      assert.equal(results.read<{ ok: boolean }>("direction").ok, true);
+      return { text: "Direction aligned" };
     }
     if (user.includes("过期版本")) {
       if (!results.has("stale"))
@@ -160,6 +225,10 @@ test("Harness aligns saved CAD through independent stdio/C++, shares placement a
     await send(a.id, "first");
     const first = await app.request("display.get", { id: a.id });
     assert.ok(first?.placement && first.placement.revision > 0);
+    await send(a.id, "preview", "预览旋转");
+    assert.deepEqual((await app.request("display.get", { id: a.id }))?.placement, first.placement);
+    await send(a.id, "preview-stale", "过期预览旋转");
+    assert.deepEqual((await app.request("display.get", { id: a.id }))?.placement, first.placement);
     assert.equal(proposals.length, 1);
     for (const value of proposals[0]?.after.bounds.min ?? []) assert.ok(Math.abs(value) < 1e-8);
     const originalManifest = await readFile(
@@ -198,16 +267,30 @@ test("Harness aligns saved CAD through independent stdio/C++, shares placement a
     const rotated = await app.request("display.get", { id: a.id });
     assert.ok(rotated?.placement);
     assert.ok(Math.abs(rotated.placement.rotation[2] - Math.SQRT1_2) < 1e-8);
+    await send(a.id, "undo", "撤销定位");
+    const undone = await app.request("display.get", { id: a.id });
+    assert.ok(undone?.placement && undone.placement.revision > rotated.placement.revision);
+    assert.deepEqual(undone.placement.translation, current.placement.translation);
+    assert.deepEqual(undone.placement.rotation, current.placement.rotation);
+    await send(a.id, "undo-stale", "过期撤销定位");
+    assert.deepEqual((await app.request("display.get", { id: a.id }))?.placement, undone.placement);
+    await app.close();
+    app = await openRuntime(root, vault, () => {}, paths);
+    assert.deepEqual((await app.request("display.get", { id: a.id }))?.placement, undone.placement);
+    await send(a.id, "rotate-again", "旋转90");
     await send(b.id, "frame", "重新定向");
     const oriented = await app.request("display.get", { id: b.id });
     assert.ok(oriented?.placement);
     assert.ok(Math.abs(oriented.placement.rotation[0] - Math.SQRT1_2) < 1e-8);
+    await send(b.id, "direction", "单方向");
+    const direction = await app.request("display.get", { id: b.id });
+    assert.ok(direction?.placement && direction.placement.revision > oriented.placement.revision);
     await send(a.id, "stale", "过期版本");
     assert.deepEqual(
       (await app.request("display.get", { id: a.id }))?.placement,
-      oriented.placement,
+      direction.placement,
     );
-    current = oriented;
+    current = direction;
     const calls = planner.requests.length;
     await app.close();
     await rm(join(root, "projects", project.id, "placements"), { recursive: true, force: true });

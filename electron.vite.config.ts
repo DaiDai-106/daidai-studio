@@ -28,6 +28,8 @@ export default defineConfig(({ command }) => {
             backend: resolve(projectRoot, "src/backend/index.ts"),
             "cad-mcp": resolve(projectRoot, "resources/mcp/cad/server.ts"),
             "alignment-mcp": resolve(projectRoot, "resources/mcp/alignment/server.ts"),
+            "viewport-mcp": resolve(projectRoot, "resources/mcp/viewport/server.ts"),
+            "scene-profiles-mcp": resolve(projectRoot, "resources/mcp/scene-profiles/server.ts"),
           },
           output: { format: "es", entryFileNames: "[name].js" },
         },

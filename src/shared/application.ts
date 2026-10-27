@@ -1,19 +1,19 @@
 import { ModelThinkingLevelSchema } from "@earendil-works/pi-ai/providers/model-schema";
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
+import { CaptureViewSchema, ViewportCaptureSchema } from "../../resources/mcp/viewport/contract.ts";
+
+export type { CaptureView, ViewportCapture } from "../../resources/mcp/viewport/contract.ts";
+
 import {
-  type BuiltinCatalog,
   BuiltinCatalogSchema,
-  type McpConfig,
   McpConfigSchema,
-  type McpInspection,
   McpInspectionSchema,
-  type SkillConfig,
   SkillConfigSchema,
+  SkillImageSchema,
 } from "./capabilities.ts";
-import type { Theme } from "./desktop.ts";
-import { type ImportedModel, ImportedModelSchema, ImportIdSchema } from "./display.ts";
-import { type StepSourceInfo, StepSourceSchema } from "./projects.ts";
+import { ImportedModelSchema, ImportIdSchema } from "./display.ts";
+import { StepSourceSchema } from "./projects.ts";
 
 const text = (maxLength = 200) => Type.String({ maxLength });
 const id = Type.String({ minLength: 1, maxLength: 200 });
@@ -39,6 +39,12 @@ export const ChatImageSchema = object({
   data: Type.String({ minLength: 1, maxLength: 7_000_000 }),
 });
 export type ChatImage = Static<typeof ChatImageSchema>;
+export const SceneReferenceSchema = object({
+  importId: ImportIdSchema,
+  objectId: id,
+  revision: Type.Integer({ minimum: 0 }),
+});
+export type SceneReference = Static<typeof SceneReferenceSchema>;
 export const ProviderSchema = object({
   id,
   name: Type.String({ minLength: 1, maxLength: 100 }),
@@ -55,32 +61,10 @@ export const ProviderSchema = object({
   persistCredentials: Type.Boolean(),
 });
 export type ProviderConfig = Static<typeof ProviderSchema>;
-export type ProviderInfo = ProviderConfig & { configured: boolean; temporary: boolean };
-export type ProviderTypeInfo = {
-  id: string;
-  name: string;
-  endpoint: string;
-  methods: { id: ProviderConfig["authMethod"]; name: string }[];
-};
-export type ProjectInfo = {
-  id: string;
-  name: string;
-  path: string;
-  files: string[];
-  available: boolean;
-};
-export type ConversationInfo = {
-  id: string;
-  projectId: string;
-  title: string;
-  mode: "general" | "scene";
-  modelId: string;
-  thinkingLevel?: ThinkingLevel;
-  draft: string;
-  archived: boolean;
-  interrupted: boolean;
-  source: StepSourceInfo | null;
-};
+export type ProviderInfo = Static<typeof ProviderInfoSchema>;
+export type ProviderTypeInfo = Static<(typeof resultSchemas)["provider.types"]>[number];
+export type ProjectInfo = Static<typeof ProjectInfoSchema>;
+export type ConversationInfo = Static<typeof ConversationInfoSchema>;
 const UsageSchema = object({
   input: Type.Number({ minimum: 0 }),
   output: Type.Number({ minimum: 0 }),
@@ -130,41 +114,9 @@ const ToolResultSchema = object({
   displayName: Type.Optional(text(200)),
   serverName: Type.Optional(text(200)),
 });
-export type MessageInfo = {
-  id: string;
-  role: "user" | "assistant" | "tool";
-  text: string;
-  images?: ChatImage[];
-  failed: boolean;
-  response?: ResponseInfo;
-  blocks?: MessageBlock[];
-  timestamp?: number;
-  durationMs?: number;
-  hasToolCalls?: boolean;
-  outcome?: Static<typeof OutcomeSchema>;
-  tool?: Static<typeof ToolResultSchema>;
-};
-export type SettingsInfo = {
-  providers: ProviderInfo[];
-  defaultModel: string;
-  theme: Theme;
-  showThinking?: boolean;
-  disabledCapabilities: string[];
-  skills: SkillConfig[];
-  mcpServers: McpConfig[];
-};
-export type WorkspaceInfo = {
-  settings: SettingsInfo;
-  projects: ProjectInfo[];
-  conversations: ConversationInfo[];
-  nextCursor: string | null;
-  dataRoot: string;
-  secureStorage: boolean;
-  busyConversationId: string | null;
-  cadAvailable: boolean;
-  builtins: BuiltinCatalog;
-  shellApproval?: ShellApproval | null;
-};
+export type MessageInfo = Static<typeof MessageInfoSchema>;
+export type SettingsInfo = Static<typeof SettingsInfoSchema>;
+export type WorkspaceInfo = Static<(typeof resultSchemas)["workspace.get"]>;
 const ShellApprovalSchema = object({
   id,
   conversationId: id,
@@ -173,47 +125,10 @@ const ShellApprovalSchema = object({
   shell: text(40),
 });
 export type ShellApproval = Static<typeof ShellApprovalSchema>;
-export type ConversationView = {
-  conversationId: string;
-  streamId: string;
-  sequence: number;
-  messages: MessageInfo[];
-  partial: string;
-  partialBlocks?: MessageBlock[];
-  partialHasToolCalls?: boolean;
-  activity?: "waiting" | "responding" | "thinking" | "tools" | "retrying" | "compacting";
-  busy: boolean;
-  error: string;
-  usage: UsageInfo;
-  latestResponse: ResponseInfo | null;
-  respondingModel: string | null;
-  activeTools: ToolProgressInfo[];
-};
-export type LoginPrompt = {
-  id: string;
-  type: "text" | "secret" | "select" | "manual_code";
-  message: string;
-  placeholder: string;
-  options: { id: string; label: string }[];
-};
-export type LoginInfo = {
-  id: string;
-  providerType: string;
-  method: ProviderConfig["authMethod"];
-  status: "waiting" | "success" | "cancelled" | "error";
-  message: string;
-  url: string;
-  code: string;
-  prompt: LoginPrompt | null;
-};
-export type ApplicationEvent =
-  | { type: "workspace" }
-  | { type: "conversationDeleted"; id: string }
-  | { type: "conversation"; view: ConversationView }
-  | { type: "login"; login: LoginInfo }
-  | { type: "shell.approval"; approval: ShellApproval | null }
-  | { type: "display.changed"; sourceId: string; importId: string };
-
+export type ConversationView = Static<typeof ConversationViewSchema>;
+export type LoginInfo = Static<typeof LoginInfoSchema>;
+export type LoginPrompt = NonNullable<LoginInfo["prompt"]>;
+export type ApplicationEvent = Static<typeof EventSchema>;
 export const commands = {
   "display.get": object({ id }),
   "mcp.save": object({ config: McpConfigSchema }),
@@ -221,6 +136,13 @@ export const commands = {
   "mcp.inspect": object({ config: McpConfigSchema, projectId: id }),
   "mcp.cancelInspect": object({ id }),
   "skill.save": object({ config: SkillConfigSchema }),
+  "skill.image.add": object({
+    id,
+    name: Type.String({ minLength: 1, maxLength: 200 }),
+    image: ChatImageSchema,
+  }),
+  "skill.image.read": object({ id, path: SkillImageSchema.properties.path }),
+  "skill.image.remove": object({ id, path: SkillImageSchema.properties.path }),
   "skill.remove": object({ id }),
   "workspace.get": object({ cursor: Type.Optional(text(4000)) }),
   "provider.types": object({}),
@@ -242,6 +164,8 @@ export const commands = {
     id: Type.Union([
       Type.Literal("builtin.cad"),
       Type.Literal("builtin.alignment"),
+      Type.Literal("builtin.viewport"),
+      Type.Literal("builtin.scene-profiles"),
       Type.Literal("builtin-scene"),
       Type.Literal("builtin-alignment-skill"),
     ]),
@@ -276,44 +200,16 @@ export const commands = {
     requestId: id,
     text: Type.String({ maxLength: 100000 }),
     images: Type.Optional(Type.Array(ChatImageSchema, { maxItems: 3 })),
+    sceneReference: Type.Optional(SceneReferenceSchema),
   }),
+  "conversation.startScene": object({ id }),
   "conversation.stop": object({ id }),
   "shell.respond": object({ id, approved: Type.Boolean() }),
+  "viewport.respond": object({ id, capture: Type.Union([ViewportCaptureSchema, Type.Null()]) }),
 } as const;
 export type Method = keyof typeof commands;
 export type Arguments<K extends Method> = Static<(typeof commands)[K]>;
-export type Results = {
-  "display.get": ImportedModel | null;
-  "mcp.save": McpConfig;
-  "mcp.remove": null;
-  "mcp.inspect": McpInspection;
-  "mcp.cancelInspect": null;
-  "skill.save": SkillConfig;
-  "skill.remove": null;
-  "workspace.get": WorkspaceInfo;
-  "provider.types": ProviderTypeInfo[];
-  "provider.models": ModelChoice[];
-  "provider.save": ProviderInfo;
-  "provider.remove": null;
-  "settings.update": SettingsInfo;
-  "capability.setEnabled": SettingsInfo;
-  "auth.start": LoginInfo;
-  "auth.answer": LoginInfo;
-  "auth.cancel": null;
-  "auth.status": LoginInfo;
-  "auth.open": null;
-  "project.open": ProjectInfo;
-  "project.refresh": ProjectInfo;
-  "project.remove": null;
-  "conversation.create": ConversationInfo;
-  "conversation.delete": null;
-  "conversation.selectStep": ConversationInfo;
-  "conversation.update": ConversationInfo;
-  "conversation.watch": ConversationView;
-  "conversation.send": { submissionId: string };
-  "conversation.stop": null;
-  "shell.respond": null;
-};
+export type Results = { [K in Method]: Static<(typeof resultSchemas)[K]> };
 export function validateRequest(method: unknown, args: unknown): asserts method is Method {
   if (
     typeof method !== "string" ||
@@ -333,6 +229,7 @@ const ProjectInfoSchema = object({
   name: text(4096),
   path: text(4096),
   files: Type.Array(text(4096), { maxItems: 200 }),
+  filesComplete: Type.Boolean(),
   available: Type.Boolean(),
 });
 const ConversationInfoSchema = object({
@@ -356,26 +253,30 @@ const SettingsInfoSchema = object({
   skills: Type.Array(SkillConfigSchema, { maxItems: 100 }),
   mcpServers: Type.Array(McpConfigSchema, { maxItems: 100 }),
 });
+const MessageInfoSchema = object({
+  id,
+  role: Type.Union([
+    Type.Literal("user"),
+    Type.Literal("assistant"),
+    Type.Literal("tool"),
+    Type.Literal("event"),
+  ]),
+  text: text(4_000_000),
+  images: Type.Optional(Type.Array(ChatImageSchema, { maxItems: 3 })),
+  failed: Type.Boolean(),
+  response: Type.Optional(ResponseSchema),
+  blocks: Type.Optional(Type.Array(MessageBlockSchema)),
+  timestamp: Type.Optional(Type.Number()),
+  durationMs: Type.Optional(Type.Number({ minimum: 0 })),
+  hasToolCalls: Type.Optional(Type.Boolean()),
+  outcome: Type.Optional(OutcomeSchema),
+  tool: Type.Optional(ToolResultSchema),
+});
 const ConversationViewSchema = object({
   conversationId: id,
   streamId: id,
   sequence: Type.Integer({ minimum: 0 }),
-  messages: Type.Array(
-    object({
-      id,
-      role: Type.Union([Type.Literal("user"), Type.Literal("assistant"), Type.Literal("tool")]),
-      text: text(4_000_000),
-      images: Type.Optional(Type.Array(ChatImageSchema, { maxItems: 3 })),
-      failed: Type.Boolean(),
-      response: Type.Optional(ResponseSchema),
-      blocks: Type.Optional(Type.Array(MessageBlockSchema)),
-      timestamp: Type.Optional(Type.Number()),
-      durationMs: Type.Optional(Type.Number({ minimum: 0 })),
-      hasToolCalls: Type.Optional(Type.Boolean()),
-      outcome: Type.Optional(OutcomeSchema),
-      tool: Type.Optional(ToolResultSchema),
-    }),
-  ),
+  messages: Type.Array(MessageInfoSchema),
   partial: text(4_000_000),
   partialBlocks: Type.Optional(Type.Array(MessageBlockSchema)),
   partialHasToolCalls: Type.Optional(Type.Boolean()),
@@ -427,6 +328,9 @@ export const resultSchemas = {
   "mcp.inspect": McpInspectionSchema,
   "mcp.cancelInspect": Type.Null(),
   "skill.save": SkillConfigSchema,
+  "skill.image.add": SkillImageSchema,
+  "skill.image.read": ChatImageSchema,
+  "skill.image.remove": Type.Null(),
   "skill.remove": Type.Null(),
   "workspace.get": object({
     settings: SettingsInfoSchema,
@@ -467,8 +371,10 @@ export const resultSchemas = {
   "conversation.update": ConversationInfoSchema,
   "conversation.watch": ConversationViewSchema,
   "conversation.send": object({ submissionId: id }),
+  "conversation.startScene": Type.Null(),
   "conversation.stop": Type.Null(),
   "shell.respond": Type.Null(),
+  "viewport.respond": Type.Null(),
 } satisfies Record<Method, import("typebox").TSchema>;
 export function validateResult<K extends Method>(
   method: K,
@@ -487,6 +393,15 @@ const EventSchema = Type.Union([
     type: Type.Literal("shell.approval"),
     approval: Type.Union([ShellApprovalSchema, Type.Null()]),
   }),
+  object({
+    type: Type.Literal("viewport.capture"),
+    id,
+    conversationId: id,
+    importId: ImportIdSchema,
+    revision: Type.Integer({ minimum: 0 }),
+    view: CaptureViewSchema,
+  }),
+  object({ type: Type.Literal("viewport.capture.cancel"), id }),
 ]);
 export function validEvent(value: unknown): value is ApplicationEvent {
   return Value.Check(EventSchema, value);

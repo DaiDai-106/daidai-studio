@@ -61,6 +61,13 @@ test("reimport publishes its identity to the model; stale targets and paths retu
     assert.equal(old.error.code, "SCENE_TARGET_CHANGED");
     assert.equal(old.scene.currentDisplay?.importId, ids[1]);
     assert.ok(old.scene.currentDisplay);
+    if (!results.has("old-inspection"))
+      return { id: "old-inspection", name: "scene_inspect", args: { importId: oldId } };
+    const inspection = results.read<{ error: { code: string }; scene: SceneContext }>(
+      "old-inspection",
+    );
+    assert.equal(inspection.error.code, "SCENE_TARGET_CHANGED");
+    assert.equal(inspection.scene.currentDisplay?.importId, ids[1]);
     if (!results.has("old-path"))
       return {
         id: "old-path",
@@ -168,8 +175,8 @@ test("reimport publishes its identity to the model; stale targets and paths retu
     const tools = turnResults(last);
     assert.equal(
       tools.count,
-      4,
-      "Only stale-target, stale-path and relative-path probes plus one rotation; no reimport or read loop",
+      5,
+      "Stale bounds and inspection targets, stale and relative paths, and one rotation; no reimport or read loop",
     );
     assert.deepEqual(planner.failures, []);
   } finally {

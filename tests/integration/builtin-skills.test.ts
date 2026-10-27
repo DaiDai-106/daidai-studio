@@ -47,6 +47,7 @@ test("mode skills load on the first request despite legacy disabled flags, stay 
       (request.tools ?? []).every((tool) => !tool.function.name.startsWith("cad_")),
       "Automatic skills do not re-enable disabled tools",
     );
+    assert.ok(!(request.tools ?? []).some((tool) => tool.function.name === "viewport_capture"));
     return { text: "Checked" };
   });
   const app = await openRuntime(

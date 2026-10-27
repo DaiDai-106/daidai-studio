@@ -1,6 +1,6 @@
 # Alignment MCP
 
-当前提供四个标准 MCP 工具。模型选择参照与参数，C++ 从已保存产物计算绝对旋转和平移；TS 封装协议，桌面在 Harness 成功后保存和通知前端。
+模型选择参照与参数，C++ 从已保存产物查询世界坐标并计算绝对旋转和平移；TS 封装协议，桌面在 Harness 成功后保存和通知前端。
 
 桌面通过可信启动配置提供当前项目的用户目录场景数据根，Alignment 仅从该根读取授权产物，工具输入仍使用 `importId`；定位由桌面写入。见 [后端设计第 14 节](../backend_spec/backend.md#14-用户目录场景存储)。CAD 仍从原项目目录读取 STEP；旧项目内产物不自动迁移。
 
@@ -9,8 +9,8 @@
 ## 边界
 
 - `resources/mcp/alignment/` 独立标准 stdio 服务，官方 TS SDK 封装；C++/TinyGLTF/Eigen 完成几何与变换计算。
-- `alignment_get_bounds`、`alignment_align_min_corner`、`alignment_align_frame`、`alignment_rotate` 的统一输入输出见下文。
-- 三个修改工具的 `_meta["dai/placement"]` 携带 v2 绝对定位提案，查询不发布修改。
+- `scene_inspect`、`scene_get_features` 负责观察；对齐和落地工具计算定位提案。
+- 修改工具的 `_meta["dai/placement"]` 携带 v2 绝对定位提案，查询不发布修改。
 - 服务只读取授权项目的已保存 CAD 产物和 placement；不写项目、不修改 STEP 或 GLB。原生进程按次计算，取消/退出等待进程结束。
 
 ## 保存与显示
@@ -39,7 +39,7 @@ Alignment 只读已授权 importId 对应的清单、GLB、[CAD 特征缓存](ca
 
 | 数据 | 定义 |
 | --- | --- |
-| DirectionRef | kind:model_axis/cad_feature；model_axis 使用 axis:X/Y/Z；cad_feature 使用 objectId、featureId；reverse? 决定方向符号。无关字段禁止，按 kind 校验必填 |
+| DirectionRef | kind:model_axis/world_axis/cad_feature；轴类型使用 axis:X/Y/Z，world_axis 表示当前世界轴并由 C++ 换算；cad_feature 使用 objectId、featureId；reverse? 决定方向符号。无关字段禁止，按 kind 校验必填 |
 | PointRef | kind:model_point/cad_feature；前者使用 position 三元数组，处于原模型坐标；后者使用 objectId、featureId，由 C++ 从对象局部转换到原模型坐标 |
 | TargetFrame | origin、up、forward 三元数组，均在世界空间；米、右手 Z-up |
 | Placement v2 | schemaVersion:2、importId、sourceHash、revision、translation、rotation:[x,y,z,w]；整机绝对刚体变换，scale 固定不变 |
@@ -67,8 +67,13 @@ Alignment 只读已授权 importId 对应的清单、GLB、[CAD 特征缓存](ca
 | alignment_align_min_corner | importId:string 必填；expectedRevision:integer 可选以兼容旧客户端，新调用须显式传入 | 共同修改结果；保持当前 rotation，只平移使整机世界 AABB 最小角点归零 |
 | alignment_align_frame | importId:string、expectedRevision:integer、sourceUp:DirectionRef、sourceForward:DirectionRef、anchor:string enum、target:TargetFrame 必填；sourceOrigin:PointRef 条件必填 | 共同修改结果，另附 resolvedSourceFrame、resolvedTargetFrame、usedReferences；同时求整机绝对旋转与平移 |
 | alignment_rotate | importId:string、expectedRevision:integer、axis:Vec3、angleDegrees:number、pivot:Vec3、space:world/model 全部必填 | 共同修改结果；正角度按右手定则，axis 与 pivot 同属指定空间 |
+| alignment_align_direction | importId、expectedRevision、sourceDirection:DirectionRef、targetDirection:Vec3、pivot | 最小旋转；返回实际方向、角度与旋转枢轴 |
+| alignment_ground | importId、expectedRevision、groundZ、contacts（1–4 个 objectId/featureId） | 保持旋转和 X/Y，只沿世界 Z 平移；附每个水平接触面的前后高度 |
+| scene_inspect | importId、offset?、limit?、objectIds?、order:lowest? | 对象分页、当前边界与定位；lowest 按对象世界最低 Z 排序并返回其边界 |
+| scene_get_features | importId、objectIds（1–4 个）、type?、offset?、limit? | 按对象分页返回世界空间特征，含原点、方向和精确 featureId |
+| scene_find_features | importId、type?、worldAxis?、minAbsCos?、minWorldZ?、maxWorldZ?、offset?、limit? | 跨对象筛选平面中心或圆柱轴，返回世界空间的几何特征、总数和下一页，以及显示/特征缓存完整性 |
 
-三个修改工具的成功 data 统一为 `{importId, sourceHash, baseRevision, unit:"m", boundsKind:"display-mesh", before, after, warnings}`。baseRevision 为计算时读取的定位版本；显式传入 expectedRevision 时两者相等。after.placement 是计算所得绝对变换，不是增量，也不包含尚未产生的新 revision。参考系对齐另附的 resolved 帧均为实际采用的单位正交基，usedReferences 列出真实使用的 CAD 特征；模型轴由输入和 resolved 帧表达，供模型核对。get_bounds 的 bounds 可为指定对象范围；修改结果的 before/after 始终覆盖整机。
+修改工具的成功 data 统一为 `{importId, sourceHash, baseRevision, unit:"m", boundsKind:"display-mesh", before, after, warnings}`。baseRevision 为计算时读取的定位版本；显式传入 expectedRevision 时两者相等。after.placement 是计算所得绝对变换，不是增量，也不包含尚未产生的新 revision。参考系对齐另附的 resolved 帧均为实际采用的单位正交基，usedReferences 列出真实使用的 CAD 特征；模型轴由输入和 resolved 帧表达，供模型核对。get_bounds 的 bounds 可为指定对象范围；修改结果的 before/after 始终覆盖整机。
 
 MCP 成功使用 structuredContent `{ok:true,data}`，content 提供有界摘要；失败使用 `{ok:false,error:{code,message}}` 和 isError:true，不附 placement 提案。领域错误包括未知/未授权导入、资源无效、版本冲突、对象/特征不存在、缺少缓存、退化参考系、无可显示顶点；不把失败降级为另一种对齐。标准协议错误与取消沿用 SDK，不另建 Alignment job/get_job/wait 接口。
 
@@ -82,13 +87,23 @@ min_corner/bottom_center 基于显示网格，必须标记近似来源；referen
 
 新结果沿用 `_meta["dai/placement"]`，v2 提案包含 schemaVersion:2、importId、sourceHash、expectedRevision、translation、rotation。计算工具不写项目；Harness 成功结果提交后，桌面生成 revision 并写用户目录的 `projects/<projectId>/placements/<importId>.json`，通知前端。提案准备失败、取消或版本冲突不覆盖已保存定位；不修改不可变 artifacts，也不让前端另外生成一份场景产物。
 
-该元数据仅由三个修改工具提供，translation/rotation 与 after.placement 一致；get_bounds 不提供修改元数据。工具成功表示计算成功，不等于已保存或已渲染；后续 scene-context/get_bounds 返回的 revision 用于确认当前已提交状态。read 复用 Pi，文件入口由桌面上下文提供，不另增 alignment_read_file、alignment_get_scene 或 alignment_save 工具。
+该元数据仅由修改工具提供，translation/rotation 与 after.placement 一致；只读查询不提供修改元数据。工具成功表示计算成功，不等于已保存或已渲染；后续 scene-context/get_bounds 返回的 revision 用于确认当前已提交状态。read 复用 Pi，文件入口由桌面上下文提供，不另增 alignment_read_file、alignment_get_scene 或 alignment_save 工具。
 
 兼容同时覆盖旧 schemaVersion:1 定位文件，以及没有 schemaVersion/rotation 的旧 Harness placement 结果：按旧契约解码为单位四元数后走同一恢复路径。新 v2 缺 rotation 必须失败，不静默当作旧版；原生历史条目不改写，只有派生定位文件可升级。恢复仍按全局生产条目顺序和 expectedRevision 链，不另建版本库。
 
 视口只应用新绝对根变换；详见 [前端设计](../frontend_spec/frontend.md#8-旋转回显与后续模型观察)。模型可直接执行用户已要求的对齐；预览仅在用户需要时设计，不作为固定确认关卡。验收包括旋转后角点归零、任意 pivot、重复绝对对齐、连续旋转版本冲突、旧文件/历史恢复、CAD 已释放及源文件缺失下继续定位，不能只验证数值输出而不验证实际渲染。
 
 ## 当前目标与错误恢复
+
+`scene_inspect` 是 Alignment MCP 的只读工具；C++ worker 读取已保存的 manifest、显示网格与缓存特征，返回分页对象、整机世界显示边界，按需返回指定对象的边界与前五个缓存特征。特征属于对象局部坐标，不作语义排名。服务返回当前 placement/revision，并在查询期间发生定位变更时报告版本冲突；不修改模型或定位。
+
+`scene_inspect` 的 `order=lowest` 按世界 Z 最低位置列出有显示网格的对象及其世界边界，供模型结合视图寻找地脚；边界不能证明对象的业务含义。`scene_get_features` 接收最多四个对象，按类型分页返回特征原点和方向的世界坐标；C++ 应用对象层级和当前 placement，不重复应用 GLB 坐标转换。
+
+`scene_find_features` 面向跨对象的只读候选查询。worldAxis 和 minAbsCos 按方向与指定世界轴夹角的余弦绝对值筛选（默认 0.95，正负方向均可），minWorldZ / maxWorldZ 比较特征原点而非几何极值。返回的平面和圆柱仅是几何线索，不能单独证明业务用途；缓存或显示不完整时不可假定候选集完整。每次查询都校验当前定位版本，返回的 objectId/featureId 可供后续只读检查或明确授权的定位操作使用。
+
+`alignment_ground` 接收当前 revision、地面 Z 和一至四个已识别的水平 CAD 接触面，保持旋转和 X/Y 平移，仅调整 Z，使最低接触面到达地面。结果列出每个接触面前后的高度；如果接触面不共高，其他接触面仍可能悬空，不能声称全部落地。非水平面返回明确错误，包围盒不替代地脚接触面。
+
+`alignment_align_direction` 将模型轴、当前世界轴或缓存 CAD 特征方向变换到世界空间，再以最小角度旋转到指定的世界目标方向。枢轴可为当前显示包围盒中心或明确的世界点。它不指定前方向，也不自动落地；相反方向的 180 度情况使用确定性的垂直旋转轴。结果包含解析后的方向、轴、角度、枢轴和实际使用的特征。版本和保存流程与其他定位操作一致。
 
 桌面每次调用校验当前导入身份。请求历史 importId 时返回 SCENE_TARGET_CHANGED，并附当前 scene 快照供模型以正确参数另行调用；不会自动改写 importId 或执行旧请求。read 路径不属于当前模型时同样提供最新可读文件入口。初始定位 revision 为 0，placement 文件尚不存在也是有效状态。
 

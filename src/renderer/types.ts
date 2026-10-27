@@ -28,6 +28,7 @@ export interface McpServer extends Capability {
   transport: "stdio" | "http";
   target: string;
   args: string[];
+  secrets?: { name: string; value?: string }[];
   timeout: number;
   checked: boolean;
 }
@@ -36,6 +37,8 @@ export interface Skill extends Capability {
   description: string;
   body: string;
   automatic?: boolean;
+  sceneProfile?: string;
+  images?: import("../shared/capabilities.ts").SkillImage[];
 }
 
 export interface McpToolSummary {

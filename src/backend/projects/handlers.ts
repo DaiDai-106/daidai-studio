@@ -93,6 +93,64 @@ export function createProjects(
     if (!conversation) throw new Error("对话不存在。");
     return conversation;
   }
+  async function sceneProfile(projectId: string, sourceId: string | null) {
+    const project = await visibleProject(projectId);
+    const source = sourceId ? await harness.snapshot(StepSourceDoc, sourceId, context) : null;
+    if (source && source.projectId !== projectId) throw new Error("STEP 不属于当前项目。");
+    if (source?.sceneProfileId) return { id: source.sceneProfileId, scope: "source" as const };
+    return project.sceneProfileId
+      ? { id: project.sceneProfileId, scope: "project" as const }
+      : null;
+  }
+  async function setSceneProfile(
+    projectId: string,
+    sourceId: string | null,
+    profileId: string,
+    scope: "project" | "source",
+  ) {
+    const project = await visibleProject(projectId);
+    const source = sourceId ? await harness.snapshot(StepSourceDoc, sourceId, context) : null;
+    if (scope === "source" && (!source || source.projectId !== projectId))
+      throw new Error("请先选择当前项目的 STEP。");
+    await harness.commit(async (tx) => {
+      if (scope === "source" && source)
+        (await tx.doc(StepSourceDoc, source.id, source)).sceneProfileId = profileId;
+      else (await tx.doc(ProjectDoc, projectId, project)).sceneProfileId = profileId;
+    }, context);
+    return sceneProfile(projectId, sourceId);
+  }
+  async function prepareStepSelection(id: string, relativePath: string) {
+    const meta = await metadata(id);
+    const project = await visibleProject(meta.projectId);
+    const file = relativePath ? await resolveStepPath(project.path, relativePath) : null;
+    const source = file
+      ? ((await findSource(project.id, file.relativePath)) ?? {
+          id: crypto.randomUUID(),
+          projectId: project.id,
+          relativePath: file.relativePath,
+        })
+      : null;
+    return {
+      file,
+      source,
+      async commit(signal?: AbortSignal) {
+        signal?.throwIfAborted();
+        await harness.commit(async (tx) => {
+          // The transaction has not committed while this callback is running, so an
+          // abort here leaves both the conversation and project selection unchanged.
+          signal?.throwIfAborted();
+          if (source) await tx.doc(StepSourceDoc, source.id, source);
+          (await tx.doc(ConversationDoc, conversationId(id))).selectedSourceId = source?.id ?? "";
+          (await tx.doc(ProjectDoc, project.id, project)).currentSourceId = source?.id ?? "";
+          signal?.throwIfAborted();
+        }, context);
+      },
+    };
+  }
+  async function selectStep(id: string, relativePath: string) {
+    await (await prepareStepSelection(id, relativePath)).commit();
+    return metadata(id);
+  }
   function requests({
     idle,
     defaultModel,
@@ -229,23 +287,9 @@ export function createProjects(
       },
       async "conversation.selectStep"({ id, relativePath }) {
         idle();
-        const meta = await metadata(id);
-        const project = await visibleProject(meta.projectId);
-        const file = relativePath ? await resolveStepPath(project.path, relativePath) : null;
-        const source = file
-          ? ((await findSource(project.id, file.relativePath)) ?? {
-              id: crypto.randomUUID(),
-              projectId: project.id,
-              relativePath: file.relativePath,
-            })
-          : null;
-        await harness.commit(async (tx) => {
-          if (source) await tx.doc(StepSourceDoc, source.id, source);
-          (await tx.doc(ConversationDoc, conversationId(id))).selectedSourceId = source?.id ?? "";
-          (await tx.doc(ProjectDoc, project.id, project)).currentSourceId = source?.id ?? "";
-        }, context);
+        const result = await selectStep(id, relativePath);
         changed();
-        return metadata(id);
+        return result;
       },
       async "conversation.delete"({ id }) {
         idle();
@@ -268,6 +312,10 @@ export function createProjects(
     visible: visibleProject,
     metadata,
     conversation: getConversation,
+    sceneProfile,
+    setSceneProfile,
+    prepareStepSelection,
+    selectStep,
     requests,
   };
 }

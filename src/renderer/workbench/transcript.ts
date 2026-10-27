@@ -15,6 +15,7 @@ export function conversationTurns(messages: readonly MessageInfo[]): Conversatio
   const turns: ConversationTurn[] = [];
   for (const message of messages) {
     if (message.role === "user") turns.push({ id: message.id, user: message, messages: [] });
+    else if (message.role === "event") turns.push({ id: message.id, messages: [] });
     else {
       if (!turns.length) turns.push({ id: message.id, messages: [] });
       turns.at(-1)?.messages.push(message);
@@ -77,10 +78,78 @@ export type ToolRowData = {
   argsTruncated?: boolean;
   output?: string;
   outputTruncated?: boolean;
+  images?: MessageInfo["images"];
   durationMs?: number | null;
   status: "pending" | "running" | "completed" | "failed" | "stopped";
   phase?: string;
 };
+
+// These are calculated tool results, not a renderer or persistence acknowledgement.
+export function alignmentResultSummary(tool: ToolRowData): string {
+  if (
+    tool.serverName !== "alignment-mcp" ||
+    tool.status !== "completed" ||
+    !tool.output ||
+    tool.outputTruncated
+  )
+    return "";
+  const name = tool.displayName ?? tool.name;
+  if (!name.startsWith("alignment_")) return "";
+  try {
+    const result: unknown = JSON.parse(tool.output);
+    if (
+      !result ||
+      typeof result !== "object" ||
+      !("ok" in result) ||
+      result.ok !== true ||
+      !("data" in result)
+    )
+      return "";
+    const data = result.data;
+    if (!data || typeof data !== "object") return "";
+    const preview = "preview" in data && data.preview === true ? "预览（未保存） · " : "";
+    if (name === "alignment_align_direction" && "resolvedDirection" in data) {
+      const direction = data.resolvedDirection;
+      if (
+        !direction ||
+        typeof direction !== "object" ||
+        !("angleDegrees" in direction) ||
+        typeof direction.angleDegrees !== "number" ||
+        !Number.isFinite(direction.angleDegrees)
+      )
+        return "";
+      return `${preview}计算旋转 ${Number(direction.angleDegrees.toFixed(2))}°`;
+    }
+    if (
+      name === "alignment_ground" &&
+      "groundContacts" in data &&
+      Array.isArray(data.groundContacts)
+    ) {
+      const target = tool.args?.groundZ;
+      if (
+        typeof target !== "number" ||
+        !Number.isFinite(target) ||
+        data.groundContacts.length === 0
+      )
+        return "";
+      const heights = data.groundContacts.map((contact: unknown) =>
+        contact && typeof contact === "object" && "afterZ" in contact ? contact.afterZ : undefined,
+      );
+      if (
+        !heights.every((height: unknown) => typeof height === "number" && Number.isFinite(height))
+      )
+        return "";
+      const touching = heights.filter(
+        (height: unknown) => typeof height === "number" && Math.abs(height - target) <= 1e-6,
+      ).length;
+      return `${preview}目标 Z=${target} 米 · ${touching}/${heights.length} 个接触面达到目标高度${touching < heights.length ? "，其余存在高度差" : ""}`;
+    }
+    if (preview) return "预览（未保存）";
+  } catch {
+    // Older or truncated output remains available as ordinary tool text.
+  }
+  return "";
+}
 export function completedTool(message: MessageInfo): ToolRowData {
   const tool = message.tool;
   return {
@@ -88,6 +157,7 @@ export function completedTool(message: MessageInfo): ToolRowData {
     key: tool?.callKey ?? tool?.callId ?? message.id,
     name: tool?.name ?? "tool",
     output: message.text,
+    ...(message.images?.length ? { images: message.images } : {}),
     status: message.outcome === "stopped" ? "stopped" : message.failed ? "failed" : "completed",
   };
 }

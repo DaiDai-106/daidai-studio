@@ -139,8 +139,17 @@ test("one durable database persists settings, authenticated chat and archives wi
     const sceneRequest = JSON.parse(requests[1]?.body ?? "{}") as typeof request;
     assert.deepEqual(
       (sceneRequest.tools ?? []).map((tool) => tool.function.name),
-      ["read", process.platform === "win32" ? "powershell" : "bash"],
-      "Pi read and the approved shell are available without native scene tools.",
+      [
+        ...(models[0].supportsImages ? ["viewport_capture"] : []),
+        "scene_list_steps",
+        "scene_select_step",
+        "scene_list_profiles",
+        ...(models[0].supportsImages ? ["scene_read_skill_image"] : []),
+        "scene_select_profile",
+        "read",
+        process.platform === "win32" ? "powershell" : "bash",
+      ],
+      "Scene tools follow model image support even without native CAD tools.",
     );
     assert.match(
       sceneRequest.messages

@@ -4,6 +4,20 @@ import type { Capability, McpServer, Skill, Theme } from "../types.ts";
 import { mcpConfig, mcpServer } from "./connectionConfig.ts";
 import { availableModels } from "./models.ts";
 
+function skillConfig(skill: Skill): SkillConfig {
+  return {
+    id: skill.id,
+    name: skill.name,
+    description: skill.description,
+    body: skill.body,
+    enabled: skill.enabled,
+    scope: skill.scope,
+    modes: skill.modes,
+    ...(skill.sceneProfile ? { sceneProfile: skill.sceneProfile } : {}),
+    ...(skill.images?.length ? { images: skill.images } : {}),
+  };
+}
+
 export function useSettings(application: ApplicationState) {
   const settings = application.workspace?.settings;
   const servers: McpServer[] = [
@@ -30,25 +44,63 @@ export function useSettings(application: ApplicationState) {
     })),
     ...(settings?.skills ?? []).map((skill) => ({ ...skill, builtin: false })),
   ];
-  function persistToggles(previous: Capability[], next: Capability[]) {
-    const changed = next.filter(
+  async function syncCapabilities<T extends Capability, Config>(
+    previous: T[],
+    next: T[],
+    config: (item: T) => Config,
+    save: (item: Config) => Promise<unknown>,
+    remove: (id: string) => Promise<unknown>,
+  ): Promise<boolean> {
+    const toggles = next.filter(
       (item) =>
         item.builtin && previous.some((old) => old.id === item.id && old.enabled !== item.enabled),
     );
-    if (!changed.length) return;
-    void application.run(async () => {
-      for (const item of changed) {
-        if (
-          item.id !== "builtin.cad" &&
-          item.id !== "builtin-scene" &&
-          item.id !== "builtin.alignment" &&
-          item.id !== "builtin-alignment-skill"
-        )
-          throw new Error("未知内置能力。");
-        await application.api.setCapabilityEnabled(item.id, item.enabled);
-      }
-      await application.refresh();
+    const old = new Map(previous.map((item) => [item.id, item]));
+    const changed = next.filter((item) => {
+      const previousItem = old.get(item.id);
+      return (
+        !item.builtin &&
+        (!previousItem || JSON.stringify(config(previousItem)) !== JSON.stringify(config(item)))
+      );
     });
+    const nextIds = new Set(next.map((item) => item.id));
+    const removed = previous.filter((item) => !item.builtin && !nextIds.has(item.id));
+    if (!toggles.length && !changed.length && !removed.length) return true;
+    return (
+      (await application.run(async () => {
+        // Builtin switches and custom configurations can be updated independently.
+        const results = await Promise.allSettled([
+          (async () => {
+            for (const item of toggles) {
+              if (
+                item.id !== "builtin.cad" &&
+                item.id !== "builtin-scene" &&
+                item.id !== "builtin.alignment" &&
+                item.id !== "builtin.viewport" &&
+                item.id !== "builtin.scene-profiles" &&
+                item.id !== "builtin-alignment-skill"
+              )
+                throw new Error("未知内置能力。");
+              await application.api.setCapabilityEnabled(item.id, item.enabled);
+            }
+          })(),
+          (async () => {
+            for (const item of changed) await save(config(item));
+            for (const item of removed) await remove(item.id);
+          })(),
+        ]);
+        // Refresh even after a partial failure so the UI reflects successful changes.
+        const failed = results.find((result) => result.status === "rejected");
+        if (failed?.status === "rejected") {
+          await application.refresh().catch(() => {});
+          throw failed.reason;
+        }
+        // The mutation is committed already; a refresh failure must not make the editor
+        // treat referenced attachments as unsaved and attempt to delete them.
+        await application.refresh().catch(application.report);
+        return true;
+      })) === true
+    );
   }
   return {
     providers: settings?.providers ?? [],
@@ -69,58 +121,25 @@ export function useSettings(application: ApplicationState) {
       void application.refresh().catch(application.report);
     },
     servers,
-    setServers: (items: McpServer[]) => {
-      persistToggles(servers, items);
-      const previous = new Map(servers.map((server) => [server.id, server]));
-      const changed = items.filter((server) => {
-        const old = previous.get(server.id);
-        return (
-          !server.builtin &&
-          (!old || JSON.stringify(mcpConfig(old)) !== JSON.stringify(mcpConfig(server)))
-        );
-      });
-      const removed = servers.filter(
-        (server) => !server.builtin && !items.some((item) => item.id === server.id),
-      );
-      if (!changed.length && !removed.length) return;
-      void application.run(async () => {
-        for (const server of changed) await application.api.saveMcp(mcpConfig(server));
-        for (const server of removed) await application.api.removeMcp(server.id);
-        await application.refresh();
-      });
-    },
+    setServers: (items: McpServer[]) =>
+      syncCapabilities(
+        servers,
+        items,
+        mcpConfig,
+        application.api.saveMcp,
+        application.api.removeMcp,
+      ),
     inspectServer: (server: McpServer, projectId: string) =>
       application.api.inspectMcp(mcpConfig(server), projectId),
     cancelInspection: (id: string) => application.api.cancelMcpInspection(id),
     skills,
-    setSkills: (items: Skill[]) => {
-      persistToggles(skills, items);
-      function config(skill: Skill): SkillConfig {
-        return {
-          id: skill.id,
-          name: skill.name,
-          description: skill.description,
-          body: skill.body,
-          enabled: skill.enabled,
-          scope: skill.scope,
-          modes: skill.modes,
-        };
-      }
-      const previous = new Map(skills.map((skill) => [skill.id, skill]));
-      const changed = items.filter((skill) => {
-        if (skill.builtin) return false;
-        const old = previous.get(skill.id);
-        return !old || JSON.stringify(config(old)) !== JSON.stringify(config(skill));
-      });
-      const removed = skills.filter(
-        (skill) => !skill.builtin && !items.some((item) => item.id === skill.id),
-      );
-      if (!changed.length && !removed.length) return;
-      void application.run(async () => {
-        for (const skill of changed) await application.api.saveSkill(config(skill));
-        for (const skill of removed) await application.api.removeSkill(skill.id);
-        await application.refresh();
-      });
-    },
+    setSkills: (items: Skill[]) =>
+      syncCapabilities(
+        skills,
+        items,
+        skillConfig,
+        application.api.saveSkill,
+        application.api.removeSkill,
+      ),
   };
 }

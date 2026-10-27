@@ -26,6 +26,7 @@ test("Electron renders public thinking and real tool details, preserves disclosu
   const path = join(root, "project", ".daidai", "artifacts", "current", "features.json");
   const planner = await servePlanner((request) => {
     const user = request.messages.filter((item) => item.role === "user").at(-1)?.content;
+    if (user?.includes("应用事件：用户已进入场景搭建")) return { text: "请问是什么场景？" };
     if (user === "停止测试")
       return {
         text: "Should not finish",
@@ -108,6 +109,7 @@ test("Electron renders public thinking and real tool details, preserves disclosu
     }, remote.url);
     await page.getByRole("button", { name: "通用对话", exact: true }).click();
     await page.getByRole("menuitem", { name: /^场景搭建/ }).click();
+    await page.getByText("请问是什么场景？", { exact: true }).waitFor();
     await page
       .getByRole("textbox", { name: "消息内容", exact: true })
       .fill("读取文件并查看工具返回");

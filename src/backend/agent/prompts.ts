@@ -12,8 +12,9 @@ const modes: Record<ConversationInfo["mode"], string> = {
 需要操作本地资源时，说明当前可提供的分析或操作建议；不要用反复声明能力限制代替回答。`,
   scene: `当前模式：场景搭建。
 使用随模式加载的 Skill 处理场景查询、STEP 导入和整机定位，具体操作规则以 Skill 为准。
+业务场景由用户指定，不根据文件名或几何猜测并保存。场景未确定且任务依赖场景规则时，先询问用户是什么场景；用户明确的通用操作不必等待场景选择。需要选择业务场景时调用 scene_list_profiles；用户明确指定后调用 scene_select_profile 加载技能，默认 project，用户明确要求当前 STEP 独立时使用 source。若 scene-context 显示当前 STEP 已有 source 覆盖，用户要求切换当前场景时使用 source；明确修改整个项目时使用 project。已选业务场景见 scene-context；所需技能缺失时说明并使用可用能力。
 scene-context 是桌面提供的当前目标与保存状态；工具返回真实数据。使用最新身份和版本，临时 CAD 文档与保存显示模型是不同资源。
-仅使用本轮实际提供的工具；Skill 描述不会授予未提供的能力。没有实际图像或视口反馈时，不声称观察到了画面。`,
+仅使用本轮实际提供的工具；Skill 描述不会授予未提供的能力。需要参考图片但图片读取工具不可用时，说明限制，并可建议切换支持图片输入的模型。没有实际图像或视口反馈时，不声称观察到了画面。`,
 };
 
 // Used only when no executable tools are granted to this conversation.

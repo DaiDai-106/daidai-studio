@@ -21,6 +21,7 @@ export async function connectConfiguredMcp(
   config: McpConfig,
   project: { id: string; name: string; path: string },
   signal: AbortSignal,
+  secrets: Record<string, string> = {},
 ) {
   const value = normalizeMcpConfig(config);
   if (value.scope.kind === "project" && value.scope.projectId !== project.id)
@@ -29,9 +30,27 @@ export async function connectConfiguredMcp(
     value.transport === "stdio"
       ? {
           kind: "stdio",
-          options: { command: value.command, args: value.args, cwd: project.path, stderr: "pipe" },
+          options: {
+            command: value.command,
+            args: value.args,
+            cwd: project.path,
+            stderr: "pipe",
+            env: secrets,
+          },
         }
-      : { kind: "http", options: { url: value.url } },
+      : {
+          kind: "http",
+          options: {
+            url: value.url,
+            headers: secrets,
+            ...(Object.keys(secrets).length
+              ? {
+                  fetch: (input: string | URL, init?: RequestInit) =>
+                    fetch(input, { ...init, redirect: "error" }),
+                }
+              : {}),
+          },
+        },
     {
       signal,
       client: {
@@ -78,9 +97,10 @@ export async function inspectMcp(
   config: McpConfig,
   project: { id: string; name: string; path: string },
   signal: AbortSignal,
+  secrets: Record<string, string> = {},
 ): Promise<McpInspection> {
   try {
-    const connection = await connectConfiguredMcp(config, project, signal);
+    const connection = await connectConfiguredMcp(config, project, signal, secrets);
     try {
       const tools = await discoverMcpTools(connection, config.timeoutMs, signal);
       return {

@@ -3,6 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { createAppearance } from "./appearance.ts";
 import { isGeometryMesh, visibleGeometryBounds } from "./bounds.ts";
 import { updateCameraClipping } from "./camera.ts";
+import { captureTransition } from "./placementComparison.ts";
 import type { CameraView, DisplayState } from "./types.ts";
 
 const directions: Record<CameraView, [number, number, number]> = {
@@ -10,12 +11,15 @@ const directions: Record<CameraView, [number, number, number]> = {
   front: [1, 0, 0],
   right: [0, -1, 0],
   top: [0, 0, 1],
+  "+X": [1, 0, 0],
+  "-X": [-1, 0, 0],
+  "+Y": [0, 1, 0],
+  "-Y": [0, -1, 0],
+  "+Z": [0, 0, 1],
+  "-Z": [0, 0, -1],
 };
 
-export function createViewport(
-  host: HTMLDivElement,
-  onPick: (id: string | null, face?: import("./types.ts").MeshPick) => void,
-) {
+export function createViewport(host: HTMLDivElement, onPick: (id: string | null) => void) {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   const canvas = renderer.domElement;
   canvas.className = "scene-canvas";
@@ -218,13 +222,8 @@ export function createViewport(
     )
       return;
     const hit = hitAt(event.clientX, event.clientY);
-    const association = hit?.object.userData.cadPrimitive;
-    const face =
-      association && hit?.faceIndex != null
-        ? { ...association, triangleIndex: hit.faceIndex }
-        : undefined;
     const id = hit?.object.userData.sceneObjectId;
-    onPick(typeof id === "string" ? id : null, face);
+    onPick(typeof id === "string" ? id : null);
   }
   canvas.addEventListener("pointerdown", onDown);
   canvas.addEventListener("pointerup", onUp);
@@ -246,18 +245,192 @@ export function createViewport(
     fit,
     setView,
     update,
-    invalidate: updateClipBounds,
+    updateWithComparison(next: DisplayState) {
+      const frozen = camera.clone();
+      function captureImage(snapshot: THREE.PerspectiveCamera) {
+        if (
+          !model ||
+          document.hidden ||
+          !canvas.clientWidth ||
+          !canvas.clientHeight ||
+          disposed ||
+          renderer.getContext().isContextLost()
+        )
+          return null;
+        renderer.render(scene, snapshot);
+        const data = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
+        return data && data.length <= 7_000_000 ? `data:image/jpeg;base64,${data}` : null;
+      }
+      try {
+        return captureTransition(frozen, captureImage, () => update(next));
+      } finally {
+        requestRender();
+      }
+    },
     requestRender,
-    zoom(factor: number) {
-      const offset = camera.position.clone().sub(controls.target);
-      const distance = THREE.MathUtils.clamp(
-        offset.length() / factor,
-        controls.minDistance,
-        controls.maxDistance,
-      );
-      camera.position.copy(controls.target).add(offset.setLength(distance));
-      controls.update();
-      updateClip();
+    capture(view: import("../../shared/application.ts").CaptureView) {
+      if (!model || document.hidden || !canvas.clientWidth || !canvas.clientHeight || disposed)
+        return null;
+      let captureCamera: THREE.Camera = camera;
+      let position = camera.position;
+      let up = camera.up;
+      let target = controls.target;
+      const cameraFor = (
+        selected: Exclude<typeof view, "current" | "overview">,
+        aspect = canvas.clientWidth / canvas.clientHeight,
+        fitBox = false,
+      ) => {
+        const directions: Record<
+          Exclude<typeof view, "current" | "overview">,
+          [number, number, number]
+        > = {
+          isometric: [1, -1, 0.8],
+          "+X": [1, 0, 0],
+          "-X": [-1, 0, 0],
+          "+Y": [0, 1, 0],
+          "-Y": [0, -1, 0],
+          "+Z": [0, 0, 1],
+          "-Z": [0, 0, -1],
+        };
+        const box = visibleGeometryBounds(group);
+        if (box.isEmpty()) return null;
+        const sphere = box.getBoundingSphere(new THREE.Sphere());
+        const radius = Math.max(sphere.radius, 0.1);
+        const height = radius * 1.2 * Math.max(1, 1 / aspect);
+        const orthographic = new THREE.OrthographicCamera(
+          -height * aspect,
+          height * aspect,
+          height,
+          -height,
+          0.01,
+          radius * 10 + 1,
+        );
+        const target = sphere.center;
+        if (selected === "+Z" || selected === "-Z") orthographic.up.set(0, 1, 0);
+        else orthographic.up.set(0, 0, 1);
+        orthographic.position
+          .copy(target)
+          .addScaledVector(
+            new THREE.Vector3(...directions[selected]).normalize(),
+            radius * 3 + 0.1,
+          );
+        orthographic.lookAt(target);
+        orthographic.updateMatrixWorld();
+        if (fitBox) {
+          let horizontal = 0,
+            vertical = 0;
+          for (const x of [box.min.x, box.max.x])
+            for (const y of [box.min.y, box.max.y])
+              for (const z of [box.min.z, box.max.z]) {
+                const point = new THREE.Vector3(x, y, z).applyMatrix4(
+                  orthographic.matrixWorldInverse,
+                );
+                horizontal = Math.max(horizontal, Math.abs(point.x));
+                vertical = Math.max(vertical, Math.abs(point.y));
+              }
+          const halfHeight = Math.max(vertical, horizontal / aspect, 0.1) * 1.1;
+          orthographic.left = -halfHeight * aspect;
+          orthographic.right = halfHeight * aspect;
+          orthographic.top = halfHeight;
+          orthographic.bottom = -halfHeight;
+          orthographic.updateProjectionMatrix();
+        }
+        return { camera: orthographic, target };
+      };
+      if (view === "overview") {
+        const views = ["+X", "-X", "+Y", "-Y", "+Z", "-Z"] as const;
+        const sheet = document.createElement("canvas");
+        const width = 600,
+          height = 450,
+          labelHeight = 28;
+        sheet.width = width * 3;
+        sheet.height = height * 2;
+        const context = sheet.getContext("2d");
+        if (!context) return null;
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, sheet.width, sheet.height);
+        context.fillStyle = "#222222";
+        context.font = "bold 18px sans-serif";
+        const imageRight = {
+          "+X": "+Y",
+          "-X": "-Y",
+          "+Y": "-X",
+          "-Y": "+X",
+          "+Z": "+X",
+          "-Z": "-X",
+        } as const;
+        const cameras: {
+          view: (typeof views)[number];
+          camera: {
+            position: number[];
+            target: number[];
+            up: number[];
+            projection: "orthographic";
+          };
+        }[] = [];
+        const originalSize = renderer.getSize(new THREE.Vector2());
+        const originalRatio = renderer.getPixelRatio();
+        try {
+          renderer.setPixelRatio(1);
+          renderer.setSize(width, height - labelHeight, false);
+          for (const [index, selected] of views.entries()) {
+            const result = cameraFor(selected, width / (height - labelHeight), true);
+            if (!result) return null;
+            renderer.render(scene, result.camera);
+            const x = (index % 3) * width,
+              y = Math.floor(index / 3) * height;
+            context.drawImage(canvas, x, y + labelHeight, width, height - labelHeight);
+            const imageUp = selected === "+Z" || selected === "-Z" ? "+Y" : "+Z";
+            context.fillText(
+              `From ${selected}  |  Right ${imageRight[selected]}  |  Up ${imageUp}`,
+              x + 12,
+              y + 21,
+            );
+            cameras.push({
+              view: selected,
+              camera: {
+                position: result.camera.position.toArray(),
+                target: result.target.toArray(),
+                up: result.camera.up.toArray(),
+                projection: "orthographic",
+              },
+            });
+          }
+        } finally {
+          renderer.setPixelRatio(originalRatio);
+          renderer.setSize(originalSize.x, originalSize.y, false);
+          requestRender();
+        }
+        const data = sheet.toDataURL("image/jpeg", 0.85).split(",")[1];
+        const first = cameras[0];
+        if (!first || !data || data.length > 7_000_000) return null;
+        return {
+          image: { mimeType: "image/jpeg" as const, data },
+          camera: first.camera,
+          views: cameras,
+        };
+      }
+      if (view !== "current") {
+        const result = cameraFor(view);
+        if (!result) return null;
+        captureCamera = result.camera;
+        position = result.camera.position;
+        up = result.camera.up;
+        target = result.target;
+      }
+      renderer.render(scene, captureCamera);
+      const data = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
+      if (view !== "current") requestRender();
+      if (!data || data.length > 7_000_000) return null;
+      return {
+        image: { mimeType: "image/jpeg" as const, data },
+        camera: {
+          position: position.toArray(),
+          target: target.toArray(),
+          up: up.toArray(),
+          projection: view === "current" ? ("perspective" as const) : ("orthographic" as const),
+        },
+      };
     },
     dispose() {
       disposed = true;

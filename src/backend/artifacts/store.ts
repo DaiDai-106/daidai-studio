@@ -1,7 +1,6 @@
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import {
-  type Cursor,
   defineDocFamily,
   type EntryRecord,
   type Harness,
@@ -10,6 +9,7 @@ import {
 import { Value } from "typebox/value";
 import type { ApplicationEvent } from "../../shared/application.ts";
 import { type ImportedModel, ImportedModelRefSchema } from "../../shared/display.ts";
+import { scanJournalEntries } from "../journal.ts";
 import { ProjectDoc, StepSourceDoc } from "../projects/documents.ts";
 import { artifactDirectory, localFile } from "./files.ts";
 import { projectDataDirectory } from "./location.ts";
@@ -102,38 +102,14 @@ export function createArtifacts(
   async function recover() {
     await pending;
     let failed = false;
-    let conversations: Cursor | undefined;
-    do {
-      const page = await storage.scanConversations(
-        { order: "ascending" },
-        100,
-        conversations,
-        context,
-      );
-      for (const conversation of page.items) {
-        let cursor: Cursor | undefined;
-        do {
-          const entries = await storage.scanEntries(
-            { conversationId: conversation.id, order: "ascending" },
-            100,
-            cursor,
-            context,
-          );
-          for (const entry of entries.items) {
-            try {
-              await accept(entry);
-            } catch {
-              failed = true;
-              console.error(
-                "A saved display could not be recovered; other imports remain available.",
-              );
-            }
-          }
-          cursor = entries.next;
-        } while (cursor);
+    for await (const entry of scanJournalEntries(storage)) {
+      try {
+        await accept(entry);
+      } catch {
+        failed = true;
+        console.error("A saved display could not be recovered; other imports remain available.");
       }
-      conversations = page.next;
-    } while (conversations);
+    }
     recoveryNeeded = failed;
   }
   return {

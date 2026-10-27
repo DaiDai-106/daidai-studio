@@ -6,7 +6,7 @@
   "files": ["dist/**", "package.json", "!dist/icons/*.icns"],
   "asar": true,
   "extraResources": [
-    { "from": "resources/skills", "to": "skills", "filter": ["**/SKILL.md"] },
+    { "from": "resources/skills", "to": "skills", "filter": ["**/SKILL.md", "**/images/*.png"] },
     { "from": "out/native-runtime", "to": "mcp/native" }
   ],
   "publish": null,

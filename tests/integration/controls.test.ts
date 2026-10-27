@@ -201,7 +201,7 @@ test("menus and shortcuts preserve drafts, respect dialogs and fit narrow window
     await page.getByRole("textbox", { name: "搜索工具或技能", exact: true }).fill("没有匹配项");
     await page.locator(".tools-empty").first().waitFor();
     await page.getByRole("textbox", { name: "搜索工具或技能", exact: true }).fill("");
-    assert.equal(await page.locator(".service-card").count(), 4);
+    assert.equal(await page.locator(".service-card").count(), 6);
     assert.deepEqual(errors, [], "Controls must preserve the existing CSP without runtime errors.");
   } finally {
     if (processHandle.exitCode === null) await application.close();

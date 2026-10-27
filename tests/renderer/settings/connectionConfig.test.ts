@@ -8,7 +8,7 @@ import {
 } from "../../../src/renderer/settings/connectionConfig.ts";
 import type { McpServer } from "../../../src/renderer/types.ts";
 
-test("MCP import preserves separate arguments and excludes secrets and unknown fields", () => {
+test("MCP import preserves separate arguments and explicitly configured env values", () => {
   assert.deepEqual(
     parseMcpConfig(
       JSON.stringify({
@@ -28,6 +28,7 @@ test("MCP import preserves separate arguments and excludes secrets and unknown f
       transport: "stdio",
       target: "python",
       args: ["a folder/server.py", "--name", "part one"],
+      secrets: [{ name: "DEMO_SECRET", value: "placeholder" }],
     },
   );
 });

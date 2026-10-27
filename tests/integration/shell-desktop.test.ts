@@ -13,11 +13,13 @@ test("desktop shows the complete shell command and requires confirmation before 
   const root = await mkdtemp(join(tmpdir(), "dai-shell-ui-"));
   const shell = process.platform === "win32" ? "powershell" : "bash";
   const command = `node -e "require('fs').writeFileSync('marker.txt','approved')"`;
-  const planner = await servePlanner((request) =>
-    turnResults(request).count === 0
+  const planner = await servePlanner((request) => {
+    const user = request.messages.filter((message) => message.role === "user").at(-1)?.content;
+    if (user?.includes("应用事件：用户已进入场景搭建")) return { text: "请问是什么场景？" };
+    return turnResults(request).count === 0
       ? { id: "shell-call", name: shell, args: { command } }
-      : { text: "命令已处理" },
-  );
+      : { text: "命令已处理" };
+  });
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
       (entry): entry is [string, string] =>
@@ -50,6 +52,7 @@ test("desktop shows the complete shell command and requires confirmation before 
     const project = await openTestProject(app, page, root);
     await page.getByRole("button", { name: "通用对话", exact: true }).click();
     await page.getByRole("menuitem", { name: /^场景搭建/ }).click();
+    await page.getByText("请问是什么场景？", { exact: true }).waitFor();
     await page.getByRole("textbox", { name: "消息内容" }).fill("检查场景");
     await page.getByRole("button", { name: "发送消息" }).click();
     const approval = page.getByRole("region", { name: "确认执行命令" });

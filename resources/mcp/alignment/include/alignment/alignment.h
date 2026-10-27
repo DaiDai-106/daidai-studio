@@ -3,6 +3,7 @@
 
 #include <array>
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -44,7 +45,7 @@ struct PointRef {
   std::optional<Vec3> position;
   FeatureRef feature;
 };
-enum class Operation { BOUNDS, MIN_CORNER, ALIGN_FRAME, ROTATE };
+enum class Operation { BOUNDS, MIN_CORNER, ALIGN_FRAME, ROTATE, ALIGN_DIRECTION, GROUND };
 struct Request {
   std::filesystem::path glb_path;
   std::filesystem::path manifest_path;
@@ -62,6 +63,23 @@ struct Request {
   Vec3 pivot{ 0, 0, 0 };
   double angle_degrees = 0;
   bool model_space     = false;
+  DirectionRef source_direction;
+  Vec3 target_direction{ 0, 0, 1 };
+  bool pivot_bounds_center = false;
+  std::vector<FeatureRef> contacts;
+  double ground_z = 0;
+};
+struct GroundContact {
+  FeatureRef feature;
+  double before_z;
+  double after_z;
+};
+struct ResolvedDirection {
+  Vec3 source;
+  Vec3 target;
+  Vec3 axis;
+  double angle_degrees;
+  Vec3 pivot;
 };
 struct Snapshot {
   Placement placement;
@@ -73,6 +91,8 @@ struct Result {
   std::optional<Frame> source_frame;
   std::optional<Frame> target_frame;
   std::vector<FeatureRef> used_references;
+  std::optional<ResolvedDirection> resolved_direction;
+  std::vector<GroundContact> ground_contacts;
 };
 class AlignmentError final : public std::runtime_error
 {
@@ -82,5 +102,6 @@ class AlignmentError final : public std::runtime_error
 };
 // Reads an immutable display bundle. Computes absolute proposals; never writes project files.
 [[nodiscard]] Result computeAlignment( const Request &request );
+[[nodiscard]] std::map<std::string, Bounds> computeObjectBounds( const Request &request );
 }  // namespace dai::alignment
 #endif

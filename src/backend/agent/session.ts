@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { isContextOverflow, isRetryableAssistantError } from "@earendil-works/pi-ai";
 import {
+  type AgentEvent,
   type AgentEventStream,
   defineExtension,
   GenerationTask,
@@ -13,9 +14,16 @@ import {
   section,
   watchEvents,
 } from "@earendil-works/pi-durable";
-import type { ApplicationEvent } from "../../shared/application.ts";
+import { sceneProfiles } from "../../../resources/mcp/scene-profiles/catalog.ts";
+import type {
+  ApplicationEvent,
+  ChatImage,
+  ConversationInfo,
+  SceneReference,
+} from "../../shared/application.ts";
 import type { Artifacts } from "../artifacts/store.ts";
 import type { Builtins } from "../builtin.ts";
+import { resolveMcpSecrets } from "../mcp/secrets.ts";
 import { ConversationDoc } from "../projects/documents.ts";
 import { conversationId, type Projects } from "../projects/handlers.ts";
 import type { Placements } from "../projects/placements.ts";
@@ -27,6 +35,8 @@ import { modelRequestError } from "./errors.ts";
 import { createMcpRun } from "./mcp.ts";
 import { createProjection } from "./projection.ts";
 import { systemInstructions } from "./prompts.ts";
+import { getSceneContext } from "./scene.ts";
+import { resolveSceneReference } from "./sceneReference.ts";
 import { selectSkills } from "./skills.ts";
 import type { ActiveRun, RunContext } from "./types.ts";
 
@@ -52,6 +62,50 @@ export function createSessionExtension(skillFor: (id: string) => string | undefi
       }),
     ],
   });
+}
+
+function validateInput(text: string, images: ChatImage[]) {
+  if (!text.trim() && !images.length) throw new Error("请输入消息或添加图片。");
+  let imageBytes = 0;
+  for (const image of images) {
+    if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(image.data))
+      throw new Error("图片数据无效。");
+    const bytes = Buffer.from(image.data, "base64");
+    const valid =
+      image.mimeType === "image/png"
+        ? bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+        : image.mimeType === "image/jpeg"
+          ? bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
+          : bytes.subarray(0, 4).toString() === "RIFF" &&
+            bytes.subarray(8, 12).toString() === "WEBP";
+    if (!valid || bytes.length > 5 * 1024 * 1024) throw new Error("图片格式无效或超过 5 MB。");
+    imageBytes += bytes.length;
+  }
+  if (imageBytes > 10 * 1024 * 1024) throw new Error("图片总大小不能超过 10 MB。");
+}
+
+function inputFingerprint(
+  text: string,
+  images: ChatImage[],
+  meta: ConversationInfo,
+  sceneReference?: SceneReference,
+) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        text,
+        ...(images.length ? { images } : {}),
+        ...(sceneReference ? { sceneReference } : {}),
+        modelId: meta.modelId,
+        mode: meta.mode,
+        // Default-off requests keep the pre-thinking fingerprint format.
+        ...(meta.thinkingLevel && meta.thinkingLevel !== "off"
+          ? { thinkingLevel: meta.thinkingLevel }
+          : {}),
+        ...(meta.source ? { sourceId: meta.source.id } : {}),
+      }),
+    )
+    .digest("hex");
 }
 
 export function createSession({
@@ -85,6 +139,7 @@ export function createSession({
   let watch: AgentEventStream | undefined;
   let watchedId: string | null = null;
   let epoch = 0;
+  let discardPendingEvents = () => {};
   const builtinAgent = createBuiltinAgent(
     builtins,
     () => {
@@ -93,6 +148,21 @@ export function createSession({
     },
     artifacts,
     placements,
+    projects,
+    {
+      prepare(run, name, body) {
+        if (!activeRun || activeRun.context !== run) throw new Error("场景运行已结束。");
+        const guidance = `# 当前业务场景：${name}\n此前其他业务场景的技能不适用于当前场景。\n\n${body || "当前没有专用技能。"}`;
+        const combined = [activeRun.baseSkillBody, guidance].filter(Boolean).join("\n\n");
+        if (Buffer.byteLength(combined) > 64_000)
+          throw new Error("当前模式的通用和业务场景技能说明超过 64 KB，请精简后重试。");
+        return combined;
+      },
+      apply(run, body) {
+        if (!activeRun || activeRun.context !== run) throw new Error("场景运行已结束。");
+        activeRun.skillBody = body;
+      },
+    },
     publish,
   );
   registry.install(builtinAgent.extension);
@@ -101,13 +171,40 @@ export function createSession({
       throw new Error("请先停止当前请求，再切换对话。");
     const conversation = await projects.conversation(id);
     const generation = ++epoch;
+    discardPendingEvents();
     await watch?.stop();
     const projection = createProjection(id, providers.models);
     watch = await watchEvents(harness, conversation.id, context);
     watchedId = id;
     const initial = projection.apply([watch.snapshot]);
+    let pending: AgentEvent[] = [];
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const flush = () => {
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+      if (generation !== epoch || pending.length === 0) return;
+      const batch = pending;
+      pending = [];
+      publish({ type: "conversation", view: projection.apply(batch) });
+    };
+    discardPendingEvents = () => {
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+      pending = [];
+    };
     watch.start(async (events) => {
-      if (generation === epoch) publish({ type: "conversation", view: projection.apply(events) });
+      if (generation !== epoch) return;
+      pending.push(...events);
+      if (
+        events.some(
+          (event) =>
+            event.type === "run_end" ||
+            event.type === "task_failed" ||
+            (event.type === "submission" && event.record.status === "unanswered"),
+        )
+      )
+        flush();
+      else timer ??= setTimeout(flush, 50);
     });
     return initial;
   }
@@ -147,9 +244,248 @@ export function createSession({
     const flushFailure = flushed.find((result) => result.status === "rejected");
     if (flushFailure?.status === "rejected") throw flushFailure.reason;
   }
+  async function sendMessage(
+    {
+      id,
+      requestId,
+      text,
+      images = [],
+      sceneReference,
+    }: import("../../shared/application.ts").Arguments<"conversation.send">,
+    sceneIntro = false,
+  ) {
+    validateInput(text, images);
+    const meta = await projects.metadata(id);
+    const fingerprint = inputFingerprint(text, images, meta, sceneReference);
+    const existing = await storage.submissionByRequest(conversationId(id), requestId, context);
+    if (existing) {
+      if (existing.type === "input" && existing.entry !== undefined) {
+        const entry = await storage.entry(existing.entry, context);
+        if (
+          entry?.entry.data &&
+          typeof entry.entry.data === "object" &&
+          !Array.isArray(entry.entry.data) &&
+          entry.entry.data.fingerprint !== fingerprint
+        )
+          throw new Error("发送标识与原请求内容不一致。");
+      }
+      return { submissionId: String(existing.id) };
+    }
+    idle();
+    if (meta.archived) throw new Error("请先恢复此对话。");
+    if (meta.mode === "scene") {
+      for (const name of ["scene-building", "scene-alignment"])
+        if (!builtins.skills.get(name)) throw new Error(`缺少基础技能 ${name}，请检查内置资源。`);
+    }
+    const project = await projects.visible(meta.projectId);
+    const config = settings
+      .read()
+      .providers.find(
+        (provider) =>
+          provider.enabled &&
+          provider.models.some((model) => `${provider.id}:${model.id}` === meta.modelId),
+      );
+    if (!config) throw new Error("请为此对话选择有效模型。");
+    const model = config.models.find((model) => `${config.id}:${model.id}` === meta.modelId);
+    if (!model || !(await providers.models.checkAuth(config.id)))
+      throw new Error("模型服务尚未认证，请在 AI 设置中重新配置。");
+    if (images.length && !providers.models.getModel(config.id, model.id)?.input.includes("image"))
+      throw new Error("当前模型不支持图片输入，请切换模型或移除图片。");
+    const conversation = await projects.conversation(id);
+    const run: ActiveRun = {
+      conversationId: id,
+      scene: meta.mode === "scene",
+      context: null,
+      skillBody: null,
+      baseSkillBody: null,
+      mcp: null,
+    };
+    activeRun = run;
+    try {
+      const skills = selectSkills(settings.read().skills ?? [], meta.mode, project.id);
+      run.skillBody = skills.body;
+      run.baseSkillBody = skills.body;
+      const enabled = meta.mode === "scene";
+      const availableBuiltinTools = enabled
+        ? builtinAgent.tools(
+            settings.enabled,
+            !!providers.models.getModel(config.id, model.id)?.input.includes("image"),
+          )
+        : [];
+      const builtinTools = sceneIntro
+        ? availableBuiltinTools.filter((tool) => tool.name === "scene_list_profiles")
+        : availableBuiltinTools;
+      const external = sceneIntro
+        ? null
+        : createMcpRun(
+            registry,
+            settings.read().mcpServers ?? [],
+            meta.mode,
+            project,
+            id,
+            builtinTools,
+            (server) => resolveMcpSecrets(settings, server, server),
+          );
+      run.mcp = external;
+      const tools = [...builtinTools, ...(external?.tools ?? [])];
+      const toolNames = tools.map((tool) => tool.name);
+      if (enabled) {
+        const scenarioSkills = (settings.read().skills ?? [])
+          .filter(
+            (skill) =>
+              skill.enabled &&
+              skill.sceneProfile &&
+              skill.modes.includes("scene") &&
+              (skill.scope.kind === "global" || skill.scope.projectId === project.id),
+          )
+          .map(({ id, name, description, body, sceneProfile, images }) => ({
+            id,
+            name,
+            description,
+            body,
+            sceneProfile: sceneProfile as string,
+            ...(images?.length ? { images } : {}),
+          }));
+        const selection = await projects.sceneProfile(project.id, meta.source?.id ?? null);
+        const profileId = selection?.id ?? null;
+        const profile =
+          settings.enabled("builtin.scene-profiles") && profileId
+            ? (await sceneProfiles(builtins.skillsRoot, scenarioSkills)).find(
+                (item) => item.id === profileId,
+              )
+            : undefined;
+        if (profileId)
+          run.skillBody = [
+            run.skillBody,
+            `# 当前业务场景：${profile?.name ?? profileId}\n此前其他业务场景的技能不适用于当前场景。\n\n${profile?.body || "当前没有专用技能。"}`,
+          ]
+            .filter(Boolean)
+            .join("\n\n");
+        if (run.skillBody && Buffer.byteLength(run.skillBody) > 64_000)
+          throw new Error("当前模式的通用和业务场景技能说明超过 64 KB，请精简后重试。");
+        let source: RunContext["source"] = null;
+        if (meta.source) {
+          try {
+            const file = await resolveStepPath(project.path, meta.source.relativePath);
+            const hash = await fileHash(file.path, 512 * 1024 * 1024);
+            source = { ...meta.source, path: file.path, sha256: hash.sha256 };
+          } catch {
+            // Keep discussion available; the import tool reports the missing source.
+          }
+        }
+        run.context = {
+          conversationId: id,
+          project,
+          source,
+          sourceId: meta.source?.id ?? null,
+          selectedSourcePath: meta.source ? join(project.path, meta.source.relativePath) : null,
+          sceneProfileId: profileId,
+          sceneProfileScope: selection?.scope ?? null,
+          sceneProfileSkillAvailable: !!profile?.body,
+          sceneSkills: scenarioSkills,
+          skill:
+            [builtins.skills.get("scene-building"), builtins.skills.get("scene-alignment")]
+              .filter(Boolean)
+              .join("\n\n") || null,
+        };
+      } else run.context = null;
+      if (sceneReference && !run.context) throw new Error("只有场景模式可以引用场景对象。");
+      const resolvedReference =
+        sceneReference && run.context
+          ? await resolveSceneReference(
+              sceneReference,
+              await getSceneContext(run.context, artifacts, placements),
+            )
+          : undefined;
+      const inputText = resolvedReference
+        ? `${text}${text ? "\n\n" : ""}用户引用的场景对象：${JSON.stringify(resolvedReference)}`
+        : text;
+      await conversation.configure(
+        {
+          model: { provider: config.id, modelId: model.id },
+          thinkingLevel: meta.thinkingLevel ?? "off",
+          extensions: [
+            extension,
+            ...(enabled ? [builtinAgent.extension] : []),
+            ...(external ? [external.extension] : []),
+          ],
+          tools,
+          modelTools: tools,
+          instructions: systemInstructions(meta.mode, toolNames, !!external),
+        },
+        context,
+      );
+      if (watchedId !== id) await watchConversation(id);
+      const submission = await conversation.submit(
+        {
+          type: "input",
+          requestId,
+          whenBusy: "reject",
+          content: images.length
+            ? [
+                ...(inputText ? [{ type: "text" as const, text: inputText }] : []),
+                ...images.map((image) => ({ type: "image" as const, ...image })),
+              ]
+            : inputText,
+          entry: {
+            kind: sceneIntro ? "app.scene-start" : "app.input",
+            data: {
+              fingerprint,
+              model: { provider: config.id, modelId: model.id },
+              mode: meta.mode,
+              thinkingLevel: meta.thinkingLevel ?? "off",
+              skills: skills.metadata,
+              mcpServers: external?.metadata ?? [],
+              sourceId: run.context?.sourceId ?? null,
+              sourceHash: run.context?.source?.sha256 ?? null,
+              ...(resolvedReference ? { sceneReference: resolvedReference } : {}),
+              tools: toolNames,
+              skillHash: run.context?.skill
+                ? createHash("sha256").update(run.context.skill).digest("hex")
+                : null,
+            },
+          },
+        },
+        context,
+      );
+      await harness.commit(async (tx) => {
+        const document = await tx.doc(ConversationDoc, conversation.id);
+        if (!sceneIntro) {
+          if (document.title === "新建对话") document.title = text.slice(0, 40);
+          document.draft = "";
+          if (meta.mode === "scene") document.sceneHasInput = true;
+        }
+        document.interrupted = false;
+      }, context);
+      changed();
+      void submission
+        .wait(context)
+        .finally(() => finishRun(run, "finished"))
+        .catch(() => {
+          console.error("Conversation ended unexpectedly; provider details omitted.");
+        });
+      return { submissionId: String(submission.id) };
+    } catch (error) {
+      try {
+        await finishRun(run, "failed");
+      } finally {
+        changed();
+      }
+      throw error;
+    }
+  }
   const handlers: Handlers<
-    "conversation.watch" | "conversation.send" | "conversation.stop" | "shell.respond"
+    | "conversation.watch"
+    | "conversation.send"
+    | "conversation.startScene"
+    | "conversation.stop"
+    | "shell.respond"
+    | "viewport.respond"
   > = {
+    async "viewport.respond"({ id, capture }) {
+      builtinAgent.viewport.respond(id, capture);
+      return null;
+    },
     async "shell.respond"({ id, approved }) {
       builtinAgent.shell.respond(id, approved);
       return null;
@@ -157,191 +493,52 @@ export function createSession({
     async "conversation.watch"({ id }) {
       return watchConversation(id);
     },
-    async "conversation.send"({ id, requestId, text, images = [] }) {
-      if (!text.trim() && !images.length) throw new Error("请输入消息或添加图片。");
-      let imageBytes = 0;
-      for (const image of images) {
-        if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(image.data))
-          throw new Error("图片数据无效。");
-        const bytes = Buffer.from(image.data, "base64");
-        const valid =
-          image.mimeType === "image/png"
-            ? bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
-            : image.mimeType === "image/jpeg"
-              ? bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
-              : bytes.subarray(0, 4).toString() === "RIFF" &&
-                bytes.subarray(8, 12).toString() === "WEBP";
-        if (!valid || bytes.length > 5 * 1024 * 1024) throw new Error("图片格式无效或超过 5 MB。");
-        imageBytes += bytes.length;
-      }
-      if (imageBytes > 10 * 1024 * 1024) throw new Error("图片总大小不能超过 10 MB。");
+    async "conversation.send"(args) {
+      return sendMessage(args);
+    },
+    async "conversation.startScene"({ id }) {
       const meta = await projects.metadata(id);
-      const fingerprint = createHash("sha256")
-        .update(
-          JSON.stringify({
-            text,
-            ...(images.length ? { images } : {}),
-            modelId: meta.modelId,
-            mode: meta.mode,
-            // Default-off requests keep the pre-thinking fingerprint format.
-            ...(meta.thinkingLevel && meta.thinkingLevel !== "off"
-              ? { thinkingLevel: meta.thinkingLevel }
-              : {}),
-            ...(meta.source ? { sourceId: meta.source.id } : {}),
-          }),
-        )
-        .digest("hex");
-      const existing = await storage.submissionByRequest(conversationId(id), requestId, context);
-      if (existing) {
-        if (existing.type === "input" && existing.entry !== undefined) {
-          const entry = await storage.entry(existing.entry, context);
-          if (
-            entry?.entry.data &&
-            typeof entry.entry.data === "object" &&
-            !Array.isArray(entry.entry.data) &&
-            entry.entry.data.fingerprint !== fingerprint
+      if (meta.mode !== "scene") throw new Error("请先进入场景搭建模式。");
+      const record = await harness.snapshot(ConversationDoc, conversationId(id), context);
+      if (record?.sceneHasInput) return null;
+      let requestId = `scene-start:${id}`;
+      let previous = await storage.submissionByRequest(conversationId(id), requestId, context);
+      while (previous?.status === "unanswered") {
+        requestId = `scene-start:${id}:${previous.id}`;
+        previous = await storage.submissionByRequest(conversationId(id), requestId, context);
+      }
+      if (previous) return null;
+      // Older conversations have no sceneHasInput flag; do not reintroduce an established scene.
+      let cursor: import("@earendil-works/pi-durable").Cursor | undefined;
+      do {
+        const entries = await storage.scanEntries(
+          { conversationId: conversationId(id), order: "ascending" },
+          100,
+          cursor,
+          context,
+        );
+        if (
+          entries.items.some(
+            (entry) =>
+              entry.kind === "app.input" &&
+              entry.data &&
+              typeof entry.data === "object" &&
+              !Array.isArray(entry.data) &&
+              entry.data.mode === "scene",
           )
-            throw new Error("发送标识与原请求内容不一致。");
-        }
-        return { submissionId: String(existing.id) };
-      }
-      idle();
-      if (meta.archived) throw new Error("请先恢复此对话。");
-      if (meta.mode === "scene") {
-        for (const name of ["scene-building", "scene-alignment"])
-          if (!builtins.skills.get(name)) throw new Error(`缺少基础技能 ${name}，请检查内置资源。`);
-      }
-      const project = await projects.visible(meta.projectId);
-      const config = settings
-        .read()
-        .providers.find(
-          (provider) =>
-            provider.enabled &&
-            provider.models.some((model) => `${provider.id}:${model.id}` === meta.modelId),
-        );
-      if (!config) throw new Error("请为此对话选择有效模型。");
-      const model = config.models.find((model) => `${config.id}:${model.id}` === meta.modelId);
-      if (!model || !(await providers.models.checkAuth(config.id)))
-        throw new Error("模型服务尚未认证，请在 AI 设置中重新配置。");
-      if (images.length && !providers.models.getModel(config.id, model.id)?.input.includes("image"))
-        throw new Error("当前模型不支持图片输入，请切换模型或移除图片。");
-      const conversation = await projects.conversation(id);
-      const run: ActiveRun = {
-        conversationId: id,
-        scene: meta.mode === "scene",
-        context: null,
-        skillBody: null,
-        mcp: null,
-      };
-      activeRun = run;
-      try {
-        const skills = selectSkills(settings.read().skills ?? [], meta.mode, project.id);
-        run.skillBody = skills.body;
-        const enabled = meta.mode === "scene";
-        const builtinTools = enabled ? builtinAgent.tools(settings.enabled) : [];
-        const external = createMcpRun(
-          registry,
-          settings.read().mcpServers ?? [],
-          meta.mode,
-          project,
+        )
+          return null;
+        cursor = entries.next;
+      } while (cursor);
+      await sendMessage(
+        {
           id,
-          builtinTools,
-        );
-        run.mcp = external;
-        const tools = [...builtinTools, ...(external?.tools ?? [])];
-        const toolNames = tools.map((tool) => tool.name);
-        if (enabled) {
-          let source: RunContext["source"] = null;
-          if (meta.source) {
-            try {
-              const file = await resolveStepPath(project.path, meta.source.relativePath);
-              const hash = await fileHash(file.path, 512 * 1024 * 1024);
-              source = { ...meta.source, path: file.path, sha256: hash.sha256 };
-            } catch {
-              // Keep discussion available; the import tool reports the missing source.
-            }
-          }
-          run.context = {
-            conversationId: id,
-            project,
-            source,
-            sourceId: meta.source?.id ?? null,
-            selectedSourcePath: meta.source ? join(project.path, meta.source.relativePath) : null,
-            skill:
-              [builtins.skills.get("scene-building"), builtins.skills.get("scene-alignment")]
-                .filter(Boolean)
-                .join("\n\n") || null,
-          };
-        } else run.context = null;
-        await conversation.configure(
-          {
-            model: { provider: config.id, modelId: model.id },
-            thinkingLevel: meta.thinkingLevel ?? "off",
-            extensions: [
-              extension,
-              ...(enabled ? [builtinAgent.extension] : []),
-              ...(external ? [external.extension] : []),
-            ],
-            tools,
-            modelTools: tools,
-            instructions: systemInstructions(meta.mode, toolNames, !!external),
-          },
-          context,
-        );
-        if (watchedId !== id) await watchConversation(id);
-        const submission = await conversation.submit(
-          {
-            type: "input",
-            requestId,
-            whenBusy: "reject",
-            content: images.length
-              ? [
-                  ...(text ? [{ type: "text" as const, text }] : []),
-                  ...images.map((image) => ({ type: "image" as const, ...image })),
-                ]
-              : text,
-            entry: {
-              kind: "app.input",
-              data: {
-                fingerprint,
-                model: { provider: config.id, modelId: model.id },
-                mode: meta.mode,
-                thinkingLevel: meta.thinkingLevel ?? "off",
-                skills: skills.metadata,
-                mcpServers: external?.metadata ?? [],
-                sourceId: run.context?.sourceId ?? null,
-                sourceHash: run.context?.source?.sha256 ?? null,
-                tools: toolNames,
-                skillHash: run.context?.skill
-                  ? createHash("sha256").update(run.context.skill).digest("hex")
-                  : null,
-              },
-            },
-          },
-          context,
-        );
-        await harness.commit(async (tx) => {
-          const document = await tx.doc(ConversationDoc, conversation.id);
-          if (document.title === "新建对话") document.title = text.slice(0, 40);
-          document.draft = "";
-          document.interrupted = false;
-        }, context);
-        changed();
-        void submission
-          .wait(context)
-          .finally(() => finishRun(run, "finished"))
-          .catch(() => {
-            console.error("Conversation ended unexpectedly; provider details omitted.");
-          });
-        return { submissionId: String(submission.id) };
-      } catch (error) {
-        try {
-          await finishRun(run, "failed");
-        } finally {
-          changed();
-        }
-        throw error;
-      }
+          requestId,
+          text: "应用事件：用户已进入场景搭建，尚未提出本轮任务。若场景尚未确定且可用，请调用 scene_list_profiles 后询问业务场景和用户希望完成的任务；若场景已确定，只询问任务。只提问，不执行场景操作。",
+        },
+        true,
+      );
+      return null;
     },
     async "conversation.stop"({ id }) {
       const conversation = await projects.conversation(id);
@@ -354,6 +551,7 @@ export function createSession({
   };
   async function unwatch() {
     ++epoch;
+    discardPendingEvents();
     await watch?.stop();
     watch = undefined;
     watchedId = null;

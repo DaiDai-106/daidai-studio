@@ -1,6 +1,6 @@
-import type { Dirent } from "node:fs";
-import { lstat, readdir, realpath } from "node:fs/promises";
-import { basename, join, relative, sep } from "node:path";
+import { lstat, realpath } from "node:fs/promises";
+import { basename } from "node:path";
+import { listSteps } from "../../../resources/mcp/scene-profiles/steps.ts";
 import type { ProjectInfo } from "../../shared/application.ts";
 import { fileHash, resolveStepPath } from "./source.ts";
 
@@ -15,36 +15,12 @@ export async function projectFiles(project: {
   path: string;
 }): Promise<ProjectInfo> {
   const info = { id: project.id, name: project.name, path: project.path };
-  const files: string[] = [];
-  const pending = [project.path];
-  let inspected = 0;
   try {
     await projectDirectory(project.path);
-    while (pending.length && inspected < 2000 && files.length < 200) {
-      const directory = pending.pop();
-      if (!directory) break;
-      let entries: Dirent[];
-      try {
-        entries = await readdir(directory, { withFileTypes: true });
-      } catch (error) {
-        if (directory === project.path) throw error;
-        // An unreadable child must not hide STEP files in accessible directories.
-        continue;
-      }
-      for (const entry of entries) {
-        if (++inspected > 2000 || files.length >= 200) break;
-        if (entry.isSymbolicLink() || entry.name.startsWith(".") || entry.name === "node_modules")
-          continue;
-        const path = join(directory, entry.name);
-        const local = relative(project.path, path);
-        if (entry.isDirectory() && local.split(sep).length < 6) pending.push(path);
-        else if (entry.isFile() && /\.(step|stp)$/i.test(entry.name))
-          files.push(local.split(sep).join("/"));
-      }
-    }
-    return { ...info, files: files.sort(), available: true };
+    const steps = await listSteps(project.path);
+    return { ...info, files: steps.files, filesComplete: steps.complete, available: true };
   } catch {
-    return { ...info, files: [], available: false };
+    return { ...info, files: [], filesComplete: false, available: false };
   }
 }
 

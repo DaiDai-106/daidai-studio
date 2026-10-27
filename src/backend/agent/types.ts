@@ -7,9 +7,13 @@ export interface RunContext {
   readonly conversationId: string;
   readonly project: { readonly id: string; readonly path: string };
   // Source identity survives missing/changed files; source below is only the readable import snapshot.
-  readonly sourceId: string | null;
-  readonly selectedSourcePath: string | null;
-  readonly source: {
+  sourceId: string | null;
+  selectedSourcePath: string | null;
+  sceneProfileId?: string | null;
+  sceneProfileScope?: "project" | "source" | null;
+  sceneProfileSkillAvailable?: boolean;
+  readonly sceneSkills?: import("../../../resources/mcp/scene-profiles/catalog.ts").SceneSkill[];
+  source: {
     readonly id: string;
     readonly path: string;
     readonly relativePath: string;
@@ -26,12 +30,16 @@ export interface ActiveRun {
   // Frozen scene target; ordinary chat has no CAD authorization context.
   context: RunContext | null;
   skillBody: string | null;
+  baseSkillBody: string | null;
   // External MCP connections owned by this run; built-ins have their own lifecycle.
   mcp: ReturnType<typeof createMcpRun>;
 }
 
 // The current desktop target, shared by prompt sections and recoverable authorization errors.
 export interface SceneContext {
+  sceneProfileId: string | null;
+  sceneProfileScope: "project" | "source" | null;
+  sceneProfileSkillAvailable: boolean;
   currentDisplay: {
     importId: string;
     sourceHash: string;
@@ -46,7 +54,7 @@ export interface SceneContext {
     placement: string | null;
     catalogError: { code: string; message: string } | null;
   } | null;
-  sourceStatus: "current" | "changed" | "missing";
+  sourceStatus: "current" | "changed" | "missing" | "unselected";
   selectedSourcePath: string | null;
   currentFileHash: string | null;
 }

@@ -14,6 +14,11 @@ export const CapabilityScopeSchema = Type.Union([
   object({ kind: Type.Literal("project"), projectId: id }),
 ]);
 export type CapabilityScope = Static<typeof CapabilityScopeSchema>;
+export const SkillImageSchema = object({
+  name: Type.String({ minLength: 1, maxLength: 200 }),
+  path: Type.String({ pattern: "^images/[0-9a-f-]{36}\\.(png|jpg|webp)$" }),
+});
+export type SkillImage = Static<typeof SkillImageSchema>;
 export const SkillConfigSchema = object({
   id,
   name: Type.String({ minLength: 1, maxLength: 100 }),
@@ -26,6 +31,8 @@ export const SkillConfigSchema = object({
     maxItems: 2,
     uniqueItems: true,
   }),
+  sceneProfile: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
+  images: Type.Optional(Type.Array(SkillImageSchema, { maxItems: 30 })),
 });
 export type SkillConfig = Static<typeof SkillConfigSchema>;
 const mcp = {
@@ -35,6 +42,16 @@ const mcp = {
   scope: CapabilityScopeSchema,
   modes: SkillConfigSchema.properties.modes,
   timeoutMs: Type.Integer({ minimum: 1000, maximum: 300000 }),
+  // Values are sent only when editing. Saved configurations expose names, never values.
+  secrets: Type.Optional(
+    Type.Array(
+      object({
+        name: Type.String({ minLength: 1, maxLength: 200 }),
+        value: Type.Optional(Type.String({ maxLength: 8192 })),
+      }),
+      { maxItems: 100 },
+    ),
+  ),
 };
 export const McpConfigSchema = Type.Union([
   object({

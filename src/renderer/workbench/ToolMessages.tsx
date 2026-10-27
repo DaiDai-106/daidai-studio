@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { Icon } from "../components/Icon.tsx";
-import { durationLabel, type ToolRowData, toolSummary } from "./transcript.ts";
+import {
+  alignmentResultSummary,
+  durationLabel,
+  type ToolRowData,
+  toolSummary,
+} from "./transcript.ts";
 
 const phases: Record<string, string> = {
   verify_source: "核对文件版本",
@@ -23,7 +28,8 @@ const labels = {
 
 export function ToolCall({ tool, onInteract }: { tool: ToolRowData; onInteract(): void }) {
   const [open, setOpen] = useState(false);
-  const summary = toolSummary(tool.name, tool.args);
+  const summary = toolSummary(tool.displayName ?? tool.name, tool.args);
+  const resultSummary = alignmentResultSummary(tool);
   const status =
     tool.status === "running" ? (phases[tool.phase ?? ""] ?? labels.running) : labels[tool.status];
   return (
@@ -62,6 +68,7 @@ export function ToolCall({ tool, onInteract }: { tool: ToolRowData; onInteract()
               {summary}
             </span>
           )}
+          {resultSummary && <span className="tool-argument-summary">{resultSummary}</span>}
         </span>
         <small>
           {durationLabel(tool.durationMs)} {status}
@@ -74,6 +81,19 @@ export function ToolCall({ tool, onInteract }: { tool: ToolRowData; onInteract()
           <pre>{tool.args ? JSON.stringify(tool.args, null, 2) : "此历史记录没有可用参数。"}</pre>
         </section>
         {tool.argsTruncated && <p className="preview-note">参数预览已截断。</p>}
+        {!!tool.images?.length && (
+          <figure className="tool-capture">
+            <figcaption>
+              提供给助手的视口 · 视角{" "}
+              {typeof tool.args?.view === "string" ? tool.args.view : "current"}
+              {typeof tool.args?.revision === "number" ? ` · 场景版本 ${tool.args.revision}` : ""}
+            </figcaption>
+            <img
+              src={`data:${tool.images[0]?.mimeType};base64,${tool.images[0]?.data}`}
+              alt="提供给助手的场景视口截图"
+            />
+          </figure>
+        )}
         <div className="tool-detail-heading">
           {tool.status === "failed" ? "错误结果" : "返回内容"}
         </div>

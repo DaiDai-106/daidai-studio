@@ -141,7 +141,6 @@ test("real Harness display results persist once, load CAD geometry, and recover 
         loaded.root.traverse((object) => {
           if (!(object instanceof Mesh)) return;
           identities.add(object.userData.sceneObjectId);
-          assert.ok(object.userData.cadPrimitive);
         });
         assert.equal(
           identities.size,

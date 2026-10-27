@@ -9,6 +9,7 @@ export function selectSkills(
   const selected = skills.filter(
     (skill) =>
       skill.enabled &&
+      !skill.sceneProfile &&
       skill.modes.includes(mode) &&
       (skill.scope.kind === "global" || skill.scope.projectId === projectId),
   );

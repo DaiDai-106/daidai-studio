@@ -295,6 +295,21 @@
   padding: 4px 0 10px;
   color: var(--text);
 }
+.tool-capture {
+  margin: 10px 0;
+}
+.tool-capture figcaption {
+  color: var(--muted);
+  font-size: 10px;
+  margin-bottom: 6px;
+}
+.tool-capture img {
+  display: block;
+  max-width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  border-radius: 8px;
+}
 .tool-detail-heading {
   font-size: 10px;
   color: var(--muted);

@@ -6,6 +6,8 @@ import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { TSchema } from "typebox";
 import { alignmentTools } from "../../resources/mcp/alignment/contract.ts";
 import { cadTools } from "../../resources/mcp/cad/contract.ts";
+import { sceneProfileTools } from "../../resources/mcp/scene-profiles/contract.ts";
+import { viewportTools } from "../../resources/mcp/viewport/contract.ts";
 import { registerMcpTool } from "../../src/backend/agent/mcpTool.ts";
 import { createProviders, modelChoice } from "../../src/backend/settings/providers.ts";
 
@@ -51,22 +53,24 @@ for (const providerId of ["deepseek", "openai", "anthropic", "google"]) {
       ]);
       const model = providers.models.getModel(id, nativeModel.id);
       assert.ok(model);
-      const tools = [...cadTools, ...alignmentTools].map((tool) => ({
-        ...registerMcpTool({
-          name: tool.name,
-          serverName: "cad-mcp",
-          tool,
-          target() {
-            assert.fail("Schema capture must not execute a tool");
-          },
-          async invoke() {
-            assert.fail("Schema capture must not execute a tool");
-          },
+      const tools = [...cadTools, ...alignmentTools, ...viewportTools, ...sceneProfileTools].map(
+        (tool) => ({
+          ...registerMcpTool({
+            name: tool.name,
+            serverName: "cad-mcp",
+            tool,
+            target() {
+              assert.fail("Schema capture must not execute a tool");
+            },
+            async invoke() {
+              assert.fail("Schema capture must not execute a tool");
+            },
+          }),
+          ...(strict
+            ? { constrainedSampling: { type: "json_schema" as const, strict: "prefer" as const } }
+            : {}),
         }),
-        ...(strict
-          ? { constrainedSampling: { type: "json_schema" as const, strict: "prefer" as const } }
-          : {}),
-      }));
+      );
       let captured: unknown;
       let networkRequests = 0;
       const originalFetch = globalThis.fetch;
@@ -102,8 +106,11 @@ for (const providerId of ["deepseek", "openai", "anthropic", "google"]) {
       // Pi may also add protocol helpers, such as Anthropic's deferred-tool placeholder.
       const functions = wireTools
         .flatMap((tool) => tool.functionDeclarations ?? [tool.function ?? tool])
-        .filter((tool) => tool.name.startsWith("cad_") || tool.name.startsWith("alignment_"));
-      assert.equal(functions.length, 16);
+        .filter((tool) => tools.some((registered) => registered.name === tool.name));
+      assert.equal(
+        functions.length,
+        cadTools.length + alignmentTools.length + viewportTools.length + sceneProfileTools.length,
+      );
       for (const tool of tools) {
         const fn = functions.find((item) => item.name === tool.name) as WireTool | undefined;
         assert.ok(fn, tool.name);

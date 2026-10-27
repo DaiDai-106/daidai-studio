@@ -13,5 +13,6 @@ export interface BuiltinMcpDefinition {
   serverPath: string;
   configuration: object;
   sceneStorage?: boolean;
+  sceneSkills?: boolean;
   toolDescriptions?: Readonly<Record<string, string>>;
 }

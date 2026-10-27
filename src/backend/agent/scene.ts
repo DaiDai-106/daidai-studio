@@ -56,6 +56,9 @@ export async function getSceneContext(
   await placements.flush();
   const model = run.sourceId ? await artifacts.get(run.sourceId) : null;
   return {
+    sceneProfileId: run.sceneProfileId ?? null,
+    sceneProfileScope: run.sceneProfileScope ?? null,
+    sceneProfileSkillAvailable: run.sceneProfileSkillAvailable ?? false,
     currentDisplay: model
       ? {
           importId: model.importId,
@@ -69,7 +72,9 @@ export async function getSceneContext(
       ? model && model.sourceHash !== run.source.sha256
         ? "changed"
         : "current"
-      : "missing",
+      : run.sourceId
+        ? "missing"
+        : "unselected",
     selectedSourcePath: run.selectedSourcePath ?? run.source?.path ?? null,
     currentFileHash: run.source?.sha256 ?? null,
   };

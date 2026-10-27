@@ -36,8 +36,8 @@ interface Props {
   onDefault: (id: string) => void;
   servers: McpServer[];
   skills: Skill[];
-  onServers: (items: McpServer[]) => void;
-  onSkills: (items: Skill[]) => void;
+  onServers: (items: McpServer[]) => Promise<boolean>;
+  onSkills: (items: Skill[]) => Promise<boolean>;
   onInspect: (server: McpServer, projectId: string) => Promise<McpInspection>;
   onCancelInspection: (id: string) => Promise<unknown>;
   project: Project | undefined;

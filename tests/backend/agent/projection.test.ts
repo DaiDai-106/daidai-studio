@@ -164,6 +164,71 @@ function toolEntry(id: number, callId: string, content: string, isError = false)
   };
 }
 
+test("projection exposes only a bounded built-in viewport image in live and restored tool results", () => {
+  const { models, model } = setup();
+  const message = assistant(model.id);
+  message.content = [
+    {
+      type: "toolCall",
+      id: "view",
+      name: "viewport_capture",
+      arguments: { revision: 3, view: "+Z" },
+    },
+  ];
+  const viewport: EntryRecord = {
+    id: 2 as EntryId,
+    conversationId: 1 as ConversationId,
+    kind: "pi.tool",
+    model: [
+      {
+        role: "toolResult",
+        toolCallId: "view",
+        toolName: "viewport_capture",
+        content: [
+          { type: "text", text: '{"revision":3,"view":"+Z"}' },
+          { type: "image", mimeType: "image/png", data: "aGVsbG8=" },
+          { type: "image", mimeType: "image/png", data: "d29ybGQ=" },
+        ],
+        details: { serverName: "viewport-mcp", toolName: "viewport_capture" },
+        isError: false,
+        timestamp: 20,
+      },
+    ],
+  };
+  const projection = createProjection("1", models);
+  const live = projection.apply([
+    { type: "entry_appended", entry: entry(message) },
+    { type: "entry_appended", entry: viewport },
+  ]);
+  assert.deepEqual(live.messages[1]?.images, [{ mimeType: "image/png", data: "aGVsbG8=" }]);
+  assert.equal(live.messages[1]?.tool?.args?.revision, 3);
+  validateResult("conversation.watch", live);
+  const restored = createProjection("1", models).apply([
+    snapshot([entry(message), viewport], message),
+  ]);
+  assert.deepEqual(restored.messages[1]?.images, live.messages[1]?.images);
+  const result = viewport.model?.[0];
+  assert.ok(result && result.role === "toolResult");
+  const external = {
+    ...viewport,
+    id: 3 as EntryId,
+    model: [{ ...result, toolName: "mcp_123_viewport_capture" }],
+  };
+  const externalView = createProjection("1", models).apply([snapshot([external], message)]);
+  assert.equal(externalView.messages[0]?.images, undefined);
+  const invalid = {
+    ...viewport,
+    id: 4 as EntryId,
+    model: [
+      { ...result, content: [{ type: "image" as const, mimeType: "image/gif", data: "aGVsbG8=" }] },
+    ],
+  };
+  assert.equal(
+    createProjection("1", models).apply([snapshot([invalid], message)]).messages[0]?.images,
+    undefined,
+  );
+});
+
 test("tool details retain arguments, stable identity, bounded output and stopped status across live and history", () => {
   const { models, model } = setup();
   const message = assistant(model.id);

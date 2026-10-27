@@ -94,7 +94,14 @@ export async function loadBuiltinMcp(definition: BuiltinMcpDefinition, temporary
     } satisfies BuiltinCatalog["servers"][number],
     release,
     close: release,
-    async open(project: { path: string; sceneRoot: string }, signal?: AbortSignal) {
+    async open(
+      project: {
+        path: string;
+        sceneRoot: string;
+        sceneSkills?: import("../../../resources/mcp/scene-profiles/catalog.ts").SceneSkill[];
+      },
+      signal?: AbortSignal,
+    ) {
       if (!definition.available)
         throw new Error(`${definition.name} 原生程序尚未安装，请先构建对应模块。`);
       signal?.throwIfAborted();
@@ -108,6 +115,7 @@ export async function loadBuiltinMcp(definition: BuiltinMcpDefinition, temporary
             ...definition.configuration,
             projectRoot: project.path,
             ...(definition.sceneStorage ? { sceneRoot: project.sceneRoot } : {}),
+            ...(definition.sceneSkills ? { sceneSkills: project.sceneSkills ?? [] } : {}),
           },
           temporaryRoot,
           signal,

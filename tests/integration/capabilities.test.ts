@@ -116,6 +116,15 @@ test("capabilities separate skills from MCP, preview English CAD tool summaries 
     const imported = page.getByRole("dialog", { name: "导入技能", exact: true });
     await imported.getByRole("button", { name: "填入示例技能", exact: true }).click();
     await imported.getByRole("button", { name: "解析并预览", exact: true }).click();
+    await imported.getByLabel("业务场景（可选）", { exact: true }).selectOption("steel-structure");
+    await imported
+      .getByLabel("参考图片", { exact: true })
+      .setInputFiles(resolve("resources/skills/steel-structure/images/upright-reference.png"));
+    await imported.getByRole("img", { name: "upright-reference.png", exact: true }).waitFor();
+    assert.match(
+      await imported.getByLabel("Markdown 正文", { exact: true }).inputValue(),
+      /images\/.*\.png/,
+    );
     await imported.getByRole("button", { name: "保存技能", exact: true }).click();
     await skillSection.getByRole("heading", { name: "step-review", exact: true }).waitFor();
     await page.getByRole("button", { name: "返回工作台", exact: true }).click();
@@ -123,7 +132,7 @@ test("capabilities separate skills from MCP, preview English CAD tool summaries 
       .locator(".sidebar-footer")
       .getByRole("button", { name: "工具与技能", exact: true })
       .click();
-    assert.equal(await page.locator(".service-card").count(), 6);
+    assert.equal(await page.locator(".service-card").count(), 8);
     await page.waitForFunction(async () =>
       (await window.desktop.application.getWorkspace()).settings.skills.some(
         (skill) => skill.name === "step-review",
@@ -152,13 +161,16 @@ test("capabilities separate skills from MCP, preview English CAD tool summaries 
     );
     await savedSkill.getByRole("button", { name: "编辑技能", exact: true }).click();
     const edit = page.getByRole("dialog", { name: "编辑技能", exact: true });
+    await edit.getByRole("img", { name: "upright-reference.png", exact: true }).waitFor();
+    await edit.getByRole("button", { name: "移除", exact: true }).click();
     await edit
       .getByLabel("Markdown 正文", { exact: true })
       .fill("使用当前场景事实检查装配，不假定关节参数。");
     await edit.getByRole("button", { name: "保存技能", exact: true }).click();
     await page.waitForFunction(async () =>
       (await window.desktop.application.getWorkspace()).settings.skills.some(
-        (skill) => skill.body === "使用当前场景事实检查装配，不假定关节参数。",
+        (skill) =>
+          skill.body === "使用当前场景事实检查装配，不假定关节参数。" && !skill.images?.length,
       ),
     );
     await savedSkill.getByRole("button", { name: "移除", exact: true }).click();

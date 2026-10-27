@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { alignmentPlugin } from "../../resources/mcp/alignment/builtin.ts";
 import { cadPlugin } from "../../resources/mcp/cad/builtin.ts";
+import { sceneProfilesPlugin } from "../../resources/mcp/scene-profiles/builtin.ts";
+import { viewportPlugin } from "../../resources/mcp/viewport/builtin.ts";
 import type { BuiltinCatalog } from "../shared/capabilities.ts";
 import { loadBuiltinMcp } from "./mcp/builtin.ts";
 
@@ -13,10 +15,16 @@ export interface BuiltinPaths {
   alignmentExecutable?: string;
   alignmentServer?: string;
   cadServer?: string;
+  viewportServer?: string;
+  sceneProfilesServer?: string;
   skillsRoot?: string;
 }
 
-export async function loadBuiltins(paths: BuiltinPaths, temporaryRoot: string) {
+export async function loadBuiltins(
+  paths: BuiltinPaths,
+  temporaryRoot: string,
+  imagesRoot = join(temporaryRoot, "skill-images"),
+) {
   const skills = new Map<string, string>();
   const skillsRoot =
     paths.skillsRoot ?? fileURLToPath(new URL("../../resources/skills", import.meta.url));
@@ -74,7 +82,30 @@ export async function loadBuiltins(paths: BuiltinPaths, temporaryRoot: string) {
     },
     temporaryRoot,
   );
-  const services = [cad, alignment];
+  const viewport = await loadBuiltinMcp(
+    {
+      ...viewportPlugin,
+      available: true,
+      serverPath:
+        paths.viewportServer ??
+        fileURLToPath(new URL("../../resources/mcp/viewport/server.ts", import.meta.url)),
+      configuration: {},
+    },
+    temporaryRoot,
+  );
+  const sceneProfiles = await loadBuiltinMcp(
+    {
+      ...sceneProfilesPlugin,
+      available: true,
+      sceneSkills: true,
+      serverPath:
+        paths.sceneProfilesServer ??
+        fileURLToPath(new URL("../../resources/mcp/scene-profiles/server.ts", import.meta.url)),
+      configuration: { skillsRoot, imagesRoot },
+    },
+    temporaryRoot,
+  );
+  const services = [cad, alignment, viewport, sceneProfiles];
   async function release() {
     const results = await Promise.allSettled(services.map((service) => service.release()));
     const failure = results.find((result) => result.status === "rejected");
@@ -83,6 +114,7 @@ export async function loadBuiltins(paths: BuiltinPaths, temporaryRoot: string) {
   return {
     cad,
     alignment,
+    skillsRoot,
     services,
     release,
     close: release,

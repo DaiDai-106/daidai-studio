@@ -8,10 +8,12 @@ type ProjectRecord = {
   path: string;
   hidden?: boolean;
   currentSourceId?: string;
+  sceneProfileId?: string;
 };
 type ConversationRecord = Omit<ConversationInfo, "source" | "thinkingLevel"> & {
   selectedSourceId?: string;
   deletedAt?: string;
+  sceneHasInput?: boolean;
 };
 
 // Persisted flags stay in the backend; only this public projection crosses IPC.
@@ -42,7 +44,7 @@ export const ProjectDoc = defineDocFamily<ProjectRecord, Omit<ProjectRecord, "hi
   family: true,
   initial: (seed) => seed,
 });
-export type StepSourceRecord = StepSourceInfo;
+export type StepSourceRecord = StepSourceInfo & { sceneProfileId?: string };
 export const StepSourceDoc = defineDocFamily<StepSourceRecord, StepSourceInfo>({
   kind: "app.projectStep",
   version: 1,

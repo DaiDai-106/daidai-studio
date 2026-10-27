@@ -171,6 +171,12 @@ export function App() {
                   step={workbench.step}
                   conversationId={active.id}
                   sourceId={active.source?.id ?? ""}
+                  onReference={(reference) => {
+                    workbench.setSceneReference(reference);
+                    setMobileTab("chat");
+                    requestAnimationFrame(() => messageInput.current?.focus());
+                  }}
+                  onReferenceStatus={workbench.invalidateSceneReference}
                 />
               )}
               {isScene && (
@@ -219,6 +225,9 @@ export function App() {
                 onFiles={() => setDialog({ type: "files" })}
                 step={workbench.step}
                 onClearStep={() => workbench.selectStep("")}
+                sceneReference={workbench.sceneReference}
+                referenceStorageAvailable={workbench.referenceStorageAvailable}
+                onClearSceneReference={() => workbench.setSceneReference(null)}
                 onConfigure={() => setSettings("ai")}
                 stream={application.view}
                 shellApproval={application.workspace?.shellApproval ?? null}
@@ -274,6 +283,7 @@ export function App() {
         <FilesDialog
           project={project}
           selected={workbench.step}
+          error={application.error}
           onSelect={workbench.selectStep}
           onClose={() => setDialog(null)}
         />

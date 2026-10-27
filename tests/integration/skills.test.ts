@@ -24,7 +24,16 @@ test("custom skills persist and reach only their project and mode without granti
     assert.equal(prompt.includes("disabled-skill-marker"), false);
     assert.deepEqual(
       (request.tools ?? []).map((tool) => tool.function.name),
-      user === "general-a" ? [] : ["read", process.platform === "win32" ? "powershell" : "bash"],
+      user === "general-a"
+        ? []
+        : [
+            "scene_list_steps",
+            "scene_select_step",
+            "scene_list_profiles",
+            "scene_select_profile",
+            "read",
+            process.platform === "win32" ? "powershell" : "bash",
+          ],
       "Skills grant no tools beyond the mode’s explicitly provided tools",
     );
     return { text: "Skill scope checked." };

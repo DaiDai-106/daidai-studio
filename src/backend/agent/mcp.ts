@@ -11,6 +11,7 @@ import { Type } from "typebox";
 import type { McpConfig } from "../../shared/capabilities.ts";
 import { connectConfiguredMcp, discoverMcpTools } from "../mcp/catalog.ts";
 import type { McpConnection } from "../mcp/connection.ts";
+import type { StoredMcpConfig } from "../settings/documents.ts";
 import { registerMcpTool } from "./mcpTool.ts";
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -39,11 +40,12 @@ function definitionBytes(tool: ToolRegistration) {
 // Connections belong to one native run. Discovery loads definitions through durable's addTools control.
 export function createMcpRun(
   registry: Registry,
-  configs: readonly McpConfig[],
+  configs: readonly StoredMcpConfig[],
   mode: "general" | "scene",
   project: { id: string; name: string; path: string },
   conversationId: string,
   initialTools: readonly ToolRegistration[] = [],
+  resolveSecrets: (config: StoredMcpConfig) => Promise<Record<string, string>> = async () => ({}),
 ) {
   const selected = structuredClone(
     configs.filter(
@@ -63,11 +65,16 @@ export function createMcpRun(
   function target(id: string | number) {
     if (closed || String(id) !== conversationId) throw new Error("MCP 工具没有有效的本轮目标。");
   }
-  async function catalog(server: McpConfig, signal: AbortSignal) {
+  async function catalog(server: StoredMcpConfig, signal: AbortSignal) {
     let pending = connections.get(server.id);
     if (!pending) {
       pending = (async () => {
-        const connection = await connectConfiguredMcp(server, project, signal);
+        const connection = await connectConfiguredMcp(
+          server,
+          project,
+          signal,
+          await resolveSecrets(server),
+        );
         try {
           return {
             connection,
