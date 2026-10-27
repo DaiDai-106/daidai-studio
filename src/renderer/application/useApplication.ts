@@ -76,6 +76,12 @@ export function useApplication() {
       if (event.type === "workspace") void refresh().catch(report);
       else if (event.type === "conversationDeleted") forgetConversation(event.id);
       else if (event.type === "conversation") acceptView(event.view);
+      else if (event.type === "shell.approval") {
+        setWorkspace((previous) =>
+          previous ? { ...previous, shellApproval: event.approval } : previous,
+        );
+        void refresh().catch(report);
+      }
     });
     void refresh().catch(report);
     return () => {

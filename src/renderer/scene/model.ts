@@ -21,7 +21,7 @@ async function fetchResource(resource: DisplayResource, signal: AbortSignal) {
     signal.throwIfAborted();
     throw new Error("无法读取已保存的显示资源，请重新加载。");
   }
-  if (!response.ok) throw new Error("无法读取已保存的显示资源。");
+  if (!response.ok) throw new Error("模型资源不可用，请恢复文件或重新解析 STEP。");
   const data = await response.arrayBuffer();
   const hash = await crypto.subtle.digest("SHA-256", data);
   const hex = Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join(

@@ -32,7 +32,8 @@ test("startup registers builtin metadata from the shared contract and actual ski
     const unavailable = await loadBuiltins({ cadExecutable: root }, join(root, "temporary"));
     assert.equal(unavailable.cad.available, false);
     assert.equal(unavailable.catalog.servers[0]?.available, false);
-    assert.equal(unavailable.catalog.skills[0]?.body, null);
+    assert.ok(unavailable.catalog.skills[0]?.body);
+    assert.equal(unavailable.catalog.skills[0]?.automatic, true);
     const missing = await loadBuiltins(
       { skillsRoot: join(root, "missing-skills") },
       join(root, "temporary"),

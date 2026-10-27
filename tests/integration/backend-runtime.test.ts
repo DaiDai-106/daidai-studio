@@ -116,7 +116,7 @@ test("one durable database persists settings, authenticated chat and archives wi
     assert.ok(requests[0]?.body.includes("你好"));
     const request = JSON.parse(requests[0]?.body ?? "{}") as {
       messages: { role: string; content: string }[];
-      tools?: unknown[];
+      tools?: { function: { name: string } }[];
     };
     const instructions = request.messages
       .filter((message) => message.role === "system" || message.role === "developer")
@@ -138,9 +138,9 @@ test("one durable database persists settings, authenticated chat and archives wi
     assert.equal(requests.length, 2);
     const sceneRequest = JSON.parse(requests[1]?.body ?? "{}") as typeof request;
     assert.deepEqual(
-      sceneRequest.tools ?? [],
-      [],
-      "A mode prompt must not enable unavailable scene tools.",
+      (sceneRequest.tools ?? []).map((tool) => tool.function.name),
+      ["read", process.platform === "win32" ? "powershell" : "bash"],
+      "Pi read and the approved shell are available without native scene tools.",
     );
     assert.match(
       sceneRequest.messages

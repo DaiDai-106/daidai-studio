@@ -166,7 +166,18 @@ async function createWindow(): Promise<void> {
   if (process.platform !== "darwin") window.removeMenu();
   mainWindow = window;
   installZoomShortcuts(window.webContents);
-  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      const target = new URL(url);
+      if (["https:", "http:"].includes(target.protocol) && !target.username && !target.password)
+        void shell
+          .openExternal(target.href)
+          .catch(() => console.error("External link could not be opened."));
+    } catch {
+      /* Invalid Markdown links do not open a browser. */
+    }
+    return { action: "deny" };
+  });
   window.webContents.on("will-navigate", (event) => {
     // Vite reloads the current page when optimized dependencies change.
     if (event.url !== window.webContents.getURL()) event.preventDefault();

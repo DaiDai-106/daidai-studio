@@ -8,7 +8,7 @@ import { Icon } from "../components/Icon.tsx";
 import { Select } from "../components/Select.tsx";
 import type { McpServer, Project, Skill, Theme } from "../types.ts";
 import { AiSettings } from "./AiSettings.tsx";
-import { SettingRow } from "./SettingsControls.tsx";
+import { SettingRow, Toggle } from "./SettingsControls.tsx";
 import { ShortcutsSettings } from "./ShortcutsSettings.tsx";
 import { ToolsSettings } from "./ToolsSettings.tsx";
 
@@ -28,6 +28,8 @@ interface Props {
   info: AppInfo | undefined;
   theme: Theme;
   onTheme: (theme: Theme) => void;
+  showThinking: boolean;
+  onShowThinking: (value: boolean) => void;
   providers: ProviderInfo[];
   defaultModel: string;
   onProviders: () => void;
@@ -124,6 +126,16 @@ export function SettingsView(props: Props) {
                 </section>
                 <section className="settings-section">
                   <h2>工作台</h2>
+                  <SettingRow
+                    title="显示思考摘要"
+                    description="显示模型公开返回的思考文字，不改变模型的推理模式。"
+                  >
+                    <Toggle
+                      label="显示思考摘要"
+                      checked={props.showThinking}
+                      onChange={() => props.onShowThinking(!props.showThinking)}
+                    />
+                  </SettingRow>
                   <SettingRow
                     title="按模式组织界面"
                     description="通用对话使用主聊天区；场景搭建在中央展示场景，聊天位于右侧。"

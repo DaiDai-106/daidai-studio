@@ -29,7 +29,10 @@ export function ModelSelection({
         : [...selected, model],
     );
   }
-  function update(id: string, change: Partial<Pick<ModelChoice, "context" | "output">>) {
+  function update(
+    id: string,
+    change: Partial<Pick<ModelChoice, "context" | "output" | "supportsImages">>,
+  ) {
     onChange(selected.map((model) => (model.id === id ? { ...model, ...change } : model)));
   }
   return (
@@ -92,6 +95,16 @@ export function ModelSelection({
       {selected.map((model) => (
         <div className="selected-model" key={model.id}>
           <strong>{model.name}</strong>
+          {allowManual && (
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={model.supportsImages ?? false}
+                onChange={(event) => update(model.id, { supportsImages: event.target.checked })}
+              />
+              支持图片输入
+            </label>
+          )}
           <div className="limit-inputs">
             <label>
               上下文窗口

@@ -4,6 +4,7 @@ import type { ToolCall } from "@earendil-works/pi-ai";
 import { makeStrictJsonSchema } from "@earendil-works/pi-ai/api/constrained-sampling";
 import { validateToolArguments } from "@earendil-works/pi-ai/utils/validation";
 import { Value } from "typebox/value";
+import { AlignmentInputs, alignmentTools } from "../../resources/mcp/alignment/contract.ts";
 import {
   type CadToolName,
   CadTransformSchema,
@@ -12,9 +13,10 @@ import {
   validateCadInput,
 } from "../../resources/mcp/cad/contract.ts";
 
-test("all 12 public CAD input schemas stay in the common model tool subset", () => {
+test("CAD and Alignment input schemas stay in the common model tool subset", () => {
   const keywords = new Set([
     "type",
+    "pattern",
     "properties",
     "required",
     "additionalProperties",
@@ -45,7 +47,7 @@ test("all 12 public CAD input schemas stay in the common model tool subset", () 
     }
   }
   assert.equal(cadTools.length, 12);
-  for (const tool of cadTools) {
+  for (const tool of [...cadTools, ...alignmentTools]) {
     check(tool.inputSchema, tool.name);
     assert.doesNotThrow(() => makeStrictJsonSchema(tool.inputSchema), tool.name);
   }
@@ -119,4 +121,31 @@ test("Pi normalizes strict-mode optional nulls before CAD input validation", () 
   }
   assert.throws(() => validateCadInput("cad_get_structure", { document, mode: null }));
   assert.throws(() => validateCadInput("cad_get_job", { job: { ...document, id: null } }));
+});
+
+test("Pi normalizes nested optional nulls for reference-frame alignment", () => {
+  const tool = {
+    name: "alignment_align_frame",
+    description: "test",
+    parameters: AlignmentInputs.alignment_align_frame,
+  };
+  const args = {
+    importId: "a".repeat(64),
+    expectedRevision: 0,
+    sourceUp: { kind: "model_axis", axis: "Z", objectId: null, featureId: null, reverse: null },
+    sourceForward: {
+      kind: "model_axis",
+      axis: "X",
+      objectId: null,
+      featureId: null,
+      reverse: null,
+    },
+    sourceOrigin: null,
+    anchor: "min_corner",
+    target: { origin: [0, 0, 0], up: [0, 0, 1], forward: [1, 0, 0] },
+  };
+  const call: ToolCall = { type: "toolCall", id: "test", name: tool.name, arguments: args };
+  const normalized = validateToolArguments(tool, call);
+  assert.equal(Value.Check(tool.parameters, normalized), true);
+  assert.equal("sourceOrigin" in normalized, false);
 });

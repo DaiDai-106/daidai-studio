@@ -68,6 +68,6 @@ struct MeshData {
                                      const WorkContext &work );
 [[nodiscard]] DisplayResult writeDisplay( CadDocument &document, const std::string &quality,
                                           const ServerContext &server, const std::filesystem::path &job_directory,
-                                          const WorkContext &work );
+                                          const WorkContext &work, bool alignment_features = false );
 }  // namespace dai::cad
 #endif  // DAI_CAD_DISPLAY_H

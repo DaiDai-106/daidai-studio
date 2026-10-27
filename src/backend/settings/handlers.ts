@@ -9,6 +9,7 @@ import type {
   ProviderInfo,
   SettingsInfo,
 } from "../../shared/application.ts";
+import { modeSkillIds } from "../../shared/capabilities.ts";
 import type { Projects } from "../projects/handlers.ts";
 import type { Handlers } from "../types.ts";
 import { createCatalogStore } from "./catalog.ts";
@@ -51,7 +52,10 @@ export async function createSettings(
       providers: await Promise.all(value.providers.map(providerInfo)),
       defaultModel: value.defaultModel,
       theme: value.theme,
-      disabledCapabilities: value.disabledCapabilities ?? [],
+      showThinking: value.showThinking ?? true,
+      disabledCapabilities: (value.disabledCapabilities ?? []).filter(
+        (id) => !modeSkillIds.has(id),
+      ),
       skills: value.skills ?? [],
       mcpServers: value.mcpServers ?? [],
     };
@@ -97,12 +101,12 @@ export async function createSettings(
     idle,
     logins,
     projects,
-    releaseCad,
+    releaseBuiltin,
   }: {
     idle(): void;
     logins: ReturnType<typeof createLogins>;
     projects: Pick<Projects, "visible">;
-    releaseCad(): Promise<void>;
+    releaseBuiltin(id: string): Promise<void>;
   }) {
     async function listModels({ config, loginId, discover }: Arguments<"provider.models">) {
       const temporary = new InMemoryCredentialStore();
@@ -232,6 +236,7 @@ export async function createSettings(
         if (change.defaultModel !== undefined) idle();
         await update((draft) => {
           if (change.theme) draft.theme = change.theme;
+          if (change.showThinking !== undefined) draft.showThinking = change.showThinking;
           if (change.defaultModel !== undefined) {
             if (
               change.defaultModel &&
@@ -251,13 +256,15 @@ export async function createSettings(
       },
       async "capability.setEnabled"({ id, enabled }) {
         idle();
+        if (modeSkillIds.has(id) && !enabled)
+          throw new Error("基础技能随场景搭建模式加载；工具可独立停用。");
         await update((draft) => {
           const disabled = new Set(draft.disabledCapabilities ?? []);
           if (enabled) disabled.delete(id);
           else disabled.add(id);
           draft.disabledCapabilities = [...disabled];
         }, false);
-        if (!enabled && id === "builtin.cad") await releaseCad();
+        if (!enabled) await releaseBuiltin(id);
         return await info();
       },
       async "auth.start"({ providerType, method }) {
@@ -300,7 +307,7 @@ export async function createSettings(
       },
       async "skill.remove"({ id }) {
         idle();
-        if (id.startsWith("builtin")) throw new Error("内置技能只能停用。");
+        if (id.startsWith("builtin")) throw new Error("内置基础技能随模式加载，不能移除。");
         await update((draft) => {
           draft.skills = (draft.skills ?? []).filter((skill) => skill.id !== id);
         }, false);
@@ -311,12 +318,20 @@ export async function createSettings(
   }
   return {
     providers,
+    model(selection: string) {
+      for (const config of read().providers) {
+        if (!config.enabled) continue;
+        const choice = config.models.find((item) => `${config.id}:${item.id}` === selection);
+        if (choice) return providers.models.getModel(config.id, choice.id);
+      }
+      return undefined;
+    },
     initialize,
     read,
     update,
     info,
     requests,
-    enabled: (id: string) => !read().disabledCapabilities?.includes(id),
+    enabled: (id: string) => modeSkillIds.has(id) || !read().disabledCapabilities?.includes(id),
   };
 }
 export type Settings = Awaited<ReturnType<typeof createSettings>>;

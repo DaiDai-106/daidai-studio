@@ -5,8 +5,8 @@ import { basename, dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { _electron as electron } from "playwright";
 import type { CadFaceMap, CadManifest } from "../../resources/mcp/cad/contract.ts";
-import { planCadImport } from "../support/cadPlan.ts";
-import { servePlanner } from "../support/planner.ts";
+import { currentDisplayId, planCadImport, sceneContext } from "../support/cadPlan.ts";
+import { servePlanner, turnResults } from "../support/planner.ts";
 import { chooseProject } from "./support.ts";
 
 const executable = process.env.DAI_CAD_TEST_WORKER;
@@ -22,9 +22,36 @@ test("real STEP partial display reaches Electron through Harness and survives a 
   await mkdir(project);
   const name = basename(source);
   await copyFile(source, join(project, name));
-  const planner = await servePlanner(
-    (request) => planCadImport(request) ?? { text: "显示资源已生成，诊断仍然保留。" },
-  );
+  const planner = await servePlanner((request) => {
+    const user =
+      request.messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
+    if (user.includes("重新定向")) {
+      const current = sceneContext(request).currentDisplay;
+      if (!turnResults(request).has("frame"))
+        return {
+          id: "frame",
+          name: "alignment_align_frame",
+          args: {
+            importId: current?.importId,
+            expectedRevision: current?.placement?.revision,
+            sourceUp: { kind: "model_axis", axis: "Y" },
+            sourceForward: { kind: "model_axis", axis: "X" },
+            anchor: "min_corner",
+            target: { origin: [0, 0, 0], up: [0, 0, 1], forward: [1, 0, 0] },
+          },
+        };
+      return { text: "整机旋转已计算。" };
+    }
+    if (user.includes("角点归零")) {
+      if (!turnResults(request).has("align")) {
+        const importId = currentDisplayId(request);
+        if (!importId) throw new Error("Missing saved model");
+        return { id: "align", name: "alignment_align_min_corner", args: { importId } };
+      }
+      return { text: "整机定位已计算。" };
+    }
+    return planCadImport(request, "preview", true) ?? { text: "显示资源已生成，诊断仍然保留。" };
+  });
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
       (entry): entry is [string, string] =>
@@ -116,6 +143,60 @@ test("real STEP partial display reaches Electron through Harness and survives a 
     await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
     assert.equal(await transparency.inputValue(), "50");
     await page.screenshot({ path: resolve("out/cad-transparency-dark.png") });
+    const canvas = await page.getByLabel("三维场景视图", { exact: true }).elementHandle();
+    assert.ok(canvas);
+    await page
+      .getByRole("textbox", { name: "消息内容", exact: true })
+      .fill("将整套装配的最小角点归零");
+    await page.getByRole("button", { name: "发送消息", exact: true }).click();
+    await page.waitForFunction(
+      () =>
+        Number(document.querySelector(".scene-stage")?.getAttribute("data-placement-revision")) > 0,
+    );
+    await page.getByText("整机定位已计算。", { exact: true }).waitFor();
+    assert.equal(
+      await canvas.evaluate((node) => node.isConnected),
+      true,
+      "Placement must reuse the current GPU model/canvas",
+    );
+    let placement = await page.evaluate(
+      async (id) => (await window.desktop.application.getDisplay(id))?.placement,
+      id,
+    );
+    assert.ok(placement?.revision && placement.translation.some((value) => Math.abs(value) > 1e-8));
+    assert.equal(
+      await page.getByRole("slider", { name: "对象透明度", exact: true }).inputValue(),
+      "50",
+    );
+    await page.screenshot({ path: resolve("out/cad-aligned.png") });
+    const beforeRotation = await page.getByLabel("三维场景视图", { exact: true }).screenshot();
+    const previousRevision = placement.revision;
+    await page
+      .getByRole("textbox", { name: "消息内容", exact: true })
+      .fill("重新定向：原 Y 朝上，旋转后最小角点归零");
+    await page.getByRole("button", { name: "发送消息", exact: true }).click();
+    await page.waitForFunction(
+      (revision) =>
+        Number(document.querySelector(".scene-stage")?.getAttribute("data-placement-revision")) >
+        revision,
+      previousRevision,
+    );
+    await page.getByText("整机旋转已计算。", { exact: true }).waitFor();
+    placement = await page.evaluate(
+      async (id) => (await window.desktop.application.getDisplay(id))?.placement,
+      id,
+    );
+    assert.ok(placement && Math.abs(placement.rotation[0] - Math.SQRT1_2) < 1e-8);
+    assert.equal(await canvas.evaluate((node) => node.isConnected), true);
+    const afterRotation = await page.getByLabel("三维场景视图", { exact: true }).screenshot();
+    assert.equal(
+      beforeRotation.equals(afterRotation),
+      false,
+      "New rotation must reach the actual canvas",
+    );
+    await page.screenshot({ path: resolve("out/cad-oriented.png") });
+    assert.equal(result.manifest.schemaVersion, 2);
+    assert.ok(result.manifest.features?.objects.some((item) => item.count > 0));
     const requests = planner.requests.length;
     await application.close();
     application = await launch();
@@ -128,6 +209,10 @@ test("real STEP partial display reaches Electron through Harness and survives a 
       "0",
     );
     assert.equal(await page.locator(ready).getAttribute("data-import-id"), result.importId);
+    assert.equal(
+      await page.locator(ready).getAttribute("data-placement-revision"),
+      String(placement.revision),
+    );
     assert.equal(
       planner.requests.length,
       requests,

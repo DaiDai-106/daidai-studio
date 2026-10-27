@@ -33,7 +33,7 @@ test("cleanup removes editing APIs and native targets while retaining every CAD 
     const workspace = await app.request("workspace.get", {});
     assert.deepEqual(
       workspace.builtins.servers.map((service) => service.id),
-      ["builtin.cad"],
+      ["builtin.cad", "builtin.alignment"],
     );
     assert.deepEqual(
       workspace.builtins.servers[0]?.tools.map((tool) => tool.name),
@@ -43,7 +43,10 @@ test("cleanup removes editing APIs and native targets while retaining every CAD 
     const skill = workspace.builtins.skills[0]?.body;
     assert.equal(typeof skill, "string");
     assert.ok(skill);
-    assert.match(skill, /# STEP import/);
+    assert.equal(
+      skill,
+      await readFile(resolve("resources/skills/scene-building/SKILL.md"), "utf8"),
+    );
     assert.doesNotMatch(skill, /model_[a-z_]+|assembly_[a-z_]+|expectedRevision/);
   } finally {
     await app.close();

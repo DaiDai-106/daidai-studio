@@ -23,13 +23,15 @@
 | 能力 | 说明 |
 | --- | --- |
 | 本地项目 | 直接打开文件夹，管理多条对话、草稿与历史；STEP 保留在原目录 |
-| 多模型对话 | 复用 pi-ai 的模型目录与认证，支持 API Key、账号授权及兼容服务 |
+| 多模型对话 | 复用 pi-ai 的模型目录、认证和受支持推理档位，按会话保存选择 |
+| 聊天展示 | Markdown 表格、列表与代码块；可展开的执行过程、工具参数/结果和公开思考文字 |
+| 整机定位 | 独立 alignment-mcp 支持包围盒、角点归零、参考系对齐与绕轴旋转，保存绝对位姿，不改原 STEP |
 | CAD 导入 | 模型根据提示词与 Skill 调用内置 CAD MCP，解析 STEP 并生成显示资源 |
 | 三维查看 | 原始层级、颜色、单位与实例位置；对象树联动、表面高亮、透明度与视角切换 |
 | 工具与技能 | 按项目和模式配置外部 stdio / Streamable HTTP MCP 与 Markdown Skill |
 | 桌面体验 | 深浅主题、一体化顶栏、快捷键、托盘隐藏与单实例恢复 |
 
-目前聚焦 **STEP 导入与只读查看**。关节装配、运动学、URDF 导出和场景编辑尚未接入。
+目前聚焦 **STEP 导入、只读几何查看与整机定位**。关节装配、运动学、URDF 导出和对象级场景编辑尚未接入。
 
 ## 快速开始
 
@@ -56,6 +58,7 @@ npm run dev
 | Open CASCADE | **7.9.2**，包含 XCAF / STEP |
 | nlohmann_json | ≥3.11 |
 | OpenSSL | ≥3.0 |
+| Eigen | ≥3.4，供对齐插件进行矩阵计算 |
 | TinyGLTF | 带 CMake 包配置的编译库，本机验证版本为 2.9.6 |
 
 ```bash
@@ -96,6 +99,8 @@ ctest --test-dir out/native --build-config Release --output-on-failure
 1. **打开项目**，选择本地文件夹。在「设置 → AI 设置」配置服务并选择模型。
 2. **进入场景搭建**，在聊天栏「当前 STEP」中选择项目内的文件。
 3. 发送 **“解析选中的 STEP”**，等待工具完成，即可在中间视口查看模型。
+4. 需要归零时发送 **“将整套装配包围盒最小角点对齐原点”**；也可在同一条请求中要求解析、旋转与归零。桌面保存位置，切聊天或重启后继续使用。
+5. 在模型旁选择当前模型支持的推理档位；已有会话默认关闭。“常规 → 显示思考摘要”只控制公开思考文字的显示，与请求推理档位独立。
 
 DeepSeek 使用 API Key；OpenAI 订阅使用 OpenAI Codex 账号授权，是否可用取决于账号权限。其他提供方沿用已安装 pi-ai 的认证方式，也可配置本地或 OpenAI 兼容服务。
 
@@ -110,6 +115,7 @@ flowchart LR
   H <--> MCP[pi-mcp 客户端]
   MCP <-->|标准 stdio| CAD[CAD MCP · TS SDK]
   CAD <--> OCCT[C++ · OCCT]
+  MCP <-->|标准 stdio| ALIGN[Alignment MCP · C++/TinyGLTF/Eigen]
   H --> SAVE[校验并保存显示资源]
   SAVE --> UI
 ```
@@ -118,7 +124,7 @@ flowchart LR
 
 一个应用数据目录使用 **一个 SQLite、一个 durable Harness**，对话保持独立上下文；当前桌面一次运行一条对话。同项目、同 STEP 的对话共用最近成功导入的模型，切换聊天保留画面、相机、选择和透明度。新导入产物清除旧查看覆盖值；跨来源或重启后重新加载保存结果。
 
-部分面无法生成可靠网格时，只显示通过校验的部分，并提示未显示面数；原始 CAD 与诊断保留，`complete=false` 不伪装成完整。全部无可显示网格或资源加载失败时保留旧画面。高亮与透明度仅影响查看，不修改 STEP、GLB 或持久场景。
+部分面无法生成可靠网格时，只显示通过校验的部分，并提示未显示面数；原始 CAD 与诊断保留，`complete=false` 不伪装成完整。全部无可显示网格或资源加载失败时保留旧画面。高亮与透明度仅影响查看。整机定位单独保存旋转和平移，保持零件相对位置。包围盒来自实际显示三角形；参考系对齐可使用导入时缓存的 CAD 平面、圆心和轴线。模型通过 Pi read 直接读取已登记产物，无需逐次确认；CAD 每个 Run 结束后释放，后续定位不依赖它常驻。这些能力不等同于零件配合或关节定义。
 
 ### 数据在哪里
 
@@ -128,6 +134,7 @@ flowchart LR
 | `app.sqlite` | 原生 durable 聊天、任务、设置、项目与显示索引 |
 | `credentials.enc` | Electron safeStorage 加密的凭据；系统安全存储不可用时仅本次保留 |
 | 项目 `.daidai/artifacts/<importId>/` | 已保存的只读显示清单、GLB 与对象映射 |
+| 项目 `.daidai/placements/<importId>.json` | 整机旋转、平移与生产条目版本；插件读取，桌面在 Harness 成功后保存 |
 
 移除项目只隐藏导航，重新打开同一目录可恢复。删除对话会禁止后续访问，底层历史暂留；两者都保留本地文件和共享显示资源。重启恢复记录与已保存模型，不续跑中断的请求。
 
@@ -140,14 +147,15 @@ src/
   backend/       runtime 组合入口；settings / projects / agent / mcp / artifacts
   shared/        跨进程契约、Schema 与推导类型
 resources/
-  mcp/cad/       标准 MCP 服务端、C++ include/cad 与 src
-  skills/        内置 scene-building Skill
+  mcp/cad/       CAD 标准 MCP 服务端、C++ include/cad 与 src
+  mcp/alignment/ 整机包围盒、参考系对齐与旋转插件；独立 stdio 及 C++ 程序
+  skills/        内置 scene-building / scene-alignment Skill
   icons/         暖白底 D 图标与托盘模板
 spec/            前端、后端与 CAD MCP 设计
 tests/           单元、协议、C++ 与 Electron 集成测试
 ```
 
-详细设计见 [前端交互](spec/frontend_spec/frontend.md)、[桌面后端](spec/backend_spec/backend.md)与 [CAD MCP](spec/mcp_spec/cad-mcp.md)。Runtime 负责启动、请求队列与退出，各领域模块处理自己的请求；优先复用 Pi、Electron、Three.js 与 OCCT 的现有能力。
+详细设计见 [前端交互](spec/frontend_spec/frontend.md)、[桌面后端](spec/backend_spec/backend.md)、[CAD MCP](spec/mcp_spec/cad-mcp.md)与 [Alignment MCP](spec/mcp_spec/alignment-mcp.md)。Runtime 负责启动、请求队列与退出，各领域模块处理自己的请求；优先复用 Pi、Electron、Three.js 与 OCCT 的现有能力。
 
 <details>
 <summary>外部工具与独立 CAD 服务</summary>
@@ -173,7 +181,7 @@ CAD 全部 12 个工具共用 [contract.ts](resources/mcp/cad/contract.ts)。独
 | `npm run check` | 静态检查、构建与测试 |
 | `npm run test:cad` | 构建桌面与原生模块，运行 CTest 和 CAD 回归 |
 
-真实 CAD 用例按环境启用：`DAI_CAD_TEST_WORKER` 指向 worker，`DAI_CAD_TEST_FIXTURE` 指向 `cad-core-tests`，`DAI_CAD_REAL_STEP` 指向本机 STEP 样本。未提供相应路径时，条件用例会跳过。自动模型测试使用本地脚本协议服务，不消耗个人密钥或付费模型。
+真实 CAD 用例按环境启用：`DAI_CAD_TEST_WORKER` 指向 worker，`DAI_CAD_TEST_FIXTURE` 指向 `cad-core-tests`，`DAI_CAD_REAL_STEP` 指向本机 STEP 样本，`DAI_ALIGNMENT_TEST_WORKER` 指向 `dai-alignment-worker`。未提供相应路径时，条件用例会跳过。自动模型测试使用本地脚本协议服务，不消耗个人密钥或付费模型。
 
 TypeScript / TSX、CSS 与 JSON 使用 Biome；C++ 使用根目录 `.clang-format`，遵循 daidai 的命名与格式：类型 PascalCase、函数 camelCase、文件及字段 snake_case、私有成员 `_` 后缀。逻辑段落间留一个空行，相关短语句保持在一起。测试统一放在 `tests/`，运行数据、凭据、依赖目录和构建产物不提交。
 

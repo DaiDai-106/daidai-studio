@@ -4,6 +4,7 @@ import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { makeStrictJsonSchema } from "@earendil-works/pi-ai/api/constrained-sampling";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { TSchema } from "typebox";
+import { alignmentTools } from "../../resources/mcp/alignment/contract.ts";
 import { cadTools } from "../../resources/mcp/cad/contract.ts";
 import { registerMcpTool } from "../../src/backend/agent/mcpTool.ts";
 import { createProviders, modelChoice } from "../../src/backend/settings/providers.ts";
@@ -23,7 +24,7 @@ type WireTool = WireFunction & {
 // Capture real provider serialization before HTTP. Only dummy credentials are used.
 for (const providerId of ["deepseek", "openai", "anthropic", "google"]) {
   for (const strict of [false, true]) {
-    test(`${providerId} serializes all CAD tools through Pi (${strict ? "prefer strict" : "default"})`, {
+    test(`${providerId} serializes CAD and Alignment tools through Pi (${strict ? "prefer strict" : "default"})`, {
       timeout: 10000,
     }, async () => {
       const native = builtinProviders().find((provider) => provider.id === providerId);
@@ -50,7 +51,7 @@ for (const providerId of ["deepseek", "openai", "anthropic", "google"]) {
       ]);
       const model = providers.models.getModel(id, nativeModel.id);
       assert.ok(model);
-      const tools = cadTools.map((tool) => ({
+      const tools = [...cadTools, ...alignmentTools].map((tool) => ({
         ...registerMcpTool({
           name: tool.name,
           serverName: "cad-mcp",
@@ -101,8 +102,8 @@ for (const providerId of ["deepseek", "openai", "anthropic", "google"]) {
       // Pi may also add protocol helpers, such as Anthropic's deferred-tool placeholder.
       const functions = wireTools
         .flatMap((tool) => tool.functionDeclarations ?? [tool.function ?? tool])
-        .filter((tool) => tool.name.startsWith("cad_"));
-      assert.equal(functions.length, 12);
+        .filter((tool) => tool.name.startsWith("cad_") || tool.name.startsWith("alignment_"));
+      assert.equal(functions.length, 16);
       for (const tool of tools) {
         const fn = functions.find((item) => item.name === tool.name) as WireTool | undefined;
         assert.ok(fn, tool.name);

@@ -1,4 +1,6 @@
 #include "cad/display.h"
+#include "cad/queries.h"
+#include <Standard_Failure.hxx>
 #include "cad/serialization.h"
 #include "cad/files.h"
 #include "private/meshing.h"
@@ -209,10 +211,109 @@ struct GeometryBuffers {
   int normals;
   std::vector<PrimitiveBuffers> primitives;
 };
+
+struct FeatureIndex {
+  std::string object_id;
+  std::size_t start_line;
+  std::size_t count      = 0;
+  bool analysis_complete = true;
+  std::vector<std::string> warnings;
+};
+struct FeatureCache {
+  ResourceRef resource;
+  std::vector<FeatureIndex> objects;
+};
+// Reuse online query semantics; cache rows retain object-local coordinates and instance identity.
+FeatureCache writeAlignmentFeatures( const CadDocument &document, const ServerContext &server,
+                                     const std::filesystem::path &path, const WorkContext &work )
+{
+  work.report( "export_alignment_features" );
+  std::ofstream output( path, std::ios::binary | std::ios::trunc );
+  const auto &source = document.source();
+  const auto header  = Json{
+       {"schemaVersion",     1                        },
+       {"sourceHash",        source.source_hash       },
+       {"importFingerprint", source.import_fingerprint},
+       {"unit",              "m"                      },
+       {"space",
+        "object"                                      }
+  }.dump();
+  output << header << '\n';
+  std::uint64_t bytes_written = header.size() + 1;
+  std::size_t line = 2, feature_count = 0;
+  FeatureCache cache;
+  for ( const auto &object : document.objects() ) {
+    if ( object.geometry_id.empty() ) {
+      continue;
+    }
+    work.check();
+    FeatureIndex index{ object.id, line, 0, true, {} };
+    FeatureQuery query{
+        object.id, {},
+         { "plane_center", "circle_center", "cylinder_axis" },
+         { {}, 200 }
+    };
+    try {
+      do {
+        if ( feature_count >= 100000 || bytes_written >= 32 * 1024 * 1024 ) {
+          index.analysis_complete = false;
+          index.warnings.push_back( "Alignment feature cache budget reached." );
+          break;
+        }
+        const auto page = listGeometryFeatures( document, query, work );
+        bool full       = false;
+        for ( const auto &feature : page.items ) {
+          auto record            = toJson( feature );
+          record[ "geometryId" ] = object.geometry_id;
+          const auto bytes       = record.dump();
+          if ( bytes.size() > 16384 || feature_count >= 100000 ||
+               bytes_written + bytes.size() + 1 > 32 * 1024 * 1024 ) {
+            full = true;
+            break;
+          }
+          output << bytes << '\n';
+          bytes_written += bytes.size() + 1;
+          ++feature_count;
+          ++line;
+        }
+        if ( full || !page.analysis_complete ) {
+          index.analysis_complete = false;
+          index.warnings.push_back( "Alignment feature analysis is partial." );
+        }
+        if ( full ) {
+          break;
+        }
+        query.page.cursor = page.next_cursor.value_or( "" );
+      } while ( !query.page.cursor.empty() );
+    } catch ( const CadFailure &error ) {
+      work.check();  // Deadline and cancellation still fail the job, rather than publishing a false success.
+      const auto &code = error.error().code;
+      if ( code != "PARSE_FAILED" && code != "UNSUPPORTED_SOURCE" && code != "LIMIT_EXCEEDED" ) {
+        throw;  // A programming/identity error is not incomplete geometric analysis.
+      }
+      index.analysis_complete = false;
+      index.warnings.push_back( error.error().code );
+    } catch ( const Standard_Failure & ) {
+      work.check();
+      index.analysis_complete = false;
+      index.warnings.push_back( "CAD feature extraction failed." );
+    }
+    index.count = line - index.start_line;
+    cache.objects.push_back( std::move( index ) );
+  }
+  output.close();
+  if ( !output ) {
+    fail( "IO_ERROR", "Cannot publish alignment features." );
+  }
+  cache.resource = describeResource( server, path, "application/x-ndjson", work );
+  return cache;
+}
+
 }  // namespace
 
 DisplayResult writeDisplay( CadDocument &document, const std::string &quality, const ServerContext &server,
-                            const std::filesystem::path &job_directory, const WorkContext &work )
+                            const std::filesystem::path &job_directory, const WorkContext &work,
+                            bool alignment_features )
 {
   work.report( "build_display" );
   // Completed outputs outlive documents and native restarts; budget the service-owned files.
@@ -485,10 +586,53 @@ DisplayResult writeDisplay( CadDocument &document, const std::string &quality, c
       {"diagnostics",      diagnostics                                                                  },
       {"warnings",         warning_list                                                                 }
   };
+  std::uint64_t feature_bytes = 0;
+  if ( alignment_features ) {
+    const auto cache            = writeAlignmentFeatures( document, server, job_directory / "features.jsonl", work );
+    feature_bytes               = cache.resource.byte_length;
+    auto descriptor             = toJson( cache.resource );
+    descriptor[ "role" ]        = "geometry-features";
+    manifest[ "schemaVersion" ] = 2;
+    manifest[ "resources" ][ 0 ][ "role" ] = "display";
+    manifest[ "resources" ][ 1 ][ "role" ] = "face-map";
+    manifest[ "resources" ].push_back( std::move( descriptor ) );
+    Json objects        = Json::array();
+    std::size_t partial = 0;
+    for ( const auto &item : cache.objects ) {
+      objects.push_back( {
+          {"objectId",         item.object_id        },
+          {"startLine",        item.start_line       },
+          {"count",            item.count            },
+          {"analysisComplete", item.analysis_complete},
+          {"warnings",         item.warnings         }
+      } );
+      partial += !item.analysis_complete;
+    }
+    manifest[ "features" ] = {
+        {"resourceUri", cache.resource.uri  },
+        {"objects",     std::move( objects )}
+    };
+    if ( partial ) {
+      warning_list.push_back( "Alignment feature analysis is partial for " + std::to_string( partial ) +
+                              " objects; inspect their cache index warnings." );
+      manifest[ "warnings" ] = warning_list;
+    }
+  }
   const auto manifest_path = job_directory / "manifest.json";
-  writeJson( manifest_path, manifest, work );
+  {
+    const auto content = manifest.dump( 2 );
+    if ( content.size() > 32 * 1024 * 1024 ) {
+      fail( "LIMIT_EXCEEDED", "Display manifest is too large." );
+    }
+    std::ofstream stream( manifest_path, std::ios::binary );
+    stream << content;
+    stream.close();
+    if ( !stream ) {
+      fail( "IO_ERROR", "Cannot publish display manifest." );
+    }
+  }
   const auto descriptor = describeResource( server, manifest_path, "application/json", work );
-  const auto total_size = glb.byte_length + face_map.byte_length + descriptor.byte_length;
+  const auto total_size = glb.byte_length + face_map.byte_length + descriptor.byte_length + feature_bytes;
   if ( total_size > work.limits.max_total_resource_bytes - retained_bytes ) {
     fail( "LIMIT_EXCEEDED", "Display resources exceed the total budget." );
   }

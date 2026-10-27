@@ -34,13 +34,15 @@ export function App() {
     "--chat-width": `${chatWidth}px`,
   };
 
-  function send() {
-    if (!active?.draft.trim()) return;
+  async function send(images: import("../shared/application.ts").ChatImage[]) {
     if (!active || !models.some((model) => model.id === active.modelId)) {
       setSettings("ai");
-      return;
+      return false;
     }
-    workbench.send();
+    return workbench.send(images);
+  }
+  function respondShell(id: string, approved: boolean) {
+    void application.run(() => application.api.respondShell(id, approved));
   }
   function resize(clientX: number) {
     setChatWidth(Math.max(320, Math.min(600, window.innerWidth - clientX)));
@@ -212,12 +214,16 @@ export function App() {
                 onDraft={(draft) => workbench.update({ draft })}
                 onMode={workbench.setMode}
                 onModel={(modelId) => workbench.update({ modelId })}
+                onThinking={(thinkingLevel) => workbench.update({ thinkingLevel })}
                 onSend={send}
                 onFiles={() => setDialog({ type: "files" })}
                 step={workbench.step}
                 onClearStep={() => workbench.selectStep("")}
                 onConfigure={() => setSettings("ai")}
                 stream={application.view}
+                shellApproval={application.workspace?.shellApproval ?? null}
+                onShellApproval={respondShell}
+                showThinking={configuration.showThinking}
                 onStop={() => {
                   if (active)
                     void application.run(() => application.api.stopConversation(active.id));
@@ -247,6 +253,8 @@ export function App() {
           info={info}
           theme={configuration.theme}
           onTheme={configuration.setTheme}
+          showThinking={configuration.showThinking}
+          onShowThinking={configuration.setShowThinking}
           providers={configuration.providers}
           defaultModel={configuration.defaultModel}
           onProviders={configuration.updateProviders}

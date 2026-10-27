@@ -5,7 +5,12 @@ import type { LoadedModel, ModelViewState } from "./types.ts";
 
 export function useImportedModel(conversationId: string, sourceId: string) {
   const api = window.desktop.application;
-  const [state, setState] = useState<ModelViewState>({ status: "empty", loaded: null, error: "" });
+  const [state, setState] = useState<ModelViewState>({
+    status: "empty",
+    loaded: null,
+    error: "",
+    placement: null,
+  });
   const [sourceStatus, setSourceStatus] = useState<ImportedModel["sourceStatus"]>();
   const current = useRef<LoadedModel | null>(null);
   const retry = useRef<() => void>(() => {});
@@ -22,7 +27,12 @@ export function useImportedModel(conversationId: string, sourceId: string) {
         if (!model) return;
         // Same-source chat changes and duplicate notifications retain the GPU model.
         if (current.current?.importId === model.importId && !force) {
-          setState({ status: "ready", loaded: current.current, error: "" });
+          setState({
+            status: "ready",
+            loaded: current.current,
+            error: "",
+            placement: model.placement ?? null,
+          });
           return;
         }
         controller?.abort();
@@ -36,7 +46,7 @@ export function useImportedModel(conversationId: string, sourceId: string) {
         }
         current.current?.dispose();
         current.current = loaded;
-        setState({ status: "ready", loaded, error: "" });
+        setState({ status: "ready", loaded, error: "", placement: model.placement ?? null });
       } catch (error) {
         if (!active || version !== revision || controller?.signal.aborted) return;
         setState((previous) => ({

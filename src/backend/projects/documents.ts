@@ -9,7 +9,7 @@ type ProjectRecord = {
   hidden?: boolean;
   currentSourceId?: string;
 };
-type ConversationRecord = Omit<ConversationInfo, "source"> & {
+type ConversationRecord = Omit<ConversationInfo, "source" | "thinkingLevel"> & {
   selectedSourceId?: string;
   deletedAt?: string;
 };
@@ -18,6 +18,7 @@ type ConversationRecord = Omit<ConversationInfo, "source"> & {
 export function conversationInfo(
   record: ConversationRecord,
   source: StepSourceInfo | null = null,
+  thinkingLevel: import("../../shared/application.ts").ThinkingLevel = "off",
 ): ConversationInfo {
   return {
     id: record.id,
@@ -25,6 +26,7 @@ export function conversationInfo(
     title: record.title,
     mode: record.mode,
     modelId: record.modelId,
+    thinkingLevel,
     draft: record.draft,
     archived: record.archived,
     interrupted: record.interrupted,

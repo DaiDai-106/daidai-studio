@@ -24,7 +24,7 @@ export function useSettings(application: ApplicationState) {
     ...(application.workspace?.builtins.skills ?? []).map((skill) => ({
       ...skill,
       builtin: true,
-      enabled: !settings?.disabledCapabilities.includes(skill.id),
+      enabled: skill.automatic || !settings?.disabledCapabilities.includes(skill.id),
       scope: { kind: "global" as const },
       body: skill.body ?? "",
     })),
@@ -38,7 +38,12 @@ export function useSettings(application: ApplicationState) {
     if (!changed.length) return;
     void application.run(async () => {
       for (const item of changed) {
-        if (item.id !== "builtin.cad" && item.id !== "builtin-scene")
+        if (
+          item.id !== "builtin.cad" &&
+          item.id !== "builtin-scene" &&
+          item.id !== "builtin.alignment" &&
+          item.id !== "builtin-alignment-skill"
+        )
           throw new Error("未知内置能力。");
         await application.api.setCapabilityEnabled(item.id, item.enabled);
       }
@@ -49,6 +54,10 @@ export function useSettings(application: ApplicationState) {
     providers: settings?.providers ?? [],
     models: availableModels(settings?.providers ?? []),
     theme: settings?.theme ?? "light",
+    showThinking: settings?.showThinking ?? true,
+    setShowThinking: (showThinking: boolean) => {
+      void application.run(() => application.api.updateSettings({ showThinking }));
+    },
     defaultModel: settings?.defaultModel ?? "",
     setTheme: (theme: Theme) => {
       void application.run(() => application.api.updateSettings({ theme }));

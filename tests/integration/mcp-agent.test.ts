@@ -26,13 +26,19 @@ test("durable discovers scoped external tools, loads native declarations, valida
     );
     const results = turnResults(request);
     if (user === "no-tools") {
-      assert.deepEqual(request.tools ?? [], []);
+      assert.ok(
+        (request.tools ?? []).every((tool) =>
+          ["read", process.platform === "win32" ? "powershell" : "bash"].includes(
+            tool.function.name,
+          ),
+        ),
+      );
       return { text: "No external tools." };
     }
     if (results.count === 0) {
       assert.deepEqual(
         request.tools?.map((tool) => tool.function.name),
-        ["mcp_list_tools"],
+        ["read", process.platform === "win32" ? "powershell" : "bash", "mcp_list_tools"],
       );
       return { id: "discover", name: "mcp_list_tools", args: { serverId } };
     }

@@ -27,6 +27,7 @@ export default defineConfig(({ command }) => {
             index: resolve(projectRoot, "src/desktop/main/index.ts"),
             backend: resolve(projectRoot, "src/backend/index.ts"),
             "cad-mcp": resolve(projectRoot, "resources/mcp/cad/server.ts"),
+            "alignment-mcp": resolve(projectRoot, "resources/mcp/alignment/server.ts"),
           },
           output: { format: "es", entryFileNames: "[name].js" },
         },

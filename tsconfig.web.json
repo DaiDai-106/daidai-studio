@@ -11,6 +11,7 @@
     "src/renderer/**/*.ts",
     "src/renderer/**/*.tsx",
     "src/shared/**/*.ts",
-    "resources/mcp/cad/contract.ts"
+    "resources/mcp/cad/contract.ts",
+    "resources/mcp/alignment/contract.ts"
   ]
 }

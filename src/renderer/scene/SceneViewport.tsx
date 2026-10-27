@@ -15,6 +15,7 @@ export function SceneViewport({
   model,
   selectedId,
   transparency,
+  placement,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewport = useRef<ReturnType<typeof createViewport> | null>(null);
@@ -65,10 +66,11 @@ export function SceneViewport({
       showGrid,
       showAxes,
       selectedId: selectedId ?? null,
+      placement: placement ?? null,
       ...(transparency ? { transparency } : {}),
       ...(model ? { model } : {}),
     });
-  }, [showGrid, showAxes, model, selectedId, transparency]);
+  }, [showGrid, showAxes, model, selectedId, transparency, placement]);
   return (
     <>
       <div ref={host} className="scene-viewport" />

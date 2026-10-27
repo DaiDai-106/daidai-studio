@@ -11,6 +11,18 @@ export interface ResourceScope {
   /** Private directory created by the host for this local stdio connection. */
   readonly root: string;
 }
+/** A complete JSONL page, small enough for one ordinary Pi read without offset/limit. */
+export interface CatalogPage {
+  path: string;
+  byteLength: number;
+  objectCount: number;
+  startIndex: number;
+}
+export interface ObjectCatalog {
+  objectCount: number;
+  objects: CatalogPage[];
+  references: CatalogPage[];
+}
 export const PreparedModelSchema = Type.Object(
   {
     ...ImportedModelSchema.properties,

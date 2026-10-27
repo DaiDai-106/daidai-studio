@@ -30,7 +30,11 @@ export function SkillCard({
             {skill.builtin && " · 内置"}
           </p>
         </div>
-        <Toggle label={`启用 ${skill.name}`} checked={skill.enabled} onChange={onToggle} />
+        {skill.automatic ? (
+          <span className="muted">{skill.body ? "随模式加载" : "技能文件缺失"}</span>
+        ) : (
+          <Toggle label={`启用 ${skill.name}`} checked={skill.enabled} onChange={onToggle} />
+        )}
       </div>
       <p className="skill-description">{skill.description}</p>
       <div className="service-actions">

@@ -1,3 +1,4 @@
+import { ModelThinkingLevelSchema } from "@earendil-works/pi-ai/providers/model-schema";
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
 import {
@@ -18,14 +19,26 @@ const text = (maxLength = 200) => Type.String({ maxLength });
 const id = Type.String({ minLength: 1, maxLength: 200 });
 const object = <T extends Record<string, import("typebox").TSchema>>(properties: T) =>
   Type.Object(properties, { additionalProperties: false });
+export type ThinkingLevel = Static<typeof ModelThinkingLevelSchema>;
 export const ModelSchema = object({
   id,
   name: text(),
   context: Type.Integer({ minimum: 1024, maximum: 10_000_000 }),
   output: Type.Integer({ minimum: 1, maximum: 10_000_000 }),
   reasoning: text(),
+  thinkingLevels: Type.Optional(Type.Array(ModelThinkingLevelSchema, { maxItems: 7 })),
+  supportsImages: Type.Optional(Type.Boolean()),
 });
 export type ModelChoice = Static<typeof ModelSchema>;
+export const ChatImageSchema = object({
+  mimeType: Type.Union([
+    Type.Literal("image/png"),
+    Type.Literal("image/jpeg"),
+    Type.Literal("image/webp"),
+  ]),
+  data: Type.String({ minLength: 1, maxLength: 7_000_000 }),
+});
+export type ChatImage = Static<typeof ChatImageSchema>;
 export const ProviderSchema = object({
   id,
   name: Type.String({ minLength: 1, maxLength: 100 }),
@@ -62,6 +75,7 @@ export type ConversationInfo = {
   title: string;
   mode: "general" | "scene";
   modelId: string;
+  thinkingLevel?: ThinkingLevel;
   draft: string;
   archived: boolean;
   interrupted: boolean;
@@ -83,8 +97,24 @@ const ResponseSchema = object({
   usage: UsageSchema,
 });
 export type ResponseInfo = Static<typeof ResponseSchema>;
+const ToolArgumentsSchema = Type.Record(Type.String(), Type.Unknown());
+const MessageBlockSchema = object({
+  kind: Type.Enum(["text", "thinking"], { type: "string" }),
+  text: text(4_000_000),
+  truncated: Type.Optional(Type.Boolean()),
+});
+export type MessageBlock = Static<typeof MessageBlockSchema>;
+const OutcomeSchema = Type.Enum(["completed", "failed", "stopped"], { type: "string" });
+const toolPresentationFields = {
+  callKey: Type.Optional(text(1200)),
+  args: Type.Optional(ToolArgumentsSchema),
+  argsTruncated: Type.Optional(Type.Boolean()),
+  output: Type.Optional(text(8000)),
+  outputTruncated: Type.Optional(Type.Boolean()),
+};
 const ToolProgressSchema = object({
   id,
+  ...toolPresentationFields,
   name: text(200),
   phase: text(200),
   displayName: Type.Optional(text(200)),
@@ -93,6 +123,8 @@ const ToolProgressSchema = object({
 });
 export type ToolProgressInfo = Static<typeof ToolProgressSchema>;
 const ToolResultSchema = object({
+  ...toolPresentationFields,
+  callId: Type.Optional(text(1000)),
   name: text(200),
   durationMs: Type.Union([Type.Number({ minimum: 0 }), Type.Null()]),
   displayName: Type.Optional(text(200)),
@@ -102,14 +134,21 @@ export type MessageInfo = {
   id: string;
   role: "user" | "assistant" | "tool";
   text: string;
+  images?: ChatImage[];
   failed: boolean;
   response?: ResponseInfo;
+  blocks?: MessageBlock[];
+  timestamp?: number;
+  durationMs?: number;
+  hasToolCalls?: boolean;
+  outcome?: Static<typeof OutcomeSchema>;
   tool?: Static<typeof ToolResultSchema>;
 };
 export type SettingsInfo = {
   providers: ProviderInfo[];
   defaultModel: string;
   theme: Theme;
+  showThinking?: boolean;
   disabledCapabilities: string[];
   skills: SkillConfig[];
   mcpServers: McpConfig[];
@@ -124,13 +163,25 @@ export type WorkspaceInfo = {
   busyConversationId: string | null;
   cadAvailable: boolean;
   builtins: BuiltinCatalog;
+  shellApproval?: ShellApproval | null;
 };
+const ShellApprovalSchema = object({
+  id,
+  conversationId: id,
+  command: text(16000),
+  cwd: text(4096),
+  shell: text(40),
+});
+export type ShellApproval = Static<typeof ShellApprovalSchema>;
 export type ConversationView = {
   conversationId: string;
   streamId: string;
   sequence: number;
   messages: MessageInfo[];
   partial: string;
+  partialBlocks?: MessageBlock[];
+  partialHasToolCalls?: boolean;
+  activity?: "waiting" | "responding" | "thinking" | "tools" | "retrying" | "compacting";
   busy: boolean;
   error: string;
   usage: UsageInfo;
@@ -160,6 +211,7 @@ export type ApplicationEvent =
   | { type: "conversationDeleted"; id: string }
   | { type: "conversation"; view: ConversationView }
   | { type: "login"; login: LoginInfo }
+  | { type: "shell.approval"; approval: ShellApproval | null }
   | { type: "display.changed"; sourceId: string; importId: string };
 
 export const commands = {
@@ -180,13 +232,19 @@ export const commands = {
   "provider.save": object({ config: ProviderSchema, loginId: Type.Optional(id) }),
   "provider.remove": object({ id }),
   "settings.update": object({
+    showThinking: Type.Optional(Type.Boolean()),
     defaultModel: Type.Optional(text(500)),
     theme: Type.Optional(
       Type.Union([Type.Literal("light"), Type.Literal("dark"), Type.Literal("system")]),
     ),
   }),
   "capability.setEnabled": object({
-    id: Type.Union([Type.Literal("builtin.cad"), Type.Literal("builtin-scene")]),
+    id: Type.Union([
+      Type.Literal("builtin.cad"),
+      Type.Literal("builtin.alignment"),
+      Type.Literal("builtin-scene"),
+      Type.Literal("builtin-alignment-skill"),
+    ]),
     enabled: Type.Boolean(),
   }),
   "auth.start": object({
@@ -208,6 +266,7 @@ export const commands = {
     title: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
     mode: Type.Optional(Type.Union([Type.Literal("general"), Type.Literal("scene")])),
     modelId: Type.Optional(text(500)),
+    thinkingLevel: Type.Optional(ModelThinkingLevelSchema),
     draft: Type.Optional(text(100000)),
     archived: Type.Optional(Type.Boolean()),
   }),
@@ -215,9 +274,11 @@ export const commands = {
   "conversation.send": object({
     id,
     requestId: id,
-    text: Type.String({ minLength: 1, maxLength: 100000 }),
+    text: Type.String({ maxLength: 100000 }),
+    images: Type.Optional(Type.Array(ChatImageSchema, { maxItems: 3 })),
   }),
   "conversation.stop": object({ id }),
+  "shell.respond": object({ id, approved: Type.Boolean() }),
 } as const;
 export type Method = keyof typeof commands;
 export type Arguments<K extends Method> = Static<(typeof commands)[K]>;
@@ -251,6 +312,7 @@ export type Results = {
   "conversation.watch": ConversationView;
   "conversation.send": { submissionId: string };
   "conversation.stop": null;
+  "shell.respond": null;
 };
 export function validateRequest(method: unknown, args: unknown): asserts method is Method {
   if (
@@ -279,6 +341,7 @@ const ConversationInfoSchema = object({
   title: text(),
   mode: Type.Union([Type.Literal("general"), Type.Literal("scene")]),
   modelId: text(500),
+  thinkingLevel: Type.Optional(ModelThinkingLevelSchema),
   draft: text(100000),
   archived: Type.Boolean(),
   interrupted: Type.Boolean(),
@@ -288,6 +351,7 @@ const SettingsInfoSchema = object({
   providers: Type.Array(ProviderInfoSchema, { maxItems: 100 }),
   defaultModel: text(500),
   theme: Type.Union([Type.Literal("light"), Type.Literal("dark"), Type.Literal("system")]),
+  showThinking: Type.Optional(Type.Boolean()),
   disabledCapabilities: Type.Array(id, { maxItems: 100 }),
   skills: Type.Array(SkillConfigSchema, { maxItems: 100 }),
   mcpServers: Type.Array(McpConfigSchema, { maxItems: 100 }),
@@ -301,12 +365,25 @@ const ConversationViewSchema = object({
       id,
       role: Type.Union([Type.Literal("user"), Type.Literal("assistant"), Type.Literal("tool")]),
       text: text(4_000_000),
+      images: Type.Optional(Type.Array(ChatImageSchema, { maxItems: 3 })),
       failed: Type.Boolean(),
       response: Type.Optional(ResponseSchema),
+      blocks: Type.Optional(Type.Array(MessageBlockSchema)),
+      timestamp: Type.Optional(Type.Number()),
+      durationMs: Type.Optional(Type.Number({ minimum: 0 })),
+      hasToolCalls: Type.Optional(Type.Boolean()),
+      outcome: Type.Optional(OutcomeSchema),
       tool: Type.Optional(ToolResultSchema),
     }),
   ),
   partial: text(4_000_000),
+  partialBlocks: Type.Optional(Type.Array(MessageBlockSchema)),
+  partialHasToolCalls: Type.Optional(Type.Boolean()),
+  activity: Type.Optional(
+    Type.Enum(["waiting", "responding", "thinking", "tools", "retrying", "compacting"], {
+      type: "string",
+    }),
+  ),
   busy: Type.Boolean(),
   error: text(10000),
   usage: UsageSchema,
@@ -359,6 +436,7 @@ export const resultSchemas = {
     dataRoot: text(4096),
     secureStorage: Type.Boolean(),
     busyConversationId: Type.Union([id, Type.Null()]),
+    shellApproval: Type.Optional(Type.Union([ShellApprovalSchema, Type.Null()])),
     cadAvailable: Type.Boolean(),
     builtins: BuiltinCatalogSchema,
   }),
@@ -390,6 +468,7 @@ export const resultSchemas = {
   "conversation.watch": ConversationViewSchema,
   "conversation.send": object({ submissionId: id }),
   "conversation.stop": Type.Null(),
+  "shell.respond": Type.Null(),
 } satisfies Record<Method, import("typebox").TSchema>;
 export function validateResult<K extends Method>(
   method: K,
@@ -404,6 +483,10 @@ const EventSchema = Type.Union([
   object({ type: Type.Literal("conversationDeleted"), id }),
   object({ type: Type.Literal("conversation"), view: ConversationViewSchema }),
   object({ type: Type.Literal("login"), login: LoginInfoSchema }),
+  object({
+    type: Type.Literal("shell.approval"),
+    approval: Type.Union([ShellApprovalSchema, Type.Null()]),
+  }),
 ]);
 export function validEvent(value: unknown): value is ApplicationEvent {
   return Value.Check(EventSchema, value);

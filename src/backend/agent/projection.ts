@@ -1,139 +1,31 @@
-import type { AssistantMessage, Message, Models, Usage } from "@earendil-works/pi-ai";
-import type { AgentEvent, EntryRecord, UsageState } from "@earendil-works/pi-durable";
-import type {
-  ConversationView,
-  MessageInfo,
-  ResponseInfo,
-  UsageInfo,
-} from "../../shared/application.ts";
-import { modelRequestError } from "./errors.ts";
+import type { AssistantMessage, Models } from "@earendil-works/pi-ai";
+import type { AgentEvent, EntryRecord } from "@earendil-works/pi-durable";
+import type { ConversationView, MessageBlock } from "../../shared/application.ts";
+import {
+  displayArguments,
+  preview,
+  publicBlock,
+  THINKING_PREVIEW_LIMIT,
+  toolIdentity,
+  toolPhase,
+} from "./presentation.ts";
+import { createMessageFormatter, emptyUsage } from "./projectionMessages.ts";
+import type { ProjectedToolCall } from "./types.ts";
 
-function toolPhase(details: unknown): string {
-  if (
-    !details ||
-    typeof details !== "object" ||
-    !("phase" in details) ||
-    typeof details.phase !== "string"
-  )
-    return "";
-  return details.phase.slice(0, 200);
-}
-
-function toolIdentity(details: unknown): { displayName?: string; serverName?: string } {
-  if (
-    !details ||
-    typeof details !== "object" ||
-    !("toolName" in details) ||
-    !("serverName" in details) ||
-    typeof details.toolName !== "string" ||
-    typeof details.serverName !== "string"
-  )
-    return {};
-  return {
-    displayName: details.toolName.slice(0, 200),
-    serverName: details.serverName.slice(0, 200),
-  };
-}
-
-function usageInfo(usage: Usage, priced: boolean): UsageInfo {
-  return {
-    input: usage.input,
-    output: usage.output,
-    cacheRead: usage.cacheRead,
-    cacheWrite: usage.cacheWrite,
-    totalTokens: usage.totalTokens,
-    // Pi's zero-price placeholder also covers subscriptions and unknown pricing.
-    estimatedCostUsd:
-      priced || usage.cost.total > 0 || usage.totalTokens === 0 ? usage.cost.total : null,
-  };
-}
-
-function emptyUsage(): UsageInfo {
-  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, estimatedCostUsd: 0 };
-}
-
-function text(message: Message): string {
-  return typeof message.content === "string"
-    ? message.content
-    : message.content
-        .filter((block) => block.type === "text")
-        .map((block) => block.text)
-        .join("");
-}
 export function createProjection(
   conversationId: string,
   models: Pick<Models, "getModel" | "getModels">,
 ) {
-  function responseInfo(message: AssistantMessage): ResponseInfo {
-    const model = models.getModel(message.provider, message.model);
-    return {
-      model: message.responseModel || message.model,
-      provider: message.provider,
-      contextWindow: model?.contextWindow ?? null,
-      usage: usageInfo(
-        message.usage,
-        !!model &&
-          Object.values(model.cost).some((price) => typeof price === "number" && price > 0),
-      ),
-    };
-  }
-  function totalUsage(state: UsageState): UsageInfo {
-    const total = emptyUsage();
-    const catalog = models.getModels();
-    for (const [key, usage] of Object.entries(state.models)) {
-      const model = catalog.find((item) => `${item.provider}/${item.id}` === key);
-      const item = usageInfo(
-        usage,
-        !!model &&
-          Object.values(model.cost).some((price) => typeof price === "number" && price > 0),
-      );
-      total.input += item.input;
-      total.output += item.output;
-      total.cacheRead += item.cacheRead;
-      total.cacheWrite += item.cacheWrite;
-      total.totalTokens += item.totalTokens;
-      total.estimatedCostUsd =
-        total.estimatedCostUsd === null || item.estimatedCostUsd === null
-          ? null
-          : total.estimatedCostUsd + item.estimatedCostUsd;
-    }
-    return total;
-  }
-  function entryMessages(entry: EntryRecord): MessageInfo[] {
-    return (entry.model ?? []).flatMap<MessageInfo>((message, index) => {
-      if (message.role === "toolResult")
-        return [
-          {
-            id: `${entry.id}:${index}`,
-            role: "tool" as const,
-            text: text(message).slice(0, 4000),
-            failed: message.isError,
-            tool: {
-              name: message.toolName,
-              durationMs: message.durationMs ?? null,
-              ...toolIdentity(message.details),
-            },
-          },
-        ];
-      if (message.role !== "user" && message.role !== "assistant") return [];
-      const failed =
-        message.role === "assistant" && ["error", "aborted"].includes(message.stopReason);
-      let content = text(message);
-      if (failed && message.role === "assistant")
-        content =
-          message.stopReason === "aborted"
-            ? "请求已停止。"
-            : modelRequestError(message.errorMessage);
-      return [
-        {
-          id: `${entry.id}:${index}`,
-          role: message.role,
-          text: content,
-          failed,
-          ...(message.role === "assistant" ? { response: responseInfo(message) } : {}),
-        },
-      ];
-    });
+  const formatter = createMessageFormatter(models);
+  const calls = new Map<string, ProjectedToolCall>();
+  const seen = new Set<number>();
+  const outputWindows = new Map<string, string>();
+  function rememberCalls(entry: EntryRecord) {
+    for (const message of entry.model ?? [])
+      if (message.role === "assistant")
+        for (const block of message.content)
+          if (block.type === "toolCall")
+            calls.set(block.id, { args: block.arguments, key: `${entry.id}:${block.id}` });
   }
   let view: ConversationView = {
     conversationId,
@@ -148,11 +40,37 @@ export function createProjection(
     respondingModel: null,
     activeTools: [],
   };
-  const partial = new Map<number, string>();
+  const live = new Map<number, MessageBlock | null>();
+  function seed(message: AssistantMessage | undefined) {
+    live.clear();
+    view.partialHasToolCalls = false;
+    message?.content.forEach((block, index) => {
+      live.set(index, publicBlock(block));
+      if (block.type === "toolCall") view.partialHasToolCalls = true;
+    });
+    syncPartial();
+  }
+  function syncPartial() {
+    view.partialBlocks = [...live.entries()]
+      .sort(([a], [b]) => a - b)
+      .flatMap(([, block]) => (block ? [block] : []));
+    view.partial = view.partialBlocks
+      .filter((block) => block.kind === "text")
+      .map((block) => block.text)
+      .join("");
+  }
   function appendEntry(entry: EntryRecord) {
-    const items = entryMessages(entry);
+    if (seen.has(Number(entry.id))) return;
+    seen.add(Number(entry.id));
+    rememberCalls(entry);
+    const items = formatter.entryMessages(entry, calls);
     const ids = new Set(view.messages.map((message) => message.id));
     view.messages.push(...items.filter((message) => !ids.has(message.id)));
+    for (const item of items)
+      if (item.tool?.callId) {
+        view.activeTools = view.activeTools.filter((tool) => tool.id !== item.tool?.callId);
+        outputWindows.delete(item.tool.callId);
+      }
     for (const item of items)
       if (item.response && item.response.usage.totalTokens > 0) view.latestResponse = item.response;
   }
@@ -161,14 +79,20 @@ export function createProjection(
     for (const event of events) {
       switch (event.type) {
         case "snapshot": {
-          const messages = event.entries.flatMap(entryMessages);
+          calls.clear();
+          seen.clear();
+          outputWindows.clear();
+          const messages = event.entries.flatMap((entry) => {
+            seen.add(Number(entry.id));
+            rememberCalls(entry);
+            return formatter.entryMessages(entry, calls);
+          });
           view = {
             ...view,
             messages,
-            partial: event.generation?.message ? text(event.generation.message) : "",
             busy: !!event.run,
             error: "",
-            usage: totalUsage(event.usage),
+            usage: formatter.totalUsage(event.usage),
             latestResponse:
               [...messages]
                 .reverse()
@@ -178,54 +102,89 @@ export function createProjection(
               event.generation?.message?.responseModel || event.generation?.message?.model || null,
             activeTools: event.tools
               .filter((slot) => !slot.entry && slot.status !== "done")
-              .map((slot) => ({
-                id: slot.callId,
-                name: slot.name,
-                phase: toolPhase(slot.details),
-                ...toolIdentity(slot.details),
-                status: slot.status === "pending" ? "pending" : "running",
-              })),
+              .map((slot) => {
+                const output = slot.output ? preview(slot.output) : undefined;
+                return {
+                  id: slot.callId,
+                  name: slot.name,
+                  ...displayArguments(calls.get(slot.callId)?.args),
+                  callKey: calls.get(slot.callId)?.key ?? slot.callId,
+                  ...(output
+                    ? {
+                        output: output.text,
+                        outputTruncated: output.truncated || !!slot.droppedBytes,
+                      }
+                    : {}),
+                  phase: toolPhase(slot.details),
+                  ...toolIdentity(slot.details),
+                  status: slot.status === "pending" ? "pending" : "running",
+                };
+              }),
           };
-          partial.clear();
-          if (event.generation?.message)
-            event.generation.message.content.forEach((block, index) => {
-              if (block.type === "text") partial.set(index, block.text);
-            });
+          for (const slot of event.tools)
+            if (slot.output) outputWindows.set(slot.callId, slot.output);
+          seed(event.generation?.message);
+          view.activity = event.compactions.some((item) => item.blocking)
+            ? "compacting"
+            : event.generation?.retry
+              ? "retrying"
+              : view.activeTools.length
+                ? "tools"
+                : view.partial
+                  ? "responding"
+                  : view.partialBlocks?.some((block) => block.kind === "thinking")
+                    ? "thinking"
+                    : "waiting";
           break;
         }
         case "message_start":
           if (event.message.role === "assistant") {
-            partial.clear();
-            view.partial = text(event.message);
+            seed(event.message);
+            view.activity = "waiting";
             view.respondingModel = event.message.responseModel || event.message.model;
           }
           break;
         case "message_update":
           for (const change of event.changes) {
-            if (change.type === "text_start")
-              partial.set(
-                change.contentIndex,
-                change.block.type === "text" ? change.block.text : "",
-              );
-            else if (change.type === "text_delta")
-              partial.set(
-                change.contentIndex,
-                (partial.get(change.contentIndex) ?? "") + change.delta,
-              );
-            else if (change.type === "block" && change.block.type === "text")
-              partial.set(change.contentIndex, change.block.text);
-            else if (change.type === "message") {
+            if (change.type === "message") {
               view.respondingModel = change.message.responseModel || change.message.model;
-              partial.clear();
-              change.message.content.forEach((block, index) => {
-                if (block.type === "text") partial.set(index, block.text);
+              seed(change.message);
+            } else if (change.type === "text_delta" || change.type === "thinking_delta") {
+              const kind = change.type === "thinking_delta" ? "thinking" : "text";
+              if (
+                kind === "thinking" &&
+                live.has(change.contentIndex) &&
+                live.get(change.contentIndex) === null
+              )
+                continue;
+              const previous = live.get(change.contentIndex);
+              const value = preview(
+                (previous?.text ?? "") + change.delta,
+                kind === "thinking" ? THINKING_PREVIEW_LIMIT : 4_000_000,
+              );
+              live.set(change.contentIndex, {
+                kind,
+                text: value.text,
+                truncated: value.truncated || !!previous?.truncated,
               });
+              view.activity = kind === "thinking" ? "thinking" : "responding";
+            } else if (
+              change.type === "block" ||
+              change.type === "text_start" ||
+              change.type === "thinking_start" ||
+              change.type === "toolcall_start"
+            ) {
+              live.set(change.contentIndex, publicBlock(change.block));
+              if (change.block.type === "toolCall") view.partialHasToolCalls = true;
+              view.activity =
+                change.block.type === "thinking"
+                  ? "thinking"
+                  : change.block.type === "text"
+                    ? "responding"
+                    : "waiting";
             }
           }
-          view.partial = [...partial.entries()]
-            .sort(([a], [b]) => a - b)
-            .map(([, value]) => value)
-            .join("");
+          syncPartial();
           break;
         case "message_end":
         case "entry_appended": {
@@ -234,14 +193,15 @@ export function createProjection(
             event.type === "message_end" &&
             event.entry.model?.some((message) => message.role === "assistant")
           ) {
-            partial.clear();
-            view.partial = "";
+            seed(undefined);
+            view.activity = "waiting";
             view.respondingModel = null;
           }
           break;
         }
         case "run_start":
           view.busy = true;
+          view.activity = "waiting";
           view.error = "";
           break;
         case "tool_execution_start":
@@ -251,13 +211,32 @@ export function createProjection(
             name: event.toolName,
             status: "running",
             phase: "",
+            ...displayArguments(event.args),
+            callKey: calls.get(event.toolCallId)?.key ?? event.toolCallId,
           });
+          view.activity = "tools";
           break;
         case "tool_execution_update": {
           const tool = view.activeTools.find((item) => item.id === event.toolCallId);
-          if (tool && event.details !== undefined) {
-            tool.phase = toolPhase(event.details);
-            Object.assign(tool, toolIdentity(event.details));
+          if (tool) {
+            if (event.details !== undefined) {
+              tool.phase = toolPhase(event.details);
+              Object.assign(tool, toolIdentity(event.details));
+            }
+            if (event.output) {
+              const output =
+                "set" in event.output
+                  ? event.output.set
+                  : (outputWindows.get(tool.id) ?? "").slice(event.output.trimStart ?? 0) +
+                    (event.output.append ?? "");
+              outputWindows.set(tool.id, output);
+              const shown = preview(output);
+              tool.output = shown.text;
+              tool.outputTruncated =
+                !!tool.outputTruncated ||
+                shown.truncated ||
+                !!("trimStart" in event.output && event.output.trimStart);
+            }
           }
           break;
         }
@@ -267,9 +246,24 @@ export function createProjection(
           break;
         case "run_end":
           view.busy = false;
-          view.partial = "";
+          seed(undefined);
+          outputWindows.clear();
+          view.activity = "waiting";
           view.respondingModel = null;
           view.activeTools = [];
+          break;
+        case "auto_retry_start":
+          seed(undefined);
+          view.activity = "retrying";
+          break;
+        case "auto_retry_end":
+          view.activity = "waiting";
+          break;
+        case "compaction_start":
+          view.activity = "compacting";
+          break;
+        case "compaction_end":
+          view.activity = "waiting";
           break;
         case "submission":
           if (event.record.status === "unanswered") {
@@ -285,7 +279,7 @@ export function createProjection(
           view.error = "请求失败，请检查服务配置和认证。";
           break;
         case "usage_changed":
-          view.usage = totalUsage(event.usage);
+          view.usage = formatter.totalUsage(event.usage);
           break;
       }
     }

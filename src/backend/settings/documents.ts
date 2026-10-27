@@ -7,6 +7,7 @@ export type SettingsRecord = {
   providers: StoredProvider[];
   defaultModel: string;
   theme: Theme;
+  showThinking?: boolean;
   deviceId: string;
   disabledCapabilities?: string[];
   skills?: SkillConfig[];

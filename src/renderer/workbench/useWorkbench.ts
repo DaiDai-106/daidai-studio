@@ -157,7 +157,7 @@ export function useWorkbench(application: ApplicationState) {
       })
       .then((result) => result === true);
   }
-  function update(patch: Partial<Pick<Conversation, "draft" | "modelId">>) {
+  function update(patch: Partial<Pick<Conversation, "draft" | "modelId" | "thinkingLevel">>) {
     if (!active) return;
     const id = active.id;
     if (patch.draft !== undefined) setDrafts((items) => ({ ...items, [id]: patch.draft ?? "" }));
@@ -166,18 +166,21 @@ export function useWorkbench(application: ApplicationState) {
         id,
         ...(patch.draft !== undefined ? { draft: patch.draft } : {}),
         ...(patch.modelId !== undefined ? { modelId: patch.modelId } : {}),
+        ...(patch.thinkingLevel !== undefined ? { thinkingLevel: patch.thinkingLevel } : {}),
       });
     });
   }
-  function send() {
-    if (!active?.draft.trim()) return;
+  async function send(images: import("../../shared/application.ts").ChatImage[] = []) {
+    if (!active || (!active.draft.trim() && !images.length)) return false;
     const id = active.id;
     const draft = active.draft;
     const text = draft.trim();
-    void application.run(async () => {
-      await api.sendMessage(id, crypto.randomUUID(), text);
+    const result = await application.run(async () => {
+      await api.sendMessage(id, crypto.randomUUID(), text, images);
       setDrafts((items) => (items[id] === draft ? { ...items, [id]: "" } : items));
+      return true;
     });
+    return result === true;
   }
   return {
     projects,

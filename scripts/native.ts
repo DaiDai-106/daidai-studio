@@ -43,9 +43,16 @@ if (testing) {
   }
   await run(
     process.execPath,
-    ["--experimental-strip-types", "--test", "--test-concurrency=1", "tests/cad/*.test.ts"],
+    [
+      "--experimental-strip-types",
+      "--test",
+      "--test-concurrency=1",
+      "tests/cad/*.test.ts",
+      "tests/alignment/*.test.ts",
+    ],
     {
       ...process.env,
+      DAI_ALIGNMENT_TEST_WORKER: await binary(build, "dai-alignment-worker"),
       DAI_CAD_TEST_WORKER: await binary(build, "dai-cad-worker"),
       DAI_CAD_TEST_FIXTURE: await binary(build, "cad-core-tests"),
     },

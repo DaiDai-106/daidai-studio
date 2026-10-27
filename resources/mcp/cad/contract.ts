@@ -342,6 +342,7 @@ export const cadInputs = {
   cad_build_display: object({
     document: CadHandleSchema,
     quality: CadQualitySchema,
+    features: Type.Optional(Type.Enum(["none", "alignment"], { type: "string" })),
   }),
   cad_get_job: object({ job: CadHandleSchema }),
   cad_wait_job: object({ job: CadHandleSchema }),
@@ -393,16 +394,18 @@ export type CadOutput<K extends CadToolName> = Static<(typeof cadOutputs)[K]>;
 export const cadDescriptions: Record<CadToolName, string> = {
   cad_get_capabilities: "Read CAD parser capabilities and limits.",
   cad_import_step:
-    "Import an absolute STEP path inside the allowed directory into a temporary CAD document. Return the exact path; do not omit or substitute the selected file.",
+    "Open an absolute STEP path inside the allowed directory as a temporary CAD document for a requested import/reparse or an uncached exact B-Rep query. For ordinary scene questions, use the saved object catalogue (scene-context.files.objects), not a new import. This does not generate or replace a display. Return the exact selected path.",
   cad_decompose_object:
     "Unpack existing assembly children, or split a shape into genuine independent solids/loose shells in place. Never cuts a fused solid or separates a solid’s internal shells. Does not generate or save display; inspect the returned children, then choose cad_build_display to generate display resources for the derived geometry.",
-  cad_get_structure: "Read objects, instances and their original placements.",
+  cad_get_structure:
+    "Read objects, instances and original placements from an open CAD document. For saved-scene names and hierarchy, read files.objects instead. Reopening creates fresh object IDs: match sourceKey only within the same sourceHash and importFingerprint; never pass an old saved ID to a new document.",
   cad_get_properties:
-    "Read original CAD bounds, topology, colors, optional B-Rep validity or numerical area/volume/centroid measures in object coordinates. Measures are geometric, not density, mass or inertia; no geometry healing is performed.",
+    "Read original CAD bounds, topology, colors, optional B-Rep validity or numerical area/volume/centroid measures in object coordinates. Object IDs must come from this document's structure, not a previous import or saved display; match sourceKey within the same source version if needed. Measures are geometric, not density, mass or inertia; no geometry healing is performed.",
   cad_measure_distance:
     "Compute read-only B-Rep minimum distance between two objects at explicitly supplied rigid placements in a common Z-up coordinate system. Returns meters and bounded closest-point pairs. Zero distance does not distinguish contact from penetration; this is not a collision certificate or constraint solver.",
   cad_list_geometry_features: "Query exact CAD features on an object or selected topology.",
-  cad_build_display: "Generate GLB display resources and CAD face mappings.",
+  cad_build_display:
+    "Generate new GLB display resources and CAD face mappings for a requested display import/regeneration, not as a side effect of inspecting original geometry. Use quality=preview for initial display, ordinary viewing and whole-assembly alignment; standard/fine require an explicit request for finer visualization. Finishing scene building does not imply higher quality. Request features=alignment to persist plane/circle/cylinder references for later alignment without a live CAD document.",
   cad_get_job: "Read a CAD task's actual state and result.",
   cad_wait_job:
     "Wait for an accepted CAD job to reach its actual terminal state, reporting progress.",
@@ -415,8 +418,20 @@ export const cadEnvelope = (data: TSchema) =>
     object({ ok: Type.Literal(true), data }),
     object({ ok: Type.Literal(false), error }),
   ]);
+export const CadFeatureIndexSchema = object({
+  resourceUri: text(8192),
+  objects: Type.Array(
+    object({
+      objectId: text(),
+      startLine: Type.Integer({ minimum: 2 }),
+      count,
+      analysisComplete: Type.Boolean(),
+      warnings,
+    }),
+  ),
+});
 export const CadManifestSchema = object({
-  schemaVersion: Type.Literal(1),
+  schemaVersion: Type.Enum([1, 2]),
   source: SourceVersionSchema,
   roots: Type.Array(text()),
   displayToScene: CadTransformSchema,
@@ -430,7 +445,14 @@ export const CadManifestSchema = object({
   complete: Type.Boolean(),
   // Unique geometry faces; repeated instances do not multiply this count.
   omittedFaceCount: Type.Optional(count),
-  resources: Type.Array(CadResourceSchema, { maxItems: 10 }),
+  resources: Type.Array(
+    object({
+      ...CadResourceSchema.properties,
+      role: Type.Optional(Type.Enum(["display", "face-map", "geometry-features"])),
+    }),
+    { maxItems: 10 },
+  ),
+  features: Type.Optional(CadFeatureIndexSchema),
   objects: Type.Array(
     object({
       objectId: text(),

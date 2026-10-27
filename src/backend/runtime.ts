@@ -17,6 +17,7 @@ import { createMcpHandlers } from "./mcp/handlers.ts";
 import { ConversationDoc } from "./projects/documents.ts";
 import { projectFiles } from "./projects/files.ts";
 import { createProjects } from "./projects/handlers.ts";
+import { createPlacements } from "./projects/placements.ts";
 import type { VaultPort } from "./settings/credentials.ts";
 import { createSettings } from "./settings/handlers.ts";
 import type { Handlers } from "./types.ts";
@@ -71,9 +72,11 @@ export async function openRuntime(
   let closing = false;
   let closePromise: Promise<void> | undefined;
   let mutations = Promise.resolve();
-  const artifacts = createArtifacts(harness, storage, publish);
+  const artifacts = createArtifacts(harness, storage, publish, root);
   await artifacts.recover();
-  const projects = createProjects(harness, storage);
+  const placements = createPlacements(harness, storage, publish, root);
+  await placements.recover();
+  const projects = createProjects(harness, storage, settings.model);
   const mcp = createMcpHandlers(settings, projects, idle);
   session = createSession({
     harness,
@@ -82,6 +85,7 @@ export async function openRuntime(
     extension,
     builtins,
     artifacts,
+    placements,
     projects,
     settings,
     idle,
@@ -94,7 +98,14 @@ export async function openRuntime(
       );
   }
   const handlers: Handlers = {
-    ...settings.requests({ idle, logins, projects, releaseCad: () => builtins.cad.release() }),
+    ...settings.requests({
+      idle,
+      logins,
+      projects,
+      releaseBuiltin: async (id) => {
+        await builtins.services.find((service) => service.descriptor.id === id)?.release();
+      },
+    }),
     ...projects.requests({
       idle,
       defaultModel: () => settings.read().defaultModel,
@@ -104,7 +115,12 @@ export async function openRuntime(
           await session?.unwatch();
         },
       },
-      display: artifacts,
+      display: {
+        get: async (sourceId) => {
+          const model = await artifacts.get(sourceId);
+          return model ? { ...model, placement: await placements.get(model) } : null;
+        },
+      },
       publish,
     }),
     ...mcp.handlers,
@@ -138,6 +154,7 @@ export async function openRuntime(
         dataRoot: root,
         secureStorage: vault.available,
         busyConversationId: session?.busyId() ?? null,
+        shellApproval: session?.shellApproval() ?? null,
         cadAvailable: builtins.cad.available && settings.enabled("builtin.cad"),
         builtins: builtins.catalog,
       };
@@ -149,6 +166,7 @@ export async function openRuntime(
       validateRequest(method, args);
       // Cancellation must reach discovery instead of waiting behind the request it cancels.
       if (method === "mcp.cancelInspect") return handlers[method](args);
+      if (method === "shell.respond") return handlers[method](args);
       const result = mutations.then(() => handlers[method](args));
       mutations = result.then(
         () => {},
@@ -170,6 +188,7 @@ export async function openRuntime(
         await harness.waitForIdle(context);
         const cleanup = await Promise.allSettled([session?.closeExternal(), builtins.close()]);
         await artifacts.close();
+        await placements.close();
         await harness.close(context);
         if (cleanup.some((result) => result.status === "rejected"))
           throw new Error("后端资源清理未全部成功。");

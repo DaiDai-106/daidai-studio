@@ -23,9 +23,9 @@ test("custom skills persist and reach only their project and mode without granti
     assert.equal(prompt.includes("private-skill-b-marker"), user === "scene-b");
     assert.equal(prompt.includes("disabled-skill-marker"), false);
     assert.deepEqual(
-      request.tools ?? [],
-      [],
-      "A skill cannot grant tools, including when CAD is unavailable",
+      (request.tools ?? []).map((tool) => tool.function.name),
+      user === "general-a" ? [] : ["read", process.platform === "win32" ? "powershell" : "bash"],
+      "Skills grant no tools beyond the mode’s explicitly provided tools",
     );
     return { text: "Skill scope checked." };
   });

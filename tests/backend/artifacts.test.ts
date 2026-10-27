@@ -16,11 +16,11 @@ test("artifact IO refuses links and escapes, streams bounded resources and verif
     await mkdir(outside);
     await symlink(
       outside,
-      join(project, ".daidai"),
+      join(project, "artifacts"),
       process.platform === "win32" ? "junction" : "dir",
     );
     await assert.rejects(artifactDirectory(project), /目录不可用/);
-    await rm(join(project, ".daidai"));
+    await rm(join(project, "artifacts"));
     const artifacts = await artifactDirectory(project);
     const source = join(outside, "source.glb");
     const content = Buffer.alloc(2 * 1024 * 1024, 7);

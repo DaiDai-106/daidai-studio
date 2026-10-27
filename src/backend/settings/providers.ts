@@ -4,6 +4,7 @@ import {
   createProvider,
   defaultProviderAuthContext,
   envApiKeyAuth,
+  getSupportedThinkingLevels,
   type Model,
   type ModelsStore,
   type Provider,
@@ -20,6 +21,8 @@ export function modelChoice(model: Model<import("@earendil-works/pi-ai").Api>): 
     context: model.contextWindow,
     output: model.maxTokens,
     reasoning: model.reasoning ? "支持推理" : "标准",
+    thinkingLevels: getSupportedThinkingLevels(model),
+    supportsImages: model.input.includes("image"),
   };
 }
 export function validateEndpoint(value: string) {
@@ -57,7 +60,7 @@ export function createProviders(credentials: CredentialStore, modelsStore?: Mode
           provider: config.id,
           baseUrl: config.endpoint,
           reasoning: false,
-          input: ["text"],
+          input: model.supportsImages ? ["text", "image"] : ["text"],
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
           contextWindow: model.context,
           maxTokens: model.output,
@@ -102,9 +105,22 @@ export function createProviders(credentials: CredentialStore, modelsStore?: Mode
       const native = [...provider.getModels()];
       return native.map((model) => {
         const choice = config.models.find((item) => item.id === model.id);
+        // Pi identifies ChatGPT OAuth by the native provider ID, while Dai uses a per-config ID.
+        const chatgptOAuth = config.providerType === "openai" && config.authMethod === "oauth";
         return {
           ...model,
           provider: config.id,
+          ...(chatgptOAuth
+            ? {
+                compat: {
+                  ...model.compat,
+                  supportsMidConvoEffort: false,
+                  supportsMaxOutputTokens: false,
+                  supportsExplicitPromptCacheMode: false,
+                  supportsLongCacheRetention: false,
+                },
+              }
+            : {}),
           ...(choice ? { contextWindow: choice.context, maxTokens: choice.output } : {}),
           ...(config.endpoint ? { baseUrl: config.endpoint } : {}),
         };

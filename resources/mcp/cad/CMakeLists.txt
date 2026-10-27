@@ -51,29 +51,10 @@ elseif(UNIX)
   target_link_options(dai-cad-worker PRIVATE "LINKER:--disable-new-dtags")
 endif()
 set(DAI_CAD_RUNTIME_DIRECTORIES "" CACHE STRING "Additional installed runtime library directories")
-if(WIN32)
-  set(runtime_pre_exclude "^api-ms-" "^ext-ms-")
-  set(runtime_post_exclude ".*[/\\][Ss][Yy][Ss][Tt][Ee][Mm]32[/\\].*")
-  set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION .)
-  include(InstallRequiredSystemLibraries)
-elseif(APPLE)
-  set(runtime_post_exclude "^/System/Library/" "^/usr/lib/")
-else()
-  # Ubuntu supplies OpenSSL, TBB, codecs and the C++ runtime through package dependencies.
-  # Only OCCT is private to the application; do not duplicate the system loader or libc.
-  set(runtime_pre_include "^libTK")
-  set(runtime_pre_exclude ".*")
-endif()
-install(TARGETS dai-cad-worker RUNTIME_DEPENDENCY_SET cad_runtime RUNTIME DESTINATION .)
-install(RUNTIME_DEPENDENCY_SET cad_runtime
-  PRE_INCLUDE_REGEXES ${runtime_pre_include}
-  PRE_EXCLUDE_REGEXES ${runtime_pre_exclude}
-  POST_EXCLUDE_REGEXES ${runtime_post_exclude}
-  DIRECTORIES "${OpenCASCADE_BINARY_DIR}" "${OpenCASCADE_LIBRARY_DIR}" ${DAI_CAD_RUNTIME_DIRECTORIES}
-  LIBRARY DESTINATION lib
-  RUNTIME DESTINATION .
-  FRAMEWORK DESTINATION lib)
-install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../../LICENSE" DESTINATION .)
+# The top-level build owns runtime packaging for all bundled workers.
+set_property(GLOBAL APPEND PROPERTY DAI_BUILTIN_RUNTIME_DIRECTORIES
+  "${OpenCASCADE_BINARY_DIR}" "${OpenCASCADE_LIBRARY_DIR}" ${DAI_CAD_RUNTIME_DIRECTORIES})
+install(TARGETS dai-cad-worker RUNTIME_DEPENDENCY_SET builtin_runtime RUNTIME DESTINATION .)
 if(BUILD_TESTING)
   add_subdirectory(
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../tests/cad/native"

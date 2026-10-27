@@ -67,14 +67,14 @@ test("capabilities separate skills from MCP, preview English CAD tool summaries 
     await dialog.getByRole("button", { name: "关闭弹窗", exact: true }).click();
     await mcpSection.getByRole("switch", { name: "启用 cad-mcp", exact: true }).click();
     await mcpSection.getByText("已停用配置", { exact: true }).waitFor();
-    assert.equal(
-      await skillSection
-        .getByRole("switch", { name: "启用 scene-building", exact: true })
-        .getAttribute("aria-checked"),
-      "true",
-    );
+    const baseSkill = skillSection.getByRole("article", { name: "scene-building", exact: true });
+    await baseSkill.getByText("随模式加载", { exact: true }).waitFor();
+    assert.equal(await baseSkill.getByRole("switch").count(), 0);
     await mcpSection.getByRole("switch", { name: "启用 cad-mcp", exact: true }).click();
-    await skillSection.getByRole("button", { name: "查看技能", exact: true }).click();
+    await skillSection
+      .getByRole("article", { name: "scene-building", exact: true })
+      .getByRole("button", { name: "查看技能", exact: true })
+      .click();
     const skill = page.getByRole("dialog", { name: "查看内置技能", exact: true });
     assert.equal(
       await skill.getByLabel("技能名称", { exact: true }).inputValue(),
@@ -123,7 +123,7 @@ test("capabilities separate skills from MCP, preview English CAD tool summaries 
       .locator(".sidebar-footer")
       .getByRole("button", { name: "工具与技能", exact: true })
       .click();
-    assert.equal(await page.locator(".service-card").count(), 4);
+    assert.equal(await page.locator(".service-card").count(), 6);
     await page.waitForFunction(async () =>
       (await window.desktop.application.getWorkspace()).settings.skills.some(
         (skill) => skill.name === "step-review",

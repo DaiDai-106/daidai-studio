@@ -1,5 +1,11 @@
 import { type Static, Type } from "typebox";
 
+// Built-in workflow instructions follow their mode; executable tools remain independently switchable.
+export const modeSkillIds: ReadonlySet<string> = new Set([
+  "builtin-scene",
+  "builtin-alignment-skill",
+]);
+
 const object = <T extends Record<string, import("typebox").TSchema>>(properties: T) =>
   Type.Object(properties, { additionalProperties: false });
 const id = Type.String({ minLength: 1, maxLength: 200 });
@@ -73,6 +79,7 @@ export const BuiltinCatalogSchema = object({
       name: Type.String({ minLength: 1, maxLength: 100 }),
       description: Type.String({ maxLength: 1000 }),
       modes: SkillConfigSchema.properties.modes,
+      automatic: Type.Boolean(),
       body: Type.Union([Type.String({ maxLength: 64000 }), Type.Null()]),
     }),
     { maxItems: 100 },

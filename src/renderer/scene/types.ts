@@ -1,4 +1,5 @@
 import type { Object3D } from "three";
+import type { Placement } from "../../../resources/mcp/alignment/contract.ts";
 import type { CadManifest } from "../../../resources/mcp/cad/contract.ts";
 
 // Display projection only: no project, conversation, CAD handle or business state.
@@ -19,6 +20,7 @@ export interface DisplayState {
   selectedId?: string | null;
   // Fraction hidden by the viewer (0 = opaque, 1 = transparent), inherited by descendants.
   transparency?: Readonly<Record<string, number>>;
+  placement?: Placement | null;
 }
 
 export interface LoadedModel {
@@ -28,6 +30,7 @@ export interface LoadedModel {
   dispose(): void;
 }
 export interface ModelViewState {
+  placement: Placement | null;
   status: "empty" | "loading" | "ready" | "error";
   loaded: LoadedModel | null;
   error: string;

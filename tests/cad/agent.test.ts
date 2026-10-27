@@ -14,7 +14,7 @@ import { servePlanner, turnResults } from "../support/planner.ts";
 const executable = process.env.DAI_CAD_TEST_WORKER;
 const fixture = process.env.DAI_CAD_TEST_FIXTURE;
 
-test("Harness offers only CAD tools in scene mode and executes explicit native document calls", {
+test("Harness scopes CAD and alignment tools to scene mode and executes explicit native document calls", {
   skip: !executable || !fixture,
   timeout: 30_000,
 }, async () => {
@@ -33,11 +33,15 @@ test("Harness offers only CAD tools in scene mode and executes explicit native d
       return { text: "你好。" };
     }
     if (user === "停用 CAD 后讨论") {
-      assert.deepEqual(names, []);
+      assert.ok(names.every((name) => name.startsWith("alignment_") || name === "read"));
       return { text: "可以继续讨论。" };
     }
-    assert.equal(names.length, 12);
-    assert.ok(names.every((name) => name.startsWith("cad_")));
+    assert.equal(names.filter((name) => name.startsWith("cad_")).length, 12);
+    assert.ok(
+      names.every(
+        (name) => name.startsWith("cad_") || name.startsWith("alignment_") || name === "read",
+      ),
+    );
     assert.equal(selectedStepPath(request), step);
     const results = turnResults(request);
     if (!results.has("caps")) return { id: "caps", name: "cad_get_capabilities", args: {} };
@@ -108,7 +112,7 @@ test("Harness offers only CAD tools in scene mode and executes explicit native d
       [],
       "Run completion releases native documents and temporary resources",
     );
-    assert.equal((await app.request("workspace.get", {})).builtins.servers.length, 1);
+    assert.equal((await app.request("workspace.get", {})).builtins.servers.length, 2);
     await app.request("capability.setEnabled", { id: "builtin.cad", enabled: false });
     await send(id, "停用 CAD 后讨论");
     assert.deepEqual(planner.failures, []);

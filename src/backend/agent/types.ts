@@ -1,16 +1,21 @@
+import type { Placement } from "../../../resources/mcp/alignment/contract.ts";
+import type { CatalogPage } from "../artifacts/types.ts";
 import type { createMcpRun } from "./mcp.ts";
 
 // Immutable desktop authorization target, separate from CAD service data.
 export interface RunContext {
   readonly conversationId: string;
   readonly project: { readonly id: string; readonly path: string };
+  // Source identity survives missing/changed files; source below is only the readable import snapshot.
+  readonly sourceId: string | null;
+  readonly selectedSourcePath: string | null;
   readonly source: {
     readonly id: string;
     readonly path: string;
     readonly relativePath: string;
     readonly sha256: string;
   } | null;
-  // Built-in STEP import instructions, separate from selected custom skills.
+  // Built-in mode instructions, separate from selected custom skills.
   readonly skill: string | null;
 }
 
@@ -23,4 +28,31 @@ export interface ActiveRun {
   skillBody: string | null;
   // External MCP connections owned by this run; built-ins have their own lifecycle.
   mcp: ReturnType<typeof createMcpRun>;
+}
+
+// The current desktop target, shared by prompt sections and recoverable authorization errors.
+export interface SceneContext {
+  currentDisplay: {
+    importId: string;
+    sourceHash: string;
+    importFingerprint: string;
+    placement: Placement;
+  } | null;
+  files: {
+    manifest: string;
+    objects: CatalogPage[];
+    references: CatalogPage[];
+    features: string | null;
+    placement: string | null;
+    catalogError: { code: string; message: string } | null;
+  } | null;
+  sourceStatus: "current" | "changed" | "missing";
+  selectedSourcePath: string | null;
+  currentFileHash: string | null;
+}
+
+// Provider call IDs can repeat; the entry-qualified key identifies a displayed tool call.
+export interface ProjectedToolCall {
+  args: Record<string, unknown>;
+  key: string;
 }

@@ -1,44 +1,92 @@
-import type { MessageInfo, ToolProgressInfo } from "../../shared/application.ts";
+import { useState } from "react";
 import { Icon } from "../components/Icon.tsx";
+import { durationLabel, type ToolRowData, toolSummary } from "./transcript.ts";
 
 const phases: Record<string, string> = {
   verify_source: "核对文件版本",
   read_step: "读取 STEP",
   build_structure: "整理对象结构",
   build_display: "生成显示网格",
+  triangulate: "生成显示网格",
   write_display: "写入显示资源",
   validate_resources: "校验资源",
   measure_distance: "测量零件间距",
+  export_alignment_features: "保存对齐特征",
+};
+const labels = {
+  pending: "等待执行",
+  running: "执行中",
+  completed: "已完成",
+  failed: "失败",
+  stopped: "已停止",
 };
 
-function toolLabel(tool: { name: string; displayName?: string; serverName?: string }) {
-  const name = tool.displayName ?? tool.name;
-  return tool.serverName ? `${tool.serverName} · ${name}` : name;
-}
-
-export function ToolResult({ message }: { message: MessageInfo }) {
+export function ToolCall({ tool, onInteract }: { tool: ToolRowData; onInteract(): void }) {
+  const [open, setOpen] = useState(false);
+  const summary = toolSummary(tool.name, tool.args);
+  const status =
+    tool.status === "running" ? (phases[tool.phase ?? ""] ?? labels.running) : labels[tool.status];
   return (
-    <details className={`tool-message ${message.failed ? "failed" : ""}`}>
-      <summary>
-        <Icon name={message.failed ? "close" : "check"} size={14} />
-        <span className="tool-name" title={message.tool?.name}>
-          {message.tool ? toolLabel(message.tool) : "工具"}
+    <section className={`tool-message ${tool.status}`} data-tool-name={tool.name}>
+      <button
+        type="button"
+        className="process-row"
+        aria-expanded={open}
+        onClick={() => {
+          onInteract();
+          setOpen(!open);
+        }}
+      >
+        <Icon
+          name={
+            tool.status === "failed"
+              ? "close"
+              : tool.status === "completed"
+                ? "check"
+                : tool.status === "stopped"
+                  ? "stop"
+                  : "tool"
+          }
+          size={14}
+        />
+        <span className="tool-heading">
+          <span className="tool-name">
+            {tool.serverName ? `${tool.serverName} · ` : ""}
+            {tool.displayName ?? tool.name}
+          </span>
+          {summary && (
+            <span
+              className="tool-argument-summary"
+              title={typeof tool.args?.path === "string" ? tool.args.path : summary}
+            >
+              {summary}
+            </span>
+          )}
         </span>
-        <small>{message.failed ? "未完成" : "已完成"}</small>
-      </summary>
-      <pre>{message.text}</pre>
-    </details>
+        <small>
+          {durationLabel(tool.durationMs)} {status}
+        </small>
+        <Icon name="chevron" size={12} />
+      </button>
+      <div className="tool-body" hidden={!open}>
+        <div className="tool-detail-heading">调用参数</div>
+        <section aria-label="工具调用参数">
+          <pre>{tool.args ? JSON.stringify(tool.args, null, 2) : "此历史记录没有可用参数。"}</pre>
+        </section>
+        {tool.argsTruncated && <p className="preview-note">参数预览已截断。</p>}
+        <div className="tool-detail-heading">
+          {tool.status === "failed" ? "错误结果" : "返回内容"}
+        </div>
+        <section aria-label="工具返回内容">
+          <pre>
+            {tool.output ||
+              (tool.status === "running" || tool.status === "pending"
+                ? "等待工具返回…"
+                : "无文本返回。")}
+          </pre>
+        </section>
+        {tool.outputTruncated && <p className="preview-note">返回预览已截断。</p>}
+      </div>
+    </section>
   );
-}
-
-export function ActiveTools({ tools }: { tools: ToolProgressInfo[] }) {
-  return tools.map((tool) => (
-    <div className="tool-message running" role="status" key={tool.id}>
-      <Icon name="tool" size={14} />
-      <span className="tool-name" title={tool.name}>
-        {toolLabel(tool)}
-      </span>
-      <small>{tool.status === "pending" ? "等待执行" : (phases[tool.phase] ?? "执行中")}</small>
-    </div>
-  ));
 }

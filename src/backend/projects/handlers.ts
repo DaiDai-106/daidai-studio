@@ -1,5 +1,13 @@
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import type { ConversationId, Cursor, Harness, Storage } from "@earendil-works/pi-durable";
+import { type Api, clampThinkingLevel, type Model } from "@earendil-works/pi-ai";
+import {
+  AgentDoc,
+  type ConversationId,
+  type Cursor,
+  configure,
+  type Harness,
+  type Storage,
+} from "@earendil-works/pi-durable";
 import type { ApplicationEvent } from "../../shared/application.ts";
 import type { Artifacts } from "../artifacts/store.ts";
 import type { Handlers } from "../types.ts";
@@ -13,7 +21,11 @@ export function conversationId(value: string): ConversationId {
     throw new Error("对话标识无效。");
   return number as ConversationId;
 }
-export function createProjects(harness: Harness, storage: Storage) {
+export function createProjects(
+  harness: Harness,
+  storage: Storage,
+  modelFor: (id: string) => Model<Api> | undefined,
+) {
   async function projectRecords() {
     const projects = [];
     let cursor: Cursor | undefined;
@@ -63,11 +75,15 @@ export function createProjects(harness: Harness, storage: Storage) {
     const source = value.selectedSourceId
       ? ((await harness.snapshot(StepSourceDoc, value.selectedSourceId, context)) ?? null)
       : null;
+    const agent = await harness.snapshot(AgentDoc, conversationId(id), context);
+    const model = modelFor(value.modelId);
+    const thinking = model ? clampThinkingLevel(model, agent?.thinkingLevel ?? "off") : "off";
     return conversationInfo(
       value,
       source
         ? { id: source.id, projectId: source.projectId, relativePath: source.relativePath }
         : null,
+      thinking,
     );
   }
   async function getConversation(id: string) {
@@ -183,19 +199,33 @@ export function createProjects(harness: Harness, storage: Storage) {
         changed();
         return metadata(String(conversation.id));
       },
-      async "conversation.update"({ id, ...change }) {
+      async "conversation.update"({ id, thinkingLevel, ...change }) {
         const current = await metadata(id);
         if (
           change.mode !== undefined ||
           change.archived !== undefined ||
-          change.modelId !== undefined
+          change.modelId !== undefined ||
+          thinkingLevel !== undefined
         )
           idle();
         await harness.commit(async (tx) => {
           Object.assign(await tx.doc(ConversationDoc, conversationId(id)), change);
+          if (thinkingLevel !== undefined || change.modelId !== undefined) {
+            const model = modelFor(change.modelId ?? current.modelId);
+            const requested = thinkingLevel ?? current.thinkingLevel ?? "off";
+            if (
+              thinkingLevel !== undefined &&
+              (!model || clampThinkingLevel(model, requested) !== requested)
+            )
+              throw new Error("当前模型不支持所选推理档位。");
+            await configure(tx, conversationId(id), {
+              thinkingLevel: model ? clampThinkingLevel(model, requested) : "off",
+            });
+          }
         }, context);
-        if (Object.keys(change).some((key) => key !== "draft")) changed();
-        return { ...current, ...change };
+        if (thinkingLevel !== undefined || Object.keys(change).some((key) => key !== "draft"))
+          changed();
+        return metadata(id);
       },
       async "conversation.selectStep"({ id, relativePath }) {
         idle();

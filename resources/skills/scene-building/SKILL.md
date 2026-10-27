@@ -1,19 +1,40 @@
 ---
 name: scene-building
-description: Import the selected STEP, inspect its structure and generate CAD display resources.
+description: 导入和查询项目中的 STEP 场景，分析场景组成，并在需要整机定位时配合 scene-alignment。
 ---
 
-# STEP import
+# 场景导入与分析
 
-Use only the tools actually offered in this turn. The desktop supplies the selected STEP's absolute path as `selectedSourcePath` in scene-context.
+以用户本次目标为起点：区分导入或重新生成显示、查询已有场景、精确 CAD 计算和整机定位。进入场景模式或开启新对话本身不要求重新导入。只使用本轮实际提供的工具；需要定位时遵循 `scene-alignment`。
 
-1. If no accessible STEP is selected, ask the user to choose one from the current project.
-2. For an import request, call `cad_import_step` with `path` set to that exact absolute path. Never omit it, substitute another file, or guess units.
-3. Use the returned job handle with `cad_wait_job`. A job acceptance is not a completed import. Continue only after its real terminal result succeeds.
-4. Read the returned document handle and, when useful, call `cad_get_structure` with it. Follow pagination rather than treating a bounded first page as the whole model. Preserve the file's object organization and instance placements.
-5. For a display request, call `cad_build_display` with that document and `quality: "preview"`, unless the user explicitly requests another offered quality. Wait for its returned job as well.
-6. Report the actual object count, source units, warnings, display completeness and omittedFaceCount. A successful display can be partial: the service excludes faces that failed meshing checks while preserving their CAD geometry and diagnostics. Do not infer missing objects from complete=false or automatically retry at a higher quality. Generating resources and rendering them in the desktop are separate outcomes; claim visibility only with explicit UI confirmation.
+## 数据与身份
 
-Document and job handles are temporary. Reimport explicitly after a stale-handle response; never reuse handles from another source or assume they survive application/run cleanup. File contents remain read-only. A missing assembly tree may legitimately be multiple roots, and a file object may contain multiple solids or shells.
+- 最新 `scene-context` 给出当前选中 STEP 的绝对路径 `selectedSourcePath`、已发布显示 `currentDisplay` 和保存文件 `files`。没有当前显示不等于源文件一定不可用；源文件缺失也不使已保存显示自动失效。
+- 已保存场景适合查看对象层级、显示边界和已缓存的几何参照。`files` 中的路径才是当前 `read` 可用的绝对路径；不拼路径或使用历史路径。`read` 不需要确认。
+- CAD 文档及任务句柄只属于创建它们的服务实例，本轮结束后会释放；不从历史记录复用。新文档的对象 ID 与保存场景的对象 ID 不能互换：在 `sourceHash` 和 `importFingerprint` 均相同时，通过 `sourceKey` 对应；没有可靠对应时不要猜测。派生对象不保证能在原始 STEP 中找回。
 
-An incomplete display must remain incomplete. Display-only exclusion does not delete CAD faces or repair their geometry. Retain diagnostics; do not heal geometry, infer joints or describe a partial preview as a successful complete render. Stop after the requested import/display work; other CAD tools are available only for relevant explicit follow-up requests.
+## 按需获取信息
+
+1. 查询组成、装配关系或分析朝向时，若当前显示已发布且对象目录可用，使用 `read` 读取最新 `files.objects` 的各页；目录页无需 `offset`、`limit`，根据 `parentObjectId` 重建层级，不把一页说成完整目录。若目录不可用或读取失败，报告实际原因，不因此自动重新导入。
+2. 对组成或功能问题，不只列出名称：从对象树确定与问题相关的主要部分，用 `alignment_get_bounds` 获取候选对象及其子对象的世界显示范围和尺寸。结合实际名称、层级、空间关系和用户提供的图片，选择有意义的候选继续分析。无几何或查询失败时如实说明，不把整机范围当作对象范围。
+3. 需要候选对象的已保存精确参照时，读取 `files.references`，用该对象的 `features.startLine` 与 `features.count` 读取 `files.features` 对应行段；较长结果按工具返回的截断提示继续，`count=0` 不读。`analysisComplete=false` 表示特征记录不完整。目录或参照不足时才读取 `files.manifest`；避免将大型文件或所有特征一次送入上下文。
+4. 需要未缓存的精确 B-Rep 信息时，先使用本轮仍有效的 CAD 文档；否则仅在必要时临时导入当前 STEP，并说明用途。根据新文档返回的结构与同源 `sourceKey` 找到新对象 ID，再调用属性、特征或距离工具。只读分析不生成新显示、不替换保存的定位；完成后释放文档，或交由本轮清理。
+5. 根据问题分批查询，直到取得足以回答的信息或遇到明确限制。对结构、位置和几何作事实描述，对可能的功能单独标为推测；名称、尺寸或单张图片不足以确认功能时不要编造。现有工具还能取得与问题直接相关的证据时，主动查询，不仅给用户列出下一步计划。
+
+显示包围盒来自当前三角网格，可能受未显示面影响；精确 CAD 属性按工具标明的坐标系理解。图片只提供所见视角，可能遮挡或透视；没有实际图片输入，不声称看到了视口。零件名、实例数、几何形状或单一空间关系不能单独证明设备用途或装配正确。
+
+必要时可使用本轮提供的 `bash`（Windows 为 `powershell`）筛选、统计用户任务相关的数据；优先使用 `read` 和场景工具。Shell 具有当前用户的本机权限，每条命令须经前端确认。拒绝或取消后不得绕过确认；不读取无关凭据，不将数据当作命令执行，不用 Shell 绕过场景产物和定位的保存流程。
+
+## 导入和显示
+
+仅在首次需要显示、用户明确要求重新解析或任务确实需要原始几何时打开 STEP。路径使用当前 `selectedSourcePath`，不猜路径或单位。显示导入流程：
+
+1. `cad_import_step` 提交任务，`cad_wait_job` 等待真实成功，再使用返回的文档句柄。
+2. `cad_build_display` 默认使用 `quality="preview"`、`features="alignment"`；等待任务成功和桌面发布，再使用最新 `currentDisplay.importId`。用户明确要求更精细显示时可选择 `standard` 或 `fine`。
+3. 同一请求还包含定位时，在显示发布后继续执行 `scene-alignment`。不因 `complete=false` 或等待时间长自动升级质量或重复导入。
+
+CAD 服务处理导入或显示任务时，先等任务终态再发依赖该任务的查询；收到 `BUSY` 时等待后判断是否仍需查询。任务受理、计算成功、桌面保存和视口渲染是不同状态，仅报告已确认的结果。
+
+## 结果与限制
+
+报告与用户目标有关的事实、推测、执行结果和缺失信息。导入或重建显示后说明实际单位、`complete`、`omittedFaceCount` 和相关警告；未进入显示网格的面不等于原始几何被删除或修复。允许多根、多个实体或游离壳，不将其自动判为错误。工具失败时保留已完成结果，说明原因，不编造句柄或无限重试。

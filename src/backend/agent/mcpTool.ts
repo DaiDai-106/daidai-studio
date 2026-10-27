@@ -1,6 +1,7 @@
 import { copyJson } from "@earendil-works/chord";
 import { defineTool } from "@earendil-works/pi-durable";
 import { type CallToolResult, type Tool, toLlmContent } from "@earendil-works/pi-mcp";
+import type { PlacementChange } from "../../../resources/mcp/alignment/contract.ts";
 import type { ImportedModelRef } from "../../shared/display.ts";
 import type { ToolInvocation } from "../mcp/types.ts";
 
@@ -14,6 +15,7 @@ export function registerMcpTool(options: {
   target(conversationId: string): void;
   invoke(args: Record<string, unknown>, invocation: ToolInvocation): Promise<CallToolResult>;
   prepareDisplay?(artifact: unknown, signal: AbortSignal): Promise<ImportedModelRef>;
+  preparePlacement?(value: unknown): Promise<PlacementChange>;
   failed?(): Promise<void>;
 }) {
   const { tool } = options;
@@ -40,6 +42,22 @@ export function registerMcpTool(options: {
             },
           },
         );
+        context.abortSignal?.throwIfAborted();
+        let placement: PlacementChange | undefined;
+        let placementError: { code: string; message: string } | undefined;
+        if (!result.isError && result._meta?.["dai/placement"] !== undefined) {
+          try {
+            if (!options.preparePlacement) throw new Error("此连接不支持保存场景定位。");
+            placement = await options.preparePlacement(result._meta["dai/placement"]);
+          } catch {
+            context.abortSignal?.throwIfAborted();
+            placementError = {
+              code: "PLACEMENT_PREPARE_FAILED",
+              message:
+                "定位计算已返回，但桌面未能接管定位结果，本次结果未发布，原有位置保持不变。请先读取当前场景状态，不要直接重复变换。",
+            };
+          }
+        }
         let display: ImportedModelRef | undefined;
         let displayError: { code: string; message: string } | undefined;
         const artifact = result._meta?.["dai/display"];
@@ -54,20 +72,37 @@ export function registerMcpTool(options: {
             context.abortSignal?.throwIfAborted();
             displayError = {
               code: "DISPLAY_PREPARE_FAILED",
-              message: "CAD 计算已返回，但显示资源保存失败，保留上次显示。",
+              message:
+                "CAD 计算已返回，但桌面未能接管显示资源，本次结果未发布，原有显示保持不变。请先检查项目和保存状态，不要直接重复导入。",
             };
           }
         }
+        context.abortSignal?.throwIfAborted();
+        const handoffFailed = !!(placementError || displayError);
         return {
           output: [
-            ...toLlmContent(result),
+            ...(placementError ? [{ type: "text" as const, text: placementError.message }] : []),
             ...(displayError ? [{ type: "text" as const, text: displayError.message }] : []),
+            ...toLlmContent(result),
           ],
-          isError: !!result.isError,
+          isError: !!result.isError || handoffFailed,
+          ...(display && !handoffFailed
+            ? {
+                diagnostics: [
+                  {
+                    severity: "info" as const,
+                    code: "DESKTOP_DISPLAY_PREPARED",
+                    message: `Desktop persistent display reference: ${JSON.stringify(display)}. Use the latest scene-context currentDisplay for placement and revision; do not reuse older importIds. CAD document/job handles and temporary file URIs are not display identities. This is not a renderer acknowledgement.`,
+                  },
+                ],
+              }
+            : {}),
           details: {
             ...identity,
+            ...(placement && !handoffFailed ? { placement } : {}),
+            ...(placementError ? { placementError } : {}),
             ...(result._meta ? { mcpMeta: copyJson(result._meta) } : {}),
-            ...(display ? { display } : {}),
+            ...(display && !handoffFailed ? { display } : {}),
             ...(displayError ? { displayError } : {}),
           },
         };

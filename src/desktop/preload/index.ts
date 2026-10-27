@@ -45,8 +45,10 @@ const desktop: DesktopBridge = {
     selectStep: (id, relativePath) => call("conversation.selectStep", { id, relativePath }),
     updateConversation: (change) => call("conversation.update", change),
     watchConversation: (id) => call("conversation.watch", { id }),
-    sendMessage: (id, requestId, text) => call("conversation.send", { id, requestId, text }),
+    sendMessage: (id, requestId, text, images) =>
+      call("conversation.send", { id, requestId, text, ...(images?.length ? { images } : {}) }),
     stopConversation: (id) => call("conversation.stop", { id }),
+    respondShell: (id, approved) => call("shell.respond", { id, approved }),
     subscribe(listener) {
       const receive = (_event: Electron.IpcRendererEvent, value: ApplicationEvent) =>
         listener(value);

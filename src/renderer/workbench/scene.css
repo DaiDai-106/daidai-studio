@@ -104,12 +104,41 @@
 .viewport-error {
   position: absolute;
   bottom: 16px;
-  left: 16px;
-  right: 16px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  margin: 0;
+  padding: 8px 10px 8px 12px;
   color: var(--text);
   background: var(--surface);
-  padding: 12px;
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  line-height: 1.5;
+  transform: translateX(-50%);
+}
+.viewport-error > svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.viewport-error > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.viewport-error-retry {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--subtle);
+  font-size: 12px;
+}
+.viewport-error-retry:hover {
+  background: var(--hover);
 }
 
 .object-tree,

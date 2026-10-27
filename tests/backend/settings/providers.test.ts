@@ -30,6 +30,67 @@ test("the provider catalogue covers every installed pi-ai provider and keeps its
   }
 });
 
+test("ChatGPT OAuth requests keep Pi's native request behavior with a configured provider ID", async () => {
+  const native = builtinProviders().find((provider) => provider.id === "openai");
+  const original = native?.getModels().find((model) => model.id === "gpt-6.1-sol");
+  assert.ok(original);
+  const credentials = new InMemoryCredentialStore();
+  await credentials.modify("custom-openai-id", async () => ({
+    type: "oauth",
+    access: "fake-oauth-token",
+    refresh: "fake-refresh-token",
+    expires: Date.now() + 3_600_000,
+  }));
+  const providers = createProviders(credentials);
+  providers.replace([
+    {
+      id: "custom-openai-id",
+      name: "OpenAI",
+      providerType: "openai",
+      authMethod: "oauth",
+      endpoint: "",
+      enabled: true,
+      persistCredentials: false,
+      models: [modelChoice(original)],
+    },
+  ]);
+  const configured = providers.models.getModel("custom-openai-id", original.id);
+  assert.ok(configured && configured.api === "openai-responses");
+  let payload: Record<string, unknown> | undefined;
+  await providers.models.completeSimple(
+    configured,
+    { messages: [{ role: "user", content: "test", timestamp: 1 }] },
+    {
+      maxTokens: 2048,
+      reasoning: "high",
+      onPayload(value) {
+        payload = value as Record<string, unknown>;
+        throw new Error("Stop before network");
+      },
+    },
+  );
+  assert.ok(payload);
+  assert.equal(payload.max_output_tokens, undefined);
+  assert.equal(payload.prompt_cache_options, undefined);
+  assert.deepEqual(payload.reasoning, { effort: "high", summary: "auto" });
+  assert.doesNotMatch(JSON.stringify(payload.input), /configuration_update/);
+
+  providers.replace([
+    {
+      id: "api-key-openai-id",
+      name: "OpenAI API",
+      providerType: "openai",
+      authMethod: "api_key",
+      endpoint: "",
+      enabled: true,
+      persistCredentials: false,
+      models: [modelChoice(original)],
+    },
+  ]);
+  const apiKeyModel = providers.models.getModel("api-key-openai-id", original.id);
+  assert.deepEqual(apiKeyModel?.compat, original.compat);
+});
+
 test("cancelled and superseded login attempts cannot publish or retain a credential", async () => {
   const events: LoginInfo[] = [];
   const logins = createLogins(

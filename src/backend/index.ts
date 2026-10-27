@@ -39,6 +39,7 @@ const runtime = openRuntime(
   },
   {
     cadServer: fileURLToPath(new URL("./cad-mcp.js", import.meta.url)),
+    alignmentServer: fileURLToPath(new URL("./alignment-mcp.js", import.meta.url)),
     ...(process.argv[4] ? { nativeDirectory: process.argv[4] } : {}),
     ...(process.argv[5] ? { skillsRoot: process.argv[5] } : {}),
   },

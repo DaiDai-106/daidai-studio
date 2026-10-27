@@ -35,6 +35,7 @@ export interface McpServer extends Capability {
 export interface Skill extends Capability {
   description: string;
   body: string;
+  automatic?: boolean;
 }
 
 export interface McpToolSummary {

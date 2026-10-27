@@ -1,6 +1,6 @@
 # CAD MCP 设计
 
-更新：2026-10-25。状态：标准 stdio 插件重构已完成；12 个工具、C++ 类型分层、资源登记及显示产物元数据均已实现。桌面已按显示契约接管文件并驱动前端只读查看，不新增插件协议层。第一阶段保留全部 CAD 工具及几何能力，重组类型、协议与内部实现；内置 Skill 只覆盖 STEP 导入与显示。范围见 [规范入口](../README.md)，显示接管见 [桌面后端设计](../backend_spec/backend.md)。
+更新：2026-10-26。状态：标准 stdio 插件重构已完成；12 个工具、C++ 类型分层、资源登记及显示产物元数据均已实现。桌面已按显示契约接管文件并驱动前端只读查看，不新增插件协议层。第一阶段保留全部 CAD 工具及几何能力，重组类型、协议与内部实现；内置 Skill 只覆盖 STEP 导入与显示。第 9 节离线对齐参照已实现。范围见 [规范入口](../README.md)，显示接管见 [桌面后端设计](../backend_spec/backend.md)。
 
 ## 1. 插件边界
 
@@ -75,7 +75,9 @@ C++ 函数优先收发普通结构体、枚举和结果联合。TS 在 contract.
 
 2026-10-25 经用户明确授权，使用现有 DeepSeek API 凭据（deepseek-flash）及 OpenAI 订阅 OAuth（gpt-6-luna）完成真实工具调用验收。两者都通过现有桌面 Runtime/Harness、pi-mcp、标准 stdio 和 C++/OCCT 成功执行全部 12 个工具，无新增 adapter。临时 STEP 的 compound 实际拆为 2 个子对象，最短距离为 0.28 m，返回非空精确特征并生成 complete 显示资源。DeepSeek 无失败调用；OpenAI 一次 cad_wait_job 漏传 job.id，在 Harness 执行前校验失败后由模型补齐并成功调用，不能记作首次全无错误。取消接口对已完成任务准确返回 cancelRequested=false，本次实测不覆盖在途计算中断。测试项目和历史隔离后清理；现有 OpenAI OAuth 沿用原能力刷新并加密保存。验收结果仅对应上述两个实际模型，不扩展为全部模型保证。
 
-sourceKey 表示该源文件/导入方式中的对象路径或实例身份；objectId、geometryId 和 featureId 的有效范围以当前 CAD 文档为准，不冒充永久应用身份。实例分别拥有 objectId，可共享 geometryId。一个对象可含多个 Solid/Shell；保留文件对象组织，查询树可以有多个根。
+桌面派生对象目录与 sourceKey/特征行段参照索引，见 [后端场景目录](../backend_spec/backend.md#13-已有场景目录与临时几何查询)。该索引不增加 MCP 工具或协议 adapter，不改变独立服务的 12 个工具输入。
+
+sourceKey 表示该源文件/导入方式中的对象路径或实例身份；保存产物中的 objectId 在该产物中持续有效；重新导入的 objectId、geometryId 和 featureId 的有效范围以新 CAD 文档为准，通过同一 sourceHash/importFingerprint 下的 sourceKey 显式对应，不能混用，不冒充永久应用身份。实例分别拥有 objectId，可共享 geometryId。一个对象可含多个 Solid/Shell；保留文件对象组织，查询树可以有多个根。
 
 启动时实际连接 stdio 并发现工具，不启动几何进程。桌面执行阶段按授权项目建立连接，轮次结束或退出等待连接关闭；独立客户端自己管理连接生命周期。
 
@@ -94,7 +96,7 @@ ServerConfig 单独定义 worker 可执行路径、允许的项目根（未绑�
 | cad_list_geometry_features | document、objectId、topologyRef?、types、cursor?、limit? | items:GeometryFeature[]、nextCursor?、analysisComplete、warnings |
 | cad_decompose_object | document、objectId | changed、parentObjectId、childObjectIds、childCount、objectCount |
 | cad_measure_distance | document、first/second:{objectId,placement}、limit? | 米制最短距离、最近点对、算法参数及完整性；坐标在调用指定公共空间 |
-| cad_build_display | document、quality:preview/standard/fine | job:CadHandle |
+| cad_build_display | document、quality:preview/standard/fine、features?:none/alignment | job:CadHandle |
 | cad_get_job | job | CadJobState；成功的 display 任务附显示产物元数据 |
 | cad_wait_job | job | 等待同一任务真实终态，返回同一 CadJobState 和进度通知 |
 | cad_cancel_job | job | cancelRequested 及当前状态；调用者仍须确认终态 |
@@ -137,7 +139,7 @@ CadJobState 为按 status/kind 区分的联合：queued/running/cancelling 携�
 | resources | GLB、面映射等 ResourceRef；面映射包含 omittedFaces（geometryId/topologyRef），排除面不得出现在任何三角形范围中；清单和资源大小受预算限制 |
 | 坐标约定、displayToScene 变换 | 对象坐标使用米、右手 Z-up；GLB 遵循 glTF 约定，资源根只做一次明确的显示坐标转换 |
 
-显示包围盒由 GLB 派生；精确对象包围盒继续通过 cad_get_properties 按需查询，清单不重复保存一份几何属性。
+显示包围盒由 GLB 派生；当前精确对象包围盒通过 cad_get_properties 按需查询，清单不重复保存一份几何属性。已增加有明确用途的离线对齐特征，见第 9 节。
 
 三角面到 CAD 面的映射继续保留，为后续精确选取准备，不在第一阶段增加几何特征编辑 UI。大网格不塞入模型文本、SQLite 或工具 details。
 
@@ -164,3 +166,33 @@ CadJobState 为按 status/kind 区分的联合：queued/running/cancelling 携�
 6. 真实 STEP 部分显示需通过实际 Harness、资源保存与 Electron 回显：问题面不绘制，恢复的面继续显示，诊断和 complete=false 保留；全部不可显示或资源校验失败保留旧画面。
 
 部分显示校验：manifest.omittedFaceCount、每个几何的显示面计数和 faces.json.omittedFaces 必须一致，已显示与排除的面互不重叠，覆盖原面计数；重复实例按 geometryId 共享计数。继续校验来源、路径、大小/hash、对象树及完整三角形映射。兼容此前未带面计数的 complete=true 产物；旧 complete=false 且没有排除记录的产物须重新生成，不当作已过滤网格。
+
+## 9. 可离线读取的对齐参照（已实现）
+
+清单、GLB 和面映射包含已发布显示结构；启用 features=alignment 时另存平面、圆和圆柱参照，**不包含完整 B-Rep 或所有类别的精确特征**。不能承诺释放 CAD 后仅凭三角网格还原精确圆心、圆柱轴或任意曲面。本阶段保存既有查询能提取的对齐参照，不设计另一种 CAD 内核或通用场景数据库。
+
+保留 12 个工具。在 `cad_build_display` 增加可选 `features: none/alignment`，缺省 none 兼容现有调用；scene-building Skill 显式选择 alignment。C++ 在同一 display job、文档仍有效时复用 queries 中的特征提取，导出平面、圆心和圆柱轴；不让桌面逐对象补调 CAD 工具。不支持的曲面明确没有对应参照，不用网格拟合冒充 CAD 结果。既有 vertex/edge_midpoint 及其他工具仍保留在线查询能力，首批离线缓存不承诺覆盖所有几何操作。
+
+含特征的清单使用 schemaVersion 2，无缓存的清单仍为 1；DisplayArtifact 外层交付信封保持 schemaVersion 1，含义与清单版本独立。增加资源角色和特征索引，不改变旧角色含义：
+
+| 资源/字段 | 数据与约束 |
+| --- | --- |
+| manifest.json | 格式化 JSON；完整对象树、实例局部变换、原始外观、坐标约定及资源目录；提供每对象特征记录的行范围和分析状态 |
+| GLB / face-map | 保持原网格、CAD 面映射和排除记录；继续用于前端显示与拾取，不塞入 LLM 文本 |
+| geometry-features 资源 | JSONL，一条特征一行，具有独立 schemaVersion、sourceHash、importFingerprint；清单登记其角色、URI、大小及 hash |
+| 特征记录 | featureId、objectId、geometryId（如有）、topologyRef、type、origin、direction?、radius?；复用 GeometryFeature，不新建永久全局特征 ID |
+| 分析状态 | 按对象标记 analysisComplete、数量与 warnings；已计算但无相应特征，与未分析/失败/截断必须区分 |
+
+origin/radius 以米为单位，origin/direction 处于对应对象局部坐标。调用方沿对象祖先变换得到原模型坐标，再应用当前 Placement 得到世界坐标；不能把实例位置应用两次。对重复几何保留实例身份，避免只用 geometryId 定位具体零件。特征来自 B-Rep 解析或既有数值计算，保留容差和诊断；平面中心不冒充机械安装原点，轴方向符号不代表设备语义。
+
+缓存身份限定于同一 sourceHash、importFingerprint 和该显示包的对象/拓扑版本；源文件内容相同也不能跨拆分版本盲目复用 ID。插件导出时不知道桌面的 importId，桌面接管后关联，后续 Alignment 以 importId 授权完整资源包。相同 STEP 新导入不得把旧特征混入新模型。
+
+特征导出沿用任务取消、预算和进度；上限为 100,000 条、32 MiB、每行 16 KiB；行索引支持 read 的 offset/limit。达到限制或提取失败时保留可用显示并标记分析不完整；显示 complete 与特征 analysisComplete 独立，不能相互替代。需要的参照缺失时 Alignment 明确拒绝该精确操作，仍可使用明确标注的显示包围盒。
+
+资源登记、summary 和 `_meta["dai/display"]` 继续同一交付路径。桌面接管从硬编码“两份资源”改为按已知角色及版本校验，允许新增特征文件，保持依赖、路径、hash/大小和总预算检查；不为此增加另一套传输层。v1 产物继续显示且支持网格包围盒定位；精确特征能力显示为不可用，不静默重新解析。只有用户显式重新导入时生成新版包。
+
+验收包含对象局部/世界坐标转换、重复实例、旋转放置、无解析特征、部分网格但有效 B-Rep 特征、特征截断/失败、hash 不匹配及释放后读取。CAD 文档和 worker 关闭后，新包仍能独立支持已定义的离线对齐能力；不承诺支持依赖完整 B-Rep 的未来布尔或拓扑修改。
+
+已有显示与临时文档分开：cad_import_step 只打开原始 CAD 并返回任务；cad_get_structure / cad_get_properties 等查询不生成显示产物。普通保存场景问题优先读取宿主登记的 manifest；未缓存的精确 B-Rep 查询可使用临时文档，不自动追加 cad_build_display。保持现有 12 个工具和 Schema；发布新显示仍由 cad_build_display 的真实结果触发。
+
+显示质量策略：初次生成、普通查看及整机定位默认 preview，standard/fine 仅用于用户明确提出的更精细显示。“完成场景搭建/精确对齐”不等于提高网格质量；不因 complete=false、排除面或等待时间自动升级。当前基础参数为 preview：线性偏差 0.001 m、角偏差 0.5 rad；standard：0.0003 m、0.3 rad；fine：0.0001 m、0.15 rad。它们是网格化参数，不是原始 CAD 的精度，也不是最终所有网格点的误差保证；局部恢复仍使用已有自适应策略。精确特征、B-Rep 查询与显示质量分开。

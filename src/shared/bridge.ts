@@ -9,6 +9,7 @@ import type {
   ProviderInfo,
   ProviderTypeInfo,
   SettingsInfo,
+  ThinkingLevel,
   WorkspaceInfo,
 } from "./application.ts";
 import type { McpConfig, McpInspection, SkillConfig } from "./capabilities.ts";
@@ -32,9 +33,13 @@ export interface ApplicationBridge {
   ): Promise<ModelChoice[]>;
   saveProvider(config: ProviderConfig, loginId?: string): Promise<ProviderInfo>;
   removeProvider(id: string): Promise<null>;
-  updateSettings(change: { theme?: Theme; defaultModel?: string }): Promise<SettingsInfo>;
+  updateSettings(change: {
+    theme?: Theme;
+    defaultModel?: string;
+    showThinking?: boolean;
+  }): Promise<SettingsInfo>;
   setCapabilityEnabled(
-    id: "builtin.cad" | "builtin-scene",
+    id: "builtin.cad" | "builtin.alignment" | "builtin-scene" | "builtin-alignment-skill",
     enabled: boolean,
   ): Promise<SettingsInfo>;
   startLogin(providerType: string, method: "api_key" | "oauth"): Promise<LoginInfo>;
@@ -53,11 +58,18 @@ export interface ApplicationBridge {
     title?: string;
     mode?: "general" | "scene";
     modelId?: string;
+    thinkingLevel?: ThinkingLevel;
     draft?: string;
     archived?: boolean;
   }): Promise<ConversationInfo>;
   watchConversation(id: string): Promise<ConversationView>;
-  sendMessage(id: string, requestId: string, text: string): Promise<{ submissionId: string }>;
+  sendMessage(
+    id: string,
+    requestId: string,
+    text: string,
+    images?: import("./application.ts").ChatImage[],
+  ): Promise<{ submissionId: string }>;
   stopConversation(id: string): Promise<null>;
+  respondShell(id: string, approved: boolean): Promise<null>;
   subscribe(listener: (event: ApplicationEvent) => void): () => void;
 }

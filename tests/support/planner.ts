@@ -1,12 +1,15 @@
 import { createServer } from "node:http";
 
 export type PlannerRequest = {
+  thinking?: { type: string };
+  reasoning_effort?: string;
   messages: { role: string; content?: string | null; tool_call_id?: string }[];
   tools?: { function: { name: string } }[];
 };
-export type PlannerReply =
-  | { text: string }
-  | { id: string; name: string; args: Record<string, unknown> };
+export type PlannerReply = (
+  | { text: string; splitAt?: number; beforeFinish?: Promise<void> }
+  | { id: string; name: string; args: Record<string, unknown> }
+) & { thinking?: string; beforeContent?: Promise<void> };
 
 // A scripted model protocol peer; geometry and application execution remain real.
 export async function servePlanner(plan: (request: PlannerRequest) => PlannerReply) {
@@ -25,8 +28,13 @@ export async function servePlanner(plan: (request: PlannerRequest) => PlannerRep
           `data: ${JSON.stringify({ id: "workflow", object: "chat.completion.chunk", created: 1, model: "workflow-test", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`,
         );
       }
+      if (reply.thinking) chunk({ role: "assistant", reasoning_content: reply.thinking }, null);
+      await reply.beforeContent;
       if ("text" in reply) {
-        chunk({ role: "assistant", content: reply.text }, null);
+        const split = reply.splitAt ?? reply.text.length;
+        chunk({ role: "assistant", content: reply.text.slice(0, split) }, null);
+        await reply.beforeFinish;
+        if (split < reply.text.length) chunk({ content: reply.text.slice(split) }, null);
         chunk({}, "stop");
       } else {
         chunk(
@@ -80,7 +88,9 @@ export function turnResults(request: PlannerRequest) {
     read<T>(id: string): T {
       const text = tools.find((tool) => tool.tool_call_id === id)?.content;
       if (!text) throw new Error(`Missing tool result: ${id}`);
-      return JSON.parse(text) as T;
+      // Durable appends diagnostics as a separate <harness> block, outside the tool data.
+      const diagnostic = text.indexOf("\n<harness>\n");
+      return JSON.parse(diagnostic < 0 ? text : text.slice(0, diagnostic)) as T;
     },
   };
 }

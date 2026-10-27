@@ -44,6 +44,8 @@ test("real Harness display results persist once, load CAD geometry, and recover 
   const projectPath = join(root, "project");
   await mkdir(projectPath);
   await promisify(execFile)(fixture, ["--write-fixture", join(projectPath, "assembly.step")]);
+  await mkdir(join(projectPath, ".daidai"));
+  await writeFile(join(projectPath, ".daidai", "existing.txt"), "old project data");
   const planner = await servePlanner((request) => {
     const existing = turnResults(request);
     if (
@@ -111,7 +113,12 @@ test("real Harness display results persist once, load CAD geometry, and recover 
     assert.ok(model, JSON.stringify((await app.request("conversation.watch", { id })).messages));
     assert.equal(model.sourceStatus, "current");
     assert.equal(events.filter((event) => event.type === "display.changed").length, 1);
-    assert.equal((await readdir(join(projectPath, ".daidai", "artifacts"))).length, 1);
+    assert.equal((await readdir(join(root, "projects", project.id, "artifacts"))).length, 1);
+    assert.deepEqual(await readdir(join(projectPath, ".daidai")), ["existing.txt"]);
+    assert.equal(
+      await readFile(join(projectPath, ".daidai", "existing.txt"), "utf8"),
+      "old project data",
+    );
     assert.deepEqual(await readdir(join(root, "tmp")), []);
     assert.ok(Number(model.producerTaskId) > 0 && Number(model.producerEntryId) > 0);
 
@@ -237,6 +244,8 @@ test("prepared CAD files alone never publish a display; invalid or cancelled art
       project,
       source: { ...selected.source, path, sha256: (await fileHash(path, 1024 * 1024)).sha256 },
       skill: null,
+      sourceId: selected.source.id,
+      selectedSourcePath: path,
     };
     const imported = await call("cad_import_step", { path });
     const state = await call("cad_wait_job", { job: imported.data.job });
@@ -249,7 +258,13 @@ test("prepared CAD files alone never publish a display; invalid or cancelled art
     const artifact = complete.metadata?.["dai/display"];
     const signal = new AbortController().signal;
     await assert.rejects(
-      prepareDisplayArtifact(artifact, { ...connection, root: join(root, "data") }, run, signal),
+      prepareDisplayArtifact(
+        artifact,
+        { ...connection, root: join(root, "data") },
+        run,
+        signal,
+        root,
+      ),
       /授权目录/,
     );
     await assert.rejects(
@@ -258,6 +273,7 @@ test("prepared CAD files alone never publish a display; invalid or cancelled art
         connection,
         { ...run, source: { ...run.source, sha256: "0".repeat(64) } },
         signal,
+        root,
       ),
       /版本不匹配/,
     );
@@ -268,17 +284,21 @@ test("prepared CAD files alone never publish a display; invalid or cancelled art
         connection,
         run,
         signal,
+        root,
       ),
       /清单校验/,
     );
     const controller = new AbortController();
     controller.abort();
-    await assert.rejects(prepareDisplayArtifact(artifact, connection, run, controller.signal), {
-      name: "AbortError",
-    });
-    const ref = await prepareDisplayArtifact(artifact, connection, run, signal);
+    await assert.rejects(
+      prepareDisplayArtifact(artifact, connection, run, controller.signal, root),
+      {
+        name: "AbortError",
+      },
+    );
+    const ref = await prepareDisplayArtifact(artifact, connection, run, signal, root);
     const saved = await readPreparedDisplay(root, ref.importId);
-    const bundle = join(root, ".daidai", "artifacts", ref.importId);
+    const bundle = join(root, "artifacts", ref.importId);
     const manifest = JSON.parse(
       await readFile(join(bundle, "manifest.json"), "utf8"),
     ) as CadManifest;

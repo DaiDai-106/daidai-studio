@@ -154,6 +154,7 @@ export function ScenePanel({
         data-scene-loaded={loaded ? "true" : "false"}
         data-display-status={display.status}
         data-import-id={importId ?? ""}
+        data-placement-revision={display.placement?.revision ?? 0}
       >
         <SceneViewport
           ref={viewport}
@@ -162,6 +163,7 @@ export function ScenePanel({
           model={loaded?.root ?? null}
           selectedId={selected}
           transparency={transparency}
+          placement={display.placement}
           onPick={setSelected}
         />
         {loaded && (tree || selection) && (
@@ -214,8 +216,9 @@ export function ScenePanel({
         )}
         {display.error && (
           <div className="viewport-error" role="alert">
-            {display.error}{" "}
-            <button type="button" className="text-button" onClick={display.reload}>
+            <Icon name="info" size={15} />
+            <span>{display.error}</span>
+            <button type="button" className="viewport-error-retry" onClick={display.reload}>
               重新加载
             </button>
           </div>

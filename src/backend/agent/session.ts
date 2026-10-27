@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { join } from "node:path";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { isContextOverflow, isRetryableAssistantError } from "@earendil-works/pi-ai";
 import {
@@ -17,6 +18,7 @@ import type { Artifacts } from "../artifacts/store.ts";
 import type { Builtins } from "../builtin.ts";
 import { ConversationDoc } from "../projects/documents.ts";
 import { conversationId, type Projects } from "../projects/handlers.ts";
+import type { Placements } from "../projects/placements.ts";
 import { fileHash, resolveStepPath } from "../projects/source.ts";
 import type { Settings } from "../settings/handlers.ts";
 import type { Handlers } from "../types.ts";
@@ -59,6 +61,7 @@ export function createSession({
   extension,
   builtins,
   artifacts,
+  placements,
   projects,
   settings,
   idle,
@@ -70,6 +73,7 @@ export function createSession({
   extension: ReturnType<typeof createSessionExtension>;
   builtins: Builtins;
   artifacts: Artifacts;
+  placements: Placements;
   projects: Projects;
   settings: Settings;
   idle(): void;
@@ -88,6 +92,8 @@ export function createSession({
       return activeRun.context;
     },
     artifacts,
+    placements,
+    publish,
   );
   registry.install(builtinAgent.extension);
   async function watchConversation(id: string) {
@@ -108,39 +114,79 @@ export function createSession({
   async function finishRun(run: ActiveRun, reason: "finished" | "failed" | "stopped") {
     if (reason === "stopped") {
       if (activeRun !== run) return;
-      // Retain ownership on cleanup failure so the user can retry stopping.
-      await run.mcp?.close();
-      await builtins.cad.release();
+      // Retain ownership on cleanup failure for stop/exit to report it.
+      const [external] = await Promise.allSettled([run.mcp?.close()]);
+      // A concurrent completion may have already released this run and started another.
+      if (activeRun !== run) {
+        if (external?.status === "rejected") throw external.reason;
+        return;
+      }
+      const [builtin] = await Promise.allSettled([builtins.release()]);
+      if (external?.status === "rejected" && builtin?.status === "rejected")
+        throw new AggregateError([external.reason, builtin.reason], "MCP 资源清理失败。");
+      if (external?.status === "rejected") throw external.reason;
+      if (builtin?.status === "rejected") throw builtin.reason;
       if (activeRun === run) activeRun = null;
       return;
     }
-    try {
-      if (reason === "finished") await artifacts.flush();
-      // A stopped run's delayed completion must not release the next run's CAD worker.
-      if (activeRun !== run) return;
-      await Promise.all([
-        run.mcp?.close(),
-        reason === "failed" || run.scene ? builtins.cad.release() : undefined,
-      ]);
-    } finally {
-      if (activeRun === run) {
-        activeRun = null;
-        if (reason === "finished") changed();
-      }
-    }
+    const flushed =
+      reason === "finished"
+        ? await Promise.allSettled([artifacts.flush(), placements.flush()])
+        : [];
+    // A stopped run's delayed completion must not release the next run's CAD worker.
+    if (activeRun !== run) return;
+    const cleanup = await Promise.allSettled([
+      run.mcp?.close(),
+      reason === "failed" || run.scene ? builtins.release() : undefined,
+    ]);
+    const cleanupFailure = cleanup.find((result) => result.status === "rejected");
+    // Keep the run available for stop/exit if a connection could not be closed.
+    if (!cleanupFailure && activeRun === run) activeRun = null;
+    if (reason === "finished") changed();
+    if (cleanupFailure?.status === "rejected") throw cleanupFailure.reason;
+    const flushFailure = flushed.find((result) => result.status === "rejected");
+    if (flushFailure?.status === "rejected") throw flushFailure.reason;
   }
-  const handlers: Handlers<"conversation.watch" | "conversation.send" | "conversation.stop"> = {
+  const handlers: Handlers<
+    "conversation.watch" | "conversation.send" | "conversation.stop" | "shell.respond"
+  > = {
+    async "shell.respond"({ id, approved }) {
+      builtinAgent.shell.respond(id, approved);
+      return null;
+    },
     async "conversation.watch"({ id }) {
       return watchConversation(id);
     },
-    async "conversation.send"({ id, requestId, text }) {
+    async "conversation.send"({ id, requestId, text, images = [] }) {
+      if (!text.trim() && !images.length) throw new Error("请输入消息或添加图片。");
+      let imageBytes = 0;
+      for (const image of images) {
+        if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(image.data))
+          throw new Error("图片数据无效。");
+        const bytes = Buffer.from(image.data, "base64");
+        const valid =
+          image.mimeType === "image/png"
+            ? bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+            : image.mimeType === "image/jpeg"
+              ? bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
+              : bytes.subarray(0, 4).toString() === "RIFF" &&
+                bytes.subarray(8, 12).toString() === "WEBP";
+        if (!valid || bytes.length > 5 * 1024 * 1024) throw new Error("图片格式无效或超过 5 MB。");
+        imageBytes += bytes.length;
+      }
+      if (imageBytes > 10 * 1024 * 1024) throw new Error("图片总大小不能超过 10 MB。");
       const meta = await projects.metadata(id);
       const fingerprint = createHash("sha256")
         .update(
           JSON.stringify({
             text,
+            ...(images.length ? { images } : {}),
             modelId: meta.modelId,
             mode: meta.mode,
+            // Default-off requests keep the pre-thinking fingerprint format.
+            ...(meta.thinkingLevel && meta.thinkingLevel !== "off"
+              ? { thinkingLevel: meta.thinkingLevel }
+              : {}),
             ...(meta.source ? { sourceId: meta.source.id } : {}),
           }),
         )
@@ -161,6 +207,10 @@ export function createSession({
       }
       idle();
       if (meta.archived) throw new Error("请先恢复此对话。");
+      if (meta.mode === "scene") {
+        for (const name of ["scene-building", "scene-alignment"])
+          if (!builtins.skills.get(name)) throw new Error(`缺少基础技能 ${name}，请检查内置资源。`);
+      }
       const project = await projects.visible(meta.projectId);
       const config = settings
         .read()
@@ -173,6 +223,8 @@ export function createSession({
       const model = config.models.find((model) => `${config.id}:${model.id}` === meta.modelId);
       if (!model || !(await providers.models.checkAuth(config.id)))
         throw new Error("模型服务尚未认证，请在 AI 设置中重新配置。");
+      if (images.length && !providers.models.getModel(config.id, model.id)?.input.includes("image"))
+        throw new Error("当前模型不支持图片输入，请切换模型或移除图片。");
       const conversation = await projects.conversation(id);
       const run: ActiveRun = {
         conversationId: id,
@@ -213,14 +265,18 @@ export function createSession({
             conversationId: id,
             project,
             source,
-            skill: settings.enabled("builtin-scene")
-              ? (builtins.skills.get("scene-building") ?? null)
-              : null,
+            sourceId: meta.source?.id ?? null,
+            selectedSourcePath: meta.source ? join(project.path, meta.source.relativePath) : null,
+            skill:
+              [builtins.skills.get("scene-building"), builtins.skills.get("scene-alignment")]
+                .filter(Boolean)
+                .join("\n\n") || null,
           };
         } else run.context = null;
         await conversation.configure(
           {
             model: { provider: config.id, modelId: model.id },
+            thinkingLevel: meta.thinkingLevel ?? "off",
             extensions: [
               extension,
               ...(enabled ? [builtinAgent.extension] : []),
@@ -238,16 +294,22 @@ export function createSession({
             type: "input",
             requestId,
             whenBusy: "reject",
-            content: text,
+            content: images.length
+              ? [
+                  ...(text ? [{ type: "text" as const, text }] : []),
+                  ...images.map((image) => ({ type: "image" as const, ...image })),
+                ]
+              : text,
             entry: {
               kind: "app.input",
               data: {
                 fingerprint,
                 model: { provider: config.id, modelId: model.id },
                 mode: meta.mode,
+                thinkingLevel: meta.thinkingLevel ?? "off",
                 skills: skills.metadata,
                 mcpServers: external?.metadata ?? [],
-                sourceId: run.context?.source?.id ?? null,
+                sourceId: run.context?.sourceId ?? null,
                 sourceHash: run.context?.source?.sha256 ?? null,
                 tools: toolNames,
                 skillHash: run.context?.skill
@@ -304,6 +366,7 @@ export function createSession({
     skillFor: (id: string) =>
       activeRun?.conversationId === id ? (activeRun.skillBody ?? undefined) : undefined,
     closeExternal: () => activeRun?.mcp?.close(),
+    shellApproval: builtinAgent.shell.pending,
   };
 }
 export type AgentSession = ReturnType<typeof createSession>;

@@ -179,7 +179,8 @@ struct CadService::Impl {
         }
         result = *record;
       } else {
-        result = writeDisplay( *document, input.at( "quality" ), context, directory, work );
+        result = writeDisplay( *document, input.at( "quality" ), context, directory, work,
+                               input.value( "features", std::string( "none" ) ) == "alignment" );
       }
       work.check();
       {

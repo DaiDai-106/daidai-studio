@@ -7,6 +7,7 @@ import { type CadResource, DisplayArtifactSchema } from "../../../resources/mcp/
 import { displayResourceUrl } from "../../shared/display.ts";
 import type { RunContext } from "../agent/types.ts";
 import { fileHash } from "../projects/source.ts";
+import { writeObjectCatalog } from "./catalog.ts";
 import { artifactDirectory, copyResource, localFile } from "./files.ts";
 import {
   type PreparedDisplay,
@@ -14,15 +15,20 @@ import {
   type ResourceScope,
   type StoredResource,
 } from "./types.ts";
-import { readMetadata, validateGeometry, validateManifest } from "./validation.ts";
+import {
+  readMetadata,
+  validateFeatureCache,
+  validateGeometry,
+  validateManifest,
+} from "./validation.ts";
 
 const digest = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 
 export async function readPreparedDisplay(
-  projectPath: string,
+  sceneRoot: string,
   importId: string,
 ): Promise<PreparedDisplay> {
-  const root = await artifactDirectory(projectPath);
+  const root = await artifactDirectory(sceneRoot);
   const path = await localFile(root, join(root, importId, "metadata.json"));
   const value = await readMetadata(path);
   if (!Value.Check(PreparedDisplaySchema, value) || value.model.importId !== importId)
@@ -40,6 +46,7 @@ export async function prepareDisplayArtifact(
   scope: ResourceScope,
   run: RunContext,
   signal: AbortSignal,
+  sceneRoot: string,
 ) {
   signal.throwIfAborted();
   if (
@@ -71,7 +78,14 @@ export async function prepareDisplayArtifact(
     throw new Error("显示产物的导入方式不一致。");
   const glbs = manifest.resources.filter((resource) => resource.mediaType === "model/gltf-binary");
   const faces = manifest.resources.filter((resource) => resource.mediaType === "application/json");
-  if (glbs.length !== 1 || faces.length !== 1 || manifest.resources.length !== 2)
+  const features = manifest.resources.filter((resource) => resource.role === "geometry-features");
+  if (
+    glbs.length !== 1 ||
+    faces.length !== 1 ||
+    features.length > 1 ||
+    manifest.resources.length !== 2 + features.length ||
+    (manifest.features ? manifest.features.resourceUri !== features[0]?.uri : features.length > 0)
+  )
     throw new Error("当前仅支持 CAD 的独立 GLB 和面映射资源。");
   if (
     manifest.resources.reduce((sum, resource) => sum + resource.byteLength, bytes.length) >
@@ -88,10 +102,9 @@ export async function prepareDisplayArtifact(
     ]),
   );
   const ref = { importId, sourceId: run.source.id, sourceHash: run.source.sha256 };
-  const root = await artifactDirectory(run.project.path);
+  const root = await artifactDirectory(sceneRoot);
   try {
-    await localFile(root, join(root, importId, "metadata.json"));
-    await readPreparedDisplay(run.project.path, importId);
+    await readPreparedDisplay(sceneRoot, importId);
     return ref;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -125,8 +138,23 @@ export async function prepareDisplayArtifact(
       manifest,
       join(staging, "resources", faceMap.sha256),
     );
+    const featureResource = features[0];
+    if (featureResource)
+      await validateFeatureCache(
+        join(staging, "resources", featureResource.sha256),
+        manifest,
+        signal,
+      );
     const published = {
       ...manifest,
+      ...(manifest.features
+        ? {
+            features: {
+              ...manifest.features,
+              resourceUri: urls.get(manifest.features.resourceUri),
+            },
+          }
+        : {}),
       resources: manifest.resources.map((resource) => ({
         ...resource,
         uri: urls.get(resource.uri),
@@ -138,7 +166,7 @@ export async function prepareDisplayArtifact(
           : {}),
       })),
     };
-    const content = Buffer.from(JSON.stringify(published));
+    const content = Buffer.from(JSON.stringify(published, null, 2));
     const id = digest(content);
     const descriptor = {
       id,
@@ -161,6 +189,7 @@ export async function prepareDisplayArtifact(
       files: [...files, { ...descriptor, file: "manifest.json" }],
     };
     await writeFile(join(staging, "manifest.json"), content, { mode: 0o600 });
+    await writeObjectCatalog(staging, manifest);
     await writeFile(join(staging, "metadata.json"), JSON.stringify(metadata), { mode: 0o600 });
     signal.throwIfAborted();
     await rename(staging, join(root, importId));

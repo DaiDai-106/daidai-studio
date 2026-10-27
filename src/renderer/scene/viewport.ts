@@ -141,6 +141,13 @@ export function createViewport(
       hoverPoint = null;
       canvas.style.cursor = "";
     }
+    const position = new THREE.Vector3().fromArray(state.placement?.translation ?? [0, 0, 0]);
+    const rotation = new THREE.Quaternion().fromArray(state.placement?.rotation ?? [0, 0, 0, 1]);
+    if (!group.position.equals(position) || !group.quaternion.equals(rotation)) {
+      group.position.copy(position);
+      group.quaternion.copy(rotation);
+      fitted = false;
+    }
     appearance.update(state, hoveredId, dark);
     grid.visible = state.showGrid;
     axes.visible = state.showAxes;

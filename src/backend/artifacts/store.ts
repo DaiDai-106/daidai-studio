@@ -12,6 +12,7 @@ import type { ApplicationEvent } from "../../shared/application.ts";
 import { type ImportedModel, ImportedModelRefSchema } from "../../shared/display.ts";
 import { ProjectDoc, StepSourceDoc } from "../projects/documents.ts";
 import { artifactDirectory, localFile } from "./files.ts";
+import { projectDataDirectory } from "./location.ts";
 import { prepareDisplayArtifact, readPreparedDisplay } from "./prepare.ts";
 import type { CurrentDisplayRecord, ImportedModelRecord } from "./types.ts";
 
@@ -33,6 +34,7 @@ export function createArtifacts(
   harness: Harness,
   storage: Storage,
   publish: (event: ApplicationEvent) => void,
+  dataRoot: string,
 ) {
   let pending = Promise.resolve();
   let recoveryNeeded = false;
@@ -55,7 +57,9 @@ export function createArtifacts(
       const project = await harness.snapshot(ProjectDoc, source.projectId, context);
       if (!project) continue;
       const existing = await harness.snapshot(ImportedModelDoc, ref.importId, context);
-      const record = existing ?? (await readPreparedDisplay(project.path, ref.importId));
+      const record =
+        existing ??
+        (await readPreparedDisplay(await projectDataDirectory(dataRoot, project.id), ref.importId));
       if (
         record.model.projectId !== project.id ||
         record.model.sourceId !== source.id ||
@@ -138,7 +142,21 @@ export function createArtifacts(
       await pending;
       if (recoveryNeeded) await recover();
     },
-    prepare: prepareDisplayArtifact,
+    directory: (projectId: string) => projectDataDirectory(dataRoot, projectId),
+    async prepare(
+      value: unknown,
+      scope: Parameters<typeof prepareDisplayArtifact>[1],
+      run: Parameters<typeof prepareDisplayArtifact>[2],
+      signal: AbortSignal,
+    ) {
+      return prepareDisplayArtifact(
+        value,
+        scope,
+        run,
+        signal,
+        await projectDataDirectory(dataRoot, run.project.id),
+      );
+    },
     async get(sourceId: string) {
       await pending;
       if (recoveryNeeded) await recover();
@@ -155,7 +173,7 @@ export function createArtifacts(
       const project = await harness.snapshot(ProjectDoc, record.model.projectId, context);
       const resource = record.files.find((file) => file.id === resourceId);
       if (!project || project.hidden || !resource) throw new Error("显示资源未授权。");
-      const root = await artifactDirectory(project.path);
+      const root = await artifactDirectory(await projectDataDirectory(dataRoot, project.id));
       const path = await localFile(root, join(root, importId, resource.file), resource.byteLength);
       return { path, mediaType: resource.mediaType, byteLength: resource.byteLength };
     },
