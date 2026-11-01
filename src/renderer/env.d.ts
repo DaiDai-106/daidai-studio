@@ -1,11 +1,11 @@
-import type { DesktopBridge } from "../shared/desktop.ts";
+import type { DesktopBridge } from "../contracts/desktop.ts";
 
 declare global {
   interface Window {
     desktop: DesktopBridge;
   }
 
-  // Electron exposes this web API; TypeScript's DOM library does not include it yet.
+  // Electron 提供此 Web API，但 TypeScript 的 DOM 类型尚未包含它。
   interface WindowControlsOverlay extends EventTarget {
     readonly visible: boolean;
     getTitlebarAreaRect(): DOMRect;

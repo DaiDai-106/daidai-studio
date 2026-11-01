@@ -1,5 +1,5 @@
 import type { AuthEvent, AuthInteraction, AuthPrompt, Credential } from "@earendil-works/pi-ai";
-import type { LoginInfo, ProviderConfig } from "../../shared/application.ts";
+import type { LoginInfo, ProviderConfig } from "../../contracts/application.ts";
 import type { Providers } from "./providers.ts";
 
 type Attempt = {
@@ -8,20 +8,24 @@ type Attempt = {
   credential?: Credential;
   answer?: { id: string; resolve: (value: string) => void; reject: (reason: Error) => void };
 };
+
 export function createLogins(
   providers: Providers,
   deviceId: string,
   publish: (login: LoginInfo) => void,
 ) {
   const attempts = new Map<string, Attempt>();
+
   function get(id: string) {
     const attempt = attempts.get(id);
     if (!attempt) throw new Error("授权尝试已结束，请重新登录。");
     return attempt;
   }
+
   function update(attempt: Attempt) {
     publish(structuredClone(attempt.info));
   }
+
   function cancel(id: string) {
     const attempt = attempts.get(id);
     if (!attempt) return;
@@ -33,8 +37,9 @@ export function createLogins(
     update(attempt);
     attempts.delete(id);
   }
+
   function start(providerType: string, method: "api_key" | "oauth") {
-    // Only one unsaved authorization interaction can own desktop prompts at a time.
+    // 桌面提示同一时间只属于一个尚未保存的授权流程。
     for (const id of attempts.keys()) cancel(id);
     const auth = providers.authDefinition(providerType);
     const login =
@@ -42,6 +47,7 @@ export function createLogins(
         ? auth.oauth?.login.bind(auth.oauth)
         : auth.apiKey?.login?.bind(auth.apiKey);
     if (!login) throw new Error("此服务不提供该登录流程。");
+
     const attempt: Attempt = {
       info: {
         id: crypto.randomUUID(),
@@ -56,6 +62,7 @@ export function createLogins(
       controller: new AbortController(),
     };
     attempts.set(attempt.info.id, attempt);
+
     const interaction: AuthInteraction = {
       signal: attempt.controller.signal,
       prompt(prompt: AuthPrompt) {
@@ -64,11 +71,13 @@ export function createLogins(
             reject(new Error("授权已取消。"));
             return;
           }
+
           const promptId = crypto.randomUUID();
           const cleanup = () => {
             prompt.signal?.removeEventListener("abort", aborted);
             attempt.controller.signal.removeEventListener("abort", aborted);
           };
+
           const aborted = () => {
             cleanup();
             if (attempt.answer?.id === promptId) {
@@ -78,6 +87,7 @@ export function createLogins(
             }
             reject(new Error("授权已取消。"));
           };
+
           attempt.answer = {
             id: promptId,
             resolve: (value) => {
@@ -104,6 +114,7 @@ export function createLogins(
           update(attempt);
         });
       },
+
       notify(event: AuthEvent) {
         if (attempt.controller.signal.aborted) return;
         if (event.type === "auth_url") {
@@ -116,6 +127,7 @@ export function createLogins(
         update(attempt);
       },
     };
+
     void login(
       { ...interaction, signal: attempt.controller.signal },
       { getDeviceId: () => deviceId, agentName: "Dai" },
@@ -142,6 +154,7 @@ export function createLogins(
     );
     return structuredClone(attempt.info);
   }
+
   return {
     start,
     cancel,
@@ -155,6 +168,7 @@ export function createLogins(
       answer.resolve(value);
       return structuredClone(attempt.info);
     },
+
     credential(id: string, config: ProviderConfig) {
       const attempt = get(id);
       if (
@@ -165,6 +179,7 @@ export function createLogins(
         throw new Error("认证与当前服务不匹配。");
       return attempt.credential;
     },
+
     replaceCredential(id: string, credential: Credential) {
       get(id).credential = credential;
     },

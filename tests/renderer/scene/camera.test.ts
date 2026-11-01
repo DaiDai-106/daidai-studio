@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Box3, PerspectiveCamera, Sphere, Vector3 } from "three";
-import { updateCameraClipping } from "../../../src/renderer/scene/camera.ts";
+import { updateCameraClipping } from "../../../src/renderer/features/scene/logic/camera.ts";
 
 test("camera clipping retains the grid at different orbit angles and pan targets", () => {
   const camera = new PerspectiveCamera(45, 1, 0.01, 100);

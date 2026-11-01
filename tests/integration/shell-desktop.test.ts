@@ -34,7 +34,7 @@ test("desktop shows the complete shell command and requires confirmation before 
   try {
     const page = await app.firstWindow();
     page.setDefaultTimeout(10000);
-    await page.getByRole("button", { name: "打开项目", exact: true }).first().waitFor();
+    await page.getByRole("button", { name: "新建项目", exact: true }).first().waitFor();
     await page.evaluate(async (endpoint) => {
       await window.desktop.application.saveProvider({
         id: "local",
@@ -43,16 +43,13 @@ test("desktop shows the complete shell command and requires confirmation before 
         authMethod: "none",
         endpoint,
         enabled: true,
-        persistCredentials: false,
+
         models: [
           { id: "workflow-test", name: "Test", context: 8192, output: 1024, reasoning: "标准" },
         ],
       });
     }, planner.endpoint);
     const project = await openTestProject(app, page, root);
-    await page.getByRole("button", { name: "通用对话", exact: true }).click();
-    await page.getByRole("menuitem", { name: /^场景搭建/ }).click();
-    await page.getByText("请问是什么场景？", { exact: true }).waitFor();
     await page.getByRole("textbox", { name: "消息内容" }).fill("检查场景");
     await page.getByRole("button", { name: "发送消息" }).click();
     const approval = page.getByRole("region", { name: "确认执行命令" });

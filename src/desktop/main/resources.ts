@@ -1,10 +1,12 @@
-import { pathToFileURL } from "node:url";
-import { net, protocol } from "electron";
-import type { ResourceLocation } from "../../shared/process.ts";
+import { protocol } from "electron";
+import type { ResourceLocation } from "../../contracts/process.ts";
+import type { createSceneResourceReader } from "./resourceReader.ts";
 
+// 前端只能读取后端确认过的场景资源，不能通过协议任意访问本地文件。
 export function installResourceProtocol(
   resolve: (importId: string, resourceId: string) => Promise<ResourceLocation>,
   origin: string,
+  reader: ReturnType<typeof createSceneResourceReader>,
 ) {
   protocol.handle("dai-resource", async (request) => {
     try {
@@ -23,12 +25,8 @@ export function installResourceProtocol(
       )
         return new Response(null, { status: 403 });
       const resource = await resolve(url.hostname, url.pathname.slice(1));
-      const file =
-        request.method === "HEAD"
-          ? null
-          : await net.fetch(pathToFileURL(resource.path).href, { signal: request.signal });
-      if (file && !file.ok) throw new Error("Resource unavailable");
-      return new Response(file?.body ?? null, {
+      const data = await reader.read(resource, url.pathname.slice(1), request.signal);
+      return new Response(request.method === "HEAD" ? null : new Uint8Array(data), {
         headers: {
           "Content-Type": resource.mediaType,
           "Content-Length": String(resource.byteLength),
@@ -41,4 +39,5 @@ export function installResourceProtocol(
       return new Response("Display resource unavailable", { status: 404 });
     }
   });
+  return () => reader.close();
 }

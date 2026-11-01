@@ -12,7 +12,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
-import type { ModelChoice, ProviderConfig, ProviderTypeInfo } from "../../shared/application.ts";
+import type { ModelChoice, ProviderConfig, ProviderTypeInfo } from "../../contracts/application.ts";
 
 export function modelChoice(model: Model<import("@earendil-works/pi-ai").Api>): ModelChoice {
   return {
@@ -25,6 +25,7 @@ export function modelChoice(model: Model<import("@earendil-works/pi-ai").Api>): 
     supportsImages: model.input.includes("image"),
   };
 }
+
 export function validateEndpoint(value: string) {
   if (!value) return;
   const url = new URL(value);
@@ -37,6 +38,7 @@ export function validateEndpoint(value: string) {
   )
     throw new Error("服务地址必须是无账号、查询参数和片段的 HTTP/HTTPS 地址。");
 }
+
 export function createProviders(credentials: CredentialStore, modelsStore?: ModelsStore) {
   const builtins = new Map(builtinProviders().map((provider) => [provider.id, provider]));
   const models = createModels({
@@ -44,6 +46,7 @@ export function createProviders(credentials: CredentialStore, modelsStore?: Mode
     ...(modelsStore ? { modelsStore } : {}),
     authContext: { env: async () => undefined, fileExists: async () => false },
   });
+
   function base(config: ProviderConfig): Provider {
     if (config.providerType === "compatible" || config.providerType === "local") {
       if (!config.endpoint) throw new Error("请填写服务地址。");
@@ -72,6 +75,7 @@ export function createProviders(credentials: CredentialStore, modelsStore?: Mode
     if (!provider) throw new Error("当前 pi-ai 不提供此服务。");
     return provider;
   }
+
   function create(config: ProviderConfig): Provider {
     validateEndpoint(config.endpoint);
     const provider = base(config);
@@ -105,7 +109,7 @@ export function createProviders(credentials: CredentialStore, modelsStore?: Mode
       const native = [...provider.getModels()];
       return native.map((model) => {
         const choice = config.models.find((item) => item.id === model.id);
-        // Pi identifies ChatGPT OAuth by the native provider ID, while Dai uses a per-config ID.
+        // Pi 用原生提供方 ID 识别 ChatGPT OAuth；Dai 使用单个配置的 ID。
         const chatgptOAuth = config.providerType === "openai" && config.authMethod === "oauth";
         return {
           ...model,
@@ -136,6 +140,7 @@ export function createProviders(credentials: CredentialStore, modelsStore?: Mode
       getAllModels: catalog,
     };
   }
+
   function authDefinition(providerType: string): ProviderAuth {
     if (["compatible", "local"].includes(providerType))
       return { apiKey: envApiKeyAuth("API Key", []) };
@@ -143,6 +148,7 @@ export function createProviders(credentials: CredentialStore, modelsStore?: Mode
     if (!provider) throw new Error("当前 pi-ai 不提供此服务。");
     return provider.auth;
   }
+
   function catalog(): ProviderTypeInfo[] {
     return [...builtins.values()]
       .map<ProviderTypeInfo>((provider) => ({
@@ -184,6 +190,7 @@ export function createProviders(credentials: CredentialStore, modelsStore?: Mode
         },
       ]);
   }
+
   return {
     models,
     base,
@@ -196,4 +203,5 @@ export function createProviders(credentials: CredentialStore, modelsStore?: Mode
     },
   };
 }
+
 export type Providers = ReturnType<typeof createProviders>;

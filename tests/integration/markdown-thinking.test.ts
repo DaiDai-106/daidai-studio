@@ -26,6 +26,20 @@ const response = [
   '{"revision": 12}',
   "```",
   "",
+  "```mermaid",
+  "flowchart TD",
+  "  A[读取任务] --> B[执行抓取]",
+  "```",
+  "",
+  "```mermaid",
+  "flowchart TD",
+  ...Array.from({ length: 20 }, (_, index) => `  N${index}[步骤${index}] --> N${index + 1}`),
+  "```",
+  "",
+  "```mermaid",
+  "flowchart TD\n A -->",
+  "```",
+  "",
   "[文档](https://example.com/document)",
   "[无效链接](javascript:alert(1))",
   "![外部图片](https://example.com/never-fetch.png)",
@@ -69,7 +83,7 @@ test("Electron selects native reasoning, renders streamed/history GFM and keeps 
     page.setDefaultTimeout(8000);
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.getByRole("button", { name: "打开项目", exact: true }).first().waitFor();
+    await page.getByRole("button", { name: "新建项目", exact: true }).first().waitFor();
     await page.evaluate(async (endpoint) => {
       const api = window.desktop.application;
       const login = await api.startLogin("deepseek", "api_key");
@@ -82,7 +96,7 @@ test("Electron selects native reasoning, renders streamed/history GFM and keeps 
         authMethod: "api_key" as const,
         endpoint,
         enabled: true,
-        persistCredentials: false,
+
         models: [],
       };
       const catalog = await api.getModels(config, login.id, false);
@@ -104,9 +118,6 @@ test("Electron selects native reasoning, renders streamed/history GFM and keeps 
         (await window.desktop.application.getWorkspace()).conversations[0]?.thinkingLevel ===
         "high",
     );
-    await page.getByRole("button", { name: "通用对话", exact: true }).click();
-    await page.getByRole("menuitem", { name: /^场景搭建/ }).click();
-    await page.getByText("请问是什么场景？", { exact: true }).waitFor();
     await page
       .getByRole("textbox", { name: "消息内容", exact: true })
       .fill("检查状态，以 Markdown 返回");
@@ -120,7 +131,7 @@ test("Electron selects native reasoning, renders streamed/history GFM and keeps 
     release();
     await page.getByRole("cell", { name: "已保存", exact: true }).waitFor();
     await page.getByRole("button", { name: "发送消息", exact: true }).waitFor();
-    assert.equal(planner.requests.length, 3);
+    assert.equal(planner.requests.length, 2);
     assert.ok(
       planner.requests.every(
         (request) => request.thinking?.type === "enabled" && request.reasoning_effort === "high",
@@ -128,9 +139,64 @@ test("Electron selects native reasoning, renders streamed/history GFM and keeps 
     );
     await page.getByRole("heading", { name: "定位结果", exact: true }).waitFor();
     assert.equal(await page.locator(".markdown strong").filter({ hasText: "已完成" }).count(), 1);
-    assert.equal(await page.locator(".markdown pre code").textContent(), '{"revision": 12}\n');
+    assert.equal(
+      await page.locator(".markdown pre code.language-json").textContent(),
+      '{"revision": 12}\n',
+    );
+    const diagram = page.getByRole("img", { name: "Mermaid 图表" }).first();
+    await diagram.waitFor({ timeout: 15_000 });
+    assert.equal(
+      await diagram.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0),
+      true,
+    );
+    assert.match(decodeURIComponent((await diagram.getAttribute("src")) ?? ""), /读取任务/);
+    const tallDiagram = page.getByRole("img", { name: "Mermaid 图表" }).nth(1);
+    await tallDiagram.waitFor({ timeout: 15_000 });
+    const fit = await tallDiagram.evaluate((image: HTMLImageElement) => {
+      const box = image.getBoundingClientRect();
+      const container = image.parentElement?.getBoundingClientRect();
+      return {
+        width: box.width,
+        height: box.height,
+        containerWidth: container?.width ?? 0,
+        viewportHeight: innerHeight,
+        naturalRatio: image.naturalWidth / image.naturalHeight,
+      };
+    });
+    assert.ok(fit.width <= fit.containerWidth + 1);
+    assert.ok(fit.height <= fit.viewportHeight * 0.65 + 1);
+    assert.ok(Math.abs(fit.width / fit.height - fit.naturalRatio) < 0.01, JSON.stringify(fit));
+    await page.getByRole("button", { name: "展开查看" }).first().click();
+    const preview = page.getByRole("dialog", { name: "查看图表" });
+    await preview.waitFor();
+    await page.screenshot({ path: "out/mermaid-expanded.png" });
+    const expandedDiagram = preview.getByRole("img", { name: "放大的 Mermaid 图表" });
+    const originalWidth = await expandedDiagram.evaluate(
+      (image) => image.getBoundingClientRect().width,
+    );
+    await preview.getByRole("button", { name: "放大图表" }).click();
+    assert.ok(
+      (await expandedDiagram.evaluate((image) => image.getBoundingClientRect().width)) >
+        originalWidth,
+    );
+    await preview.getByRole("button", { name: "缩小图表" }).click();
+    assert.equal(
+      await expandedDiagram.evaluate((image) => image.getBoundingClientRect().width),
+      originalWidth,
+    );
+    await preview.getByRole("button", { name: "原始大小" }).click();
+    assert.equal(await preview.getByText("100%", { exact: true }).count(), 1);
+    await page.keyboard.press("Escape");
+    await preview.waitFor({ state: "hidden" });
+    assert.match(
+      (await page.locator(".markdown pre code").allTextContents()).join("\n"),
+      /flowchart TD\n A -->/,
+    );
     assert.equal(await page.locator('.markdown a[href^="javascript:"]').count(), 0);
-    assert.equal(await page.locator(".markdown script, .markdown img").count(), 0);
+    assert.equal(
+      await page.locator(".markdown script, .markdown img:not(.mermaid-diagram img)").count(),
+      0,
+    );
     const opened = app.evaluate(
       ({ shell }) =>
         new Promise<string>((resolve) => {
@@ -144,7 +210,6 @@ test("Electron selects native reasoning, renders streamed/history GFM and keeps 
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]?.setContentSize(840, 700),
     );
-    await page.getByRole("tab", { name: "聊天", exact: true }).click();
     assert.equal(
       await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
       false,
@@ -152,16 +217,17 @@ test("Electron selects native reasoning, renders streamed/history GFM and keeps 
     await page.screenshot({ path: "out/markdown-thinking-light.png" });
     await page.evaluate(() => window.desktop.application.updateSettings({ theme: "dark" }));
     await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
+    await diagram.waitFor({ timeout: 15_000 });
     await page.screenshot({ path: "out/markdown-thinking-dark.png" });
     await page.reload();
     await page.locator(".conversation-row").first().click();
-    await page.getByRole("tab", { name: "聊天", exact: true }).click();
     await page.getByRole("cell", { name: "已保存", exact: true }).waitFor();
+    await diagram.waitFor({ timeout: 15_000 });
     assert.match(
       (await page.getByRole("button", { name: "推理档位", exact: true }).textContent()) ?? "",
       /high/,
     );
-    assert.equal(planner.requests.length, 3, "Restoring history must not replay a model request");
+    assert.equal(planner.requests.length, 2, "Restoring history must not replay a model request");
     assert.deepEqual(planner.failures, []);
     assert.deepEqual(errors, []);
   } finally {

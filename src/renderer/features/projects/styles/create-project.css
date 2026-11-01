@@ -1,0 +1,35 @@
+.project-directory-choice {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.project-directory-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.project-directory-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.project-directory-path {
+  color: var(--muted);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .project-directory-row {
+    flex-wrap: wrap;
+  }
+
+  .project-directory-path {
+    flex-basis: 100%;
+  }
+}

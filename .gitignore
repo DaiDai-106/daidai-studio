@@ -6,6 +6,8 @@ release/
 coverage/
 *.tsbuildinfo
 *.log
+__pycache__/
+*.py[cod]
 
 # Local configuration and runtime data
 .env

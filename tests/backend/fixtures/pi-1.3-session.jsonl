@@ -1,0 +1,2 @@
+{"type":"session","version":3,"id":"01a1967e-83f6-71b7-b3c0-921fb53f5af2","timestamp":"2026-11-01T09:43:56.151Z","cwd":"/fixture"}
+{"type":"message","id":"fc443de1","parentId":null,"timestamp":"2026-11-01T09:43:56.153Z","message":{"role":"user","content":[{"type":"text","text":"旧版会话测试"},{"type":"image","mimeType":"image/png","data":"iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="}],"timestamp":1}}

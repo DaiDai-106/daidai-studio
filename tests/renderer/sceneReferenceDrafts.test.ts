@@ -4,7 +4,7 @@ import {
   loadSceneReferences,
   saveSceneReferences,
   verifySceneReference,
-} from "../../src/renderer/workbench/sceneReferenceDrafts.ts";
+} from "../../src/renderer/features/scene/logic/sceneReferenceDrafts.ts";
 
 test("object references survive restart but require revalidation", () => {
   const values = new Map<string, string>();

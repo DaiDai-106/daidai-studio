@@ -1,6 +1,6 @@
-import type { ModelChoice } from "../../shared/application.ts";
+import type { ModelChoice } from "../../contracts/application.ts";
 
-// Only OpenAI-compatible servers need this adapter; built-in catalogues use pi-ai.
+// 仅 OpenAI Compatible 服务需要此适配器；内置模型目录由 pi-ai 提供。
 export async function discoverModels(endpoint: string, apiKey?: string): Promise<ModelChoice[]> {
   let data: unknown;
   try {
@@ -26,11 +26,12 @@ export async function discoverModels(endpoint: string, apiKey?: string): Promise
     }
     data = JSON.parse(Buffer.concat(chunks).toString("utf8"));
   } catch {
-    // Never expose response bodies: some services echo authorization headers.
+    // 服务可能回显认证头，不能向界面暴露响应正文。
     throw new Error("模型目录读取失败或响应过大，请检查服务地址、认证，或手动填写模型 ID。");
   }
   if (!data || typeof data !== "object" || !("data" in data) || !Array.isArray(data.data))
     throw new Error("服务未返回有效模型目录，可手动填写模型 ID。");
+
   const ids = new Set<string>();
   for (const item of data.data.slice(0, 1000))
     if (

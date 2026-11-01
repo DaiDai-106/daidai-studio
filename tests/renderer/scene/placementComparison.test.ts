@@ -4,7 +4,7 @@ import {
   canComparePlacement,
   captureTransition,
   labelPlacementComparison,
-} from "../../../src/renderer/scene/placementComparison.ts";
+} from "../../../src/renderer/features/scene/logic/placementComparison.ts";
 
 test("only committed revisions of the same loaded model can be compared", () => {
   const model = {};

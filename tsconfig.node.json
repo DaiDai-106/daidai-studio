@@ -11,12 +11,12 @@
     "electron.vite.config.ts",
     "electron.package.ts",
     "scripts/**/*.ts",
+    "packages/**/*.ts",
     "src/desktop/**/*.ts",
     "src/backend/**/*.ts",
-    "src/shared/**/*.ts",
+    "src/contracts/**/*.ts",
     "src/renderer/env.d.ts",
     "src/renderer/**/*.ts",
-    "resources/mcp/**/*.ts",
     "tests/**/*.ts"
   ]
 }

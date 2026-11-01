@@ -8,7 +8,7 @@ import { type TestContext, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import packageInfo from "../../package.json" with { type: "json" };
-import { BACKEND_READY, BACKEND_SHUTDOWN } from "../../src/shared/desktop.ts";
+import { BACKEND_READY, BACKEND_SHUTDOWN } from "../../src/contracts/desktop.ts";
 import { openTestProject } from "./support.ts";
 
 // Copy the built entry and replace only the backend when a test needs controlled timing.
@@ -30,8 +30,8 @@ async function launchFixture(
   const dist = fileURLToPath(new URL("../../dist/", import.meta.url));
   await cp(dist, join(directory, "dist"), { recursive: true });
   await cp(
-    fileURLToPath(new URL("../../resources/skills/", import.meta.url)),
-    join(directory, "resources/skills"),
+    fileURLToPath(new URL("../../packages/scene/skills/", import.meta.url)),
+    join(directory, "packages/scene/skills"),
     { recursive: true },
   );
   await symlink(

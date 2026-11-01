@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BoxGeometry, Group, Mesh, MeshBasicMaterial } from "three";
-import { visibleGeometryBounds } from "../../../src/renderer/scene/bounds.ts";
+import { visibleGeometryBounds } from "../../../src/renderer/features/scene/logic/bounds.ts";
 
 test("camera bounds exclude hidden descendants and transient overlays, including children of a visible mesh", () => {
   const geometry = new BoxGeometry(2, 4, 6),

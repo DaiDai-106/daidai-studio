@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { _electron as electron } from "playwright";
 import packageInfo from "../../package.json" with { type: "json" };
-import { openTestProject } from "./support.ts";
+import { chooseProject, openTestProject } from "./support.ts";
 
 test("menus and shortcuts preserve drafts, respect dialogs and fit narrow windows", {
   timeout: 60_000,
@@ -143,8 +143,8 @@ test("menus and shortcuts preserve drafts, respect dialogs and fit narrow window
     await message.click();
     await menu.waitFor({ state: "hidden" });
 
-    await page.getByRole("button", { name: "通用对话", exact: true }).click();
-    await page.getByRole("menuitem", { name: /^场景搭建/ }).click();
+    assert.equal(await page.getByRole("button", { name: "通用对话", exact: true }).count(), 0);
+    await chooseProject(application, page, join(userData, "project"), "scene");
     await application.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]?.setContentSize(840, 640),
     );
@@ -195,13 +195,10 @@ test("menus and shortcuts preserve drafts, respect dialogs and fit narrow window
     await page.getByRole("button", { name: "关闭弹窗", exact: true }).click();
     await page.getByRole("button", { name: "放弃修改", exact: true }).click();
     await page.getByRole("button", { name: "工具与技能", exact: true }).click();
-    await page.getByRole("button", { name: "当前项目", exact: true }).click();
-    await page.locator(".tools-empty").first().waitFor();
-    await page.getByRole("button", { name: "全部", exact: true }).click();
-    await page.getByRole("textbox", { name: "搜索工具或技能", exact: true }).fill("没有匹配项");
-    await page.locator(".tools-empty").first().waitFor();
-    await page.getByRole("textbox", { name: "搜索工具或技能", exact: true }).fill("");
-    assert.equal(await page.locator(".service-card").count(), 6);
+    await page.getByRole("heading", { name: "技能", exact: true }).waitFor();
+    await page.getByRole("button", { name: "新建技能", exact: true }).click();
+    await page.getByRole("dialog", { name: "新建技能" }).waitFor();
+    await page.getByRole("button", { name: "关闭弹窗", exact: true }).click();
     assert.deepEqual(errors, [], "Controls must preserve the existing CSP without runtime errors.");
   } finally {
     if (processHandle.exitCode === null) await application.close();

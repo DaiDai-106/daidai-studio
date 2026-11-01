@@ -1,0 +1,7 @@
+.skill-document {
+  height: clamp(150px, 40dvh, 420px);
+  max-height: 60dvh;
+  resize: vertical;
+  font-family: ui-monospace, monospace;
+  line-height: 1.6;
+}

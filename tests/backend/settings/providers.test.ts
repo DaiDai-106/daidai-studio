@@ -5,7 +5,7 @@ import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { createLogins } from "../../../src/backend/settings/login.ts";
 import { createProviders, modelChoice } from "../../../src/backend/settings/providers.ts";
-import { type LoginInfo, validateResult } from "../../../src/shared/application.ts";
+import { type LoginInfo, validateResult } from "../../../src/contracts/application.ts";
 
 test("the provider catalogue covers every installed pi-ai provider and keeps its native login methods", () => {
   const providers = createProviders(new InMemoryCredentialStore());
@@ -50,7 +50,7 @@ test("ChatGPT OAuth requests keep Pi's native request behavior with a configured
       authMethod: "oauth",
       endpoint: "",
       enabled: true,
-      persistCredentials: false,
+
       models: [modelChoice(original)],
     },
   ]);
@@ -83,7 +83,7 @@ test("ChatGPT OAuth requests keep Pi's native request behavior with a configured
       authMethod: "api_key",
       endpoint: "",
       enabled: true,
-      persistCredentials: false,
+
       models: [modelChoice(original)],
     },
   ]);

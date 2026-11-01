@@ -1,15 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { displayArguments } from "../../src/backend/agent/presentation.ts";
+import type { ConversationView, MessageInfo } from "../../src/contracts/application.ts";
 import {
-  alignmentResultSummary,
   completedTool,
   conversationTurns,
   finalReply,
   processItems,
   toolSummary,
-} from "../../src/renderer/workbench/transcript.ts";
-import type { ConversationView, MessageInfo } from "../../src/shared/application.ts";
+} from "../../src/renderer/features/chat/logic/transcript.ts";
 
 const message = (id: string, role: MessageInfo["role"], text: string): MessageInfo => ({
   id,
@@ -26,31 +25,6 @@ test("completed viewport tool retains its evidence image for the details panel",
   });
   assert.deepEqual(tool.images, [image]);
   assert.equal(tool.args?.revision, 3);
-});
-test("alignment summaries distinguish unequal contact heights and ignore incomplete results", () => {
-  const tool = {
-    key: "1",
-    name: "alignment_ground",
-    serverName: "alignment-mcp",
-    status: "completed" as const,
-    args: { groundZ: 0 },
-    output: JSON.stringify({
-      ok: true,
-      data: { groundContacts: [{ afterZ: 0 }, { afterZ: 0.1 }] },
-    }),
-  };
-  assert.match(alignmentResultSummary(tool), /1\/2 个接触面达到目标高度，其余存在高度差/);
-  assert.equal(alignmentResultSummary({ ...tool, outputTruncated: true }), "");
-  assert.equal(alignmentResultSummary({ ...tool, status: "failed" }), "");
-  assert.equal(alignmentResultSummary({ ...tool, output: JSON.stringify({ ok: false }) }), "");
-  assert.equal(
-    alignmentResultSummary({
-      ...tool,
-      name: "alignment_rotate",
-      output: JSON.stringify({ ok: true, data: { preview: true } }),
-    }),
-    "预览（未保存）",
-  );
 });
 test("transcript groups each user request, retains commentary and selects only the final answer", () => {
   const turns = conversationTurns([
@@ -98,10 +72,6 @@ test("read summaries handle Windows and Linux paths without changing execution a
     "features.json · 从第 20 行起，最多 50 行",
   );
   assert.equal(toolSummary("read", { path: "/project/model.json" }), "model.json · 从第 1 行起");
-  assert.equal(
-    toolSummary("read", { path: `/project/objects-${"a".repeat(64)}.jsonl` }),
-    "对象目录 · 整页读取",
-  );
   assert.equal(toolSummary("unknown", undefined), "");
   const args = {
     path: "/actual/path",

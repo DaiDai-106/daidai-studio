@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BoxGeometry, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial } from "three";
-import { createAppearance } from "../../../src/renderer/scene/appearance.ts";
+import { createAppearance } from "../../../src/renderer/features/scene/logic/appearance.ts";
 
 function fixture() {
   const geometry = new BoxGeometry();

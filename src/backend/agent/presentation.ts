@@ -1,12 +1,4 @@
-import type { MessageBlock } from "../../shared/application.ts";
-
-export const TOOL_PREVIEW_LIMIT = 8000;
-export const THINKING_PREVIEW_LIMIT = 64_000;
-export function preview(text: string, limit = TOOL_PREVIEW_LIMIT) {
-  return { text: text.slice(0, limit), truncated: text.length > limit };
-}
-
-// Keep bounded display arguments separate from the actual arguments sent to tools.
+// 展示用参数经过长度限制与脱敏，不修改实际传给工具的参数。
 export function displayArguments(args: Record<string, unknown> | undefined) {
   if (!args) return {};
   let truncated = false;
@@ -54,43 +46,4 @@ export function displayArguments(args: Record<string, unknown> | undefined) {
     return value;
   }
   return { args: visit(args, 0) as Record<string, unknown>, argsTruncated: truncated };
-}
-
-export function publicBlock(block: {
-  type: string;
-  text?: string;
-  thinking?: string;
-  redacted?: boolean;
-}): MessageBlock | null {
-  if (block.type === "text") return { kind: "text", text: block.text ?? "" };
-  if (block.type !== "thinking" || block.redacted) return null;
-  const value = preview(block.thinking ?? "", THINKING_PREVIEW_LIMIT);
-  return { kind: "thinking", ...value };
-}
-
-export function toolPhase(details: unknown): string {
-  if (
-    !details ||
-    typeof details !== "object" ||
-    !("phase" in details) ||
-    typeof details.phase !== "string"
-  )
-    return "";
-  return details.phase.slice(0, 200);
-}
-
-export function toolIdentity(details: unknown): { displayName?: string; serverName?: string } {
-  if (
-    !details ||
-    typeof details !== "object" ||
-    !("toolName" in details) ||
-    !("serverName" in details) ||
-    typeof details.toolName !== "string" ||
-    typeof details.serverName !== "string"
-  )
-    return {};
-  return {
-    displayName: details.toolName.slice(0, 200),
-    serverName: details.serverName.slice(0, 200),
-  };
 }

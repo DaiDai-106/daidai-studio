@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { _electron as electron } from "playwright";
-import { chooseProject, openTestProject } from "./support.ts";
+import { openTestProject } from "./support.ts";
 
-test("desktop configures a real local service, streams chat and restores durable history", {
+test("desktop configures a real local service, streams chat and restores Pi history", {
   timeout: 60000,
 }, async () => {
   const profile = await mkdtemp(join(tmpdir(), "dai-real-ui-"));
@@ -57,7 +57,6 @@ test("desktop configures a real local service, streams chat and restores durable
     let page = await application.firstWindow();
     page.setDefaultTimeout(7000);
     const errors: string[] = [];
-    const secureStorage = (await page.evaluate(() => window.desktop.getAppInfo())).secureStorage;
     page.on("pageerror", (error) => errors.push(error.message));
     await openTestProject(application, page, profile);
     await page.getByRole("button", { name: "设置", exact: true }).click();
@@ -138,7 +137,12 @@ test("desktop configures a real local service, streams chat and restores durable
       (await page.evaluate(() => window.desktop.application.getWorkspace())).projects,
       [],
     );
-    await chooseProject(application, page, project.path);
+    await page.getByRole("button", { name: "已隐藏项目" }).click();
+    const hidden = page.getByRole("dialog", { name: "已隐藏项目" });
+    await hidden.getByRole("button", { name: "恢复" }).click();
+    await hidden.getByRole("button", { name: "关闭弹窗" }).click();
+    await page.getByRole("button", { name: project.name, exact: true }).click();
+    await page.locator(".conversation-title").first().click();
     await page.getByText("本地服务的真实协议回复", { exact: true }).waitFor();
     await page.getByRole("button", { name: "对话用量", exact: true }).waitFor();
     assert.equal(
@@ -150,26 +154,18 @@ test("desktop configures a real local service, streams chat and restores durable
     assert.equal(state.projects[0]?.id, project.id);
     assert.equal(state.conversations[0]?.id, beforeRemoval.conversations[0]?.id);
     assert.equal(state.conversations.length, beforeRemoval.conversations.length);
-    assert.equal(state.settings.providers[0]?.configured, secureStorage);
-    assert.equal(state.projects[0]?.files.length, 2);
+    assert.equal(state.settings.providers[0]?.configured, true);
+    assert.equal(state.projects[0]?.filesComplete, false);
     assert.equal(state.dataRoot, join(profile, "data"));
-    assert.ok((await readFile(join(profile, "data", "app.sqlite"))).length > 0);
+    assert.ok((await readFile(join(profile, "data", "projects.sqlite"))).length > 0);
     assert.equal(
-      (await readFile(join(profile, "data", "app.sqlite"))).includes(
+      (await readFile(join(profile, "data", "projects.sqlite"))).includes(
         Buffer.from("isolated-ui-test-key"),
       ),
       false,
     );
-    if (secureStorage) {
-      const encrypted = await readFile(join(profile, "data", "credentials.enc"));
-      assert.equal(encrypted.includes(Buffer.from("isolated-ui-test-key")), false);
-      const decrypts = await application.evaluate(
-        ({ safeStorage }, bytes) =>
-          safeStorage.decryptString(Buffer.from(bytes)).includes("isolated-ui-test-key"),
-        [...encrypted],
-      );
-      assert.equal(decrypts, true);
-    }
+    const credentials = await readFile(join(profile, "data", "auth.json"), "utf8");
+    assert.ok(credentials.includes("isolated-ui-test-key"));
     assert.deepEqual(errors, []);
     await page.screenshot({ path: join(tmpdir(), "dai-real-chat.png") });
   } finally {

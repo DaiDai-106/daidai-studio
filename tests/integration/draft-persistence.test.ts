@@ -47,6 +47,12 @@ test("switching conversations and quitting immediately persist the latest draft"
     application = await launch();
     page = await application.firstWindow();
     page.setDefaultTimeout(8000);
+    const workspace = await page.evaluate(() => window.desktop.application.getWorkspace());
+    const conversationIndex = workspace.conversations.findIndex(
+      (item) => item.draft === "退出前的草稿",
+    );
+    assert.ok(conversationIndex >= 0);
+    await page.locator(".conversation-title").nth(conversationIndex).click();
     await page.getByRole("textbox", { name: "消息内容" }).waitFor();
     assert.equal(
       await page.getByRole("textbox", { name: "消息内容" }).inputValue(),

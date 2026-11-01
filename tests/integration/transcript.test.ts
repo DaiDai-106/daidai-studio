@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { _electron as electron } from "playwright";
-import { serveMcpHttp } from "../fixtures/mcp-http.ts";
 import { servePlanner, turnResults } from "../support/planner.ts";
 import { openTestProject } from "./support.ts";
 
@@ -22,11 +21,18 @@ test("Electron renders public thinking and real tool details, preserves disclosu
   const first = gate(),
     final = gate(),
     stop = gate();
-  const remote = await serveMcpHttp();
-  const path = join(root, "project", ".daidai", "artifacts", "current", "features.json");
+  const path = join(root, "project", "missing.json");
+  const largePath = join(root, "project", "large.txt");
   const planner = await servePlanner((request) => {
-    const user = request.messages.filter((item) => item.role === "user").at(-1)?.content;
-    if (user?.includes("应用事件：用户已进入场景搭建")) return { text: "请问是什么场景？" };
+    const content: unknown = request.messages
+      .filter((item) => item.role === "user")
+      .at(-1)?.content;
+    const user =
+      typeof content === "string"
+        ? content
+        : Array.isArray(content)
+          ? content.map((item) => (typeof item?.text === "string" ? item.text : "")).join("")
+          : "";
     if (user === "停止测试")
       return {
         text: "Should not finish",
@@ -42,14 +48,7 @@ test("Electron renders public thinking and real tool details, preserves disclosu
         thinking: "先检查文件，再查看工具结果。",
         beforeContent: first.promise,
       };
-    if (results.count === 1)
-      return { id: "discover", name: "mcp_list_tools", args: { serverId: "transcript" } };
-    const echo = results
-      .read<{ items: { name: string; sourceName: string }[] }>("discover")
-      .items.find((item) => item.sourceName === "echo");
-    assert.ok(echo);
-    if (results.count === 2)
-      return { id: "echo", name: echo.name, args: { value: "Bounded output ".repeat(1000) } };
+    if (results.count === 1) return { id: "large", name: "read", args: { path: largePath } };
     return {
       text: "流程测试完成，读取失败已明确保留。",
       thinking: "已核对错误和返回预览。",
@@ -73,43 +72,32 @@ test("Electron renders public thinking and real tool details, preserves disclosu
     let page = await app.firstWindow();
     page.setDefaultTimeout(8000);
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.getByRole("button", { name: "打开项目", exact: true }).first().waitFor();
+    await page.getByRole("button", { name: "新建项目", exact: true }).first().waitFor();
     await page.evaluate(async (endpoint) => {
-      await window.desktop.application.saveProvider({
+      const api = window.desktop.application;
+      const login = await api.startLogin("deepseek", "api_key");
+      if (!login.prompt) throw new Error("Missing test login prompt");
+      await api.answerLogin(login.id, login.prompt.id, "transcript-test-key");
+      const provider = {
         id: "process",
-        providerType: "local",
+        providerType: "deepseek",
         name: "Local process test",
-        authMethod: "none",
+        authMethod: "api_key" as const,
         endpoint,
         enabled: true,
-        persistCredentials: false,
-        models: [
-          {
-            id: "process-test",
-            name: "Process test",
-            context: 128000,
-            output: 1000,
-            reasoning: "标准",
-          },
-        ],
-      });
+
+        models: [],
+      };
+      const model = (await api.getModels(provider, login.id, false)).find((item) =>
+        item.thinkingLevels?.includes("low"),
+      );
+      if (!model) throw new Error("Missing reasoning model");
+      await api.saveProvider({ ...provider, models: [{ ...model, output: 4096 }] }, login.id);
     }, planner.endpoint);
     await openTestProject(app, page, root);
-    await page.evaluate(async (url) => {
-      await window.desktop.application.saveMcp({
-        id: "transcript",
-        name: "Transcript MCP",
-        enabled: true,
-        scope: { kind: "global" },
-        modes: ["scene"],
-        transport: "http",
-        url,
-        timeoutMs: 5000,
-      });
-    }, remote.url);
-    await page.getByRole("button", { name: "通用对话", exact: true }).click();
-    await page.getByRole("menuitem", { name: /^场景搭建/ }).click();
-    await page.getByText("请问是什么场景？", { exact: true }).waitFor();
+    await writeFile(largePath, "Bounded output ".repeat(1000));
+    await page.getByRole("button", { name: "推理档位" }).click();
+    await page.getByRole("menuitemradio", { name: "high", exact: true }).click();
     await page
       .getByRole("textbox", { name: "消息内容", exact: true })
       .fill("读取文件并查看工具返回");
@@ -118,18 +106,18 @@ test("Electron renders public thinking and real tool details, preserves disclosu
     await processGroup.getByRole("button", { name: "思考摘要", exact: true }).click();
     await processGroup.locator(".thinking-body").filter({ hasText: "先检查文件" }).waitFor();
     first.release();
-    const read = processGroup.locator('[data-tool-name="read"]');
+    const read = processGroup.locator('[data-tool-name="read"]').first();
     await read.locator(".process-row").click();
     await read.getByLabel("工具调用参数").filter({ hasText: path }).waitFor();
     assert.match(
       (await read.locator(".tool-argument-summary").textContent()) ?? "",
-      /features.json.*20.*30/,
+      /missing.json.*20.*30/,
     );
     await processGroup
       .getByText("返回预览已截断。", { exact: true })
       .waitFor({ state: "attached" });
-    // Open the generic MCP row and inspect its real bounded text result.
-    const echo = processGroup.locator(".tool-message").filter({ hasText: "Transcript MCP · echo" });
+    // 使用 Pi 的 read 工具验证长结果预览的上限。
+    const echo = processGroup.locator('[data-tool-name="read"]').nth(1);
     await echo.locator(".process-row").click();
     await echo.getByText("返回预览已截断。", { exact: true }).waitFor();
     assert.ok(((await echo.getByLabel("工具返回内容").textContent()) ?? "").length <= 8000);
@@ -143,7 +131,7 @@ test("Electron renders public thinking and real tool details, preserves disclosu
     );
     assert.match(
       (await processGroup.locator(".process-header").textContent()) ?? "",
-      /3 次工具调用.*1 次失败/s,
+      /2 次工具调用.*1 次失败/s,
     );
     assert.equal(await read.locator(".process-row").getAttribute("aria-expanded"), "true");
     await processGroup.locator(".process-header").click();
@@ -153,7 +141,6 @@ test("Electron renders public thinking and real tool details, preserves disclosu
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]?.setContentSize(840, 700),
     );
-    await page.getByRole("tab", { name: "聊天", exact: true }).click();
     await page.screenshot({ path: "out/transcript-narrow.png" });
     assert.equal(
       await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
@@ -173,12 +160,11 @@ test("Electron renders public thinking and real tool details, preserves disclosu
     assert.equal(planner.requests.length, requests, "Display preference makes no model request");
     await page.reload();
     await page.locator(".conversation-row").first().click();
-    await page.getByRole("tab", { name: "聊天", exact: true }).click();
     await page.getByText("流程测试完成，读取失败已明确保留。", { exact: true }).waitFor();
     const history = page.locator(".turn-process").first();
     assert.equal(await history.locator(".process-header").getAttribute("aria-expanded"), "false");
     await history.locator(".process-header").click();
-    await history.locator('[data-tool-name="read"] .process-row').click();
+    await history.locator('[data-tool-name="read"] .process-row').first().click();
     await history.getByLabel("工具调用参数").filter({ hasText: path }).waitFor();
     assert.equal(
       await page.locator(".thinking-message").count(),
@@ -195,6 +181,27 @@ test("Electron renders public thinking and real tool details, preserves disclosu
     page = await app.firstWindow();
     page.setDefaultTimeout(8000);
     page.on("pageerror", (error) => errors.push(error.message));
+    await page.evaluate(async (endpoint) => {
+      const api = window.desktop.application;
+      const login = await api.startLogin("deepseek", "api_key");
+      if (!login.prompt) throw new Error("Missing test login prompt");
+      await api.answerLogin(login.id, login.prompt.id, "transcript-test-key");
+      const provider = {
+        id: "process",
+        providerType: "deepseek",
+        name: "Local process test",
+        authMethod: "api_key" as const,
+        endpoint,
+        enabled: true,
+
+        models: [],
+      };
+      const model = (await api.getModels(provider, login.id, false)).find((item) =>
+        item.thinkingLevels?.includes("low"),
+      );
+      if (!model) throw new Error("Missing reasoning model");
+      await api.saveProvider({ ...provider, models: [{ ...model, output: 4096 }] }, login.id);
+    }, planner.endpoint);
     await page.locator(".conversation-row").first().click();
     const chatTab = page.getByRole("tab", { name: "聊天", exact: true });
     if (await chatTab.isVisible()) await chatTab.click();
@@ -214,6 +221,8 @@ test("Electron renders public thinking and real tool details, preserves disclosu
     await page.locator(".message.user").filter({ hasText: "停止测试" }).waitFor();
     const current = page.locator(".turn-process.active").last();
     await current.waitFor();
+    if ((await current.locator(".process-header").getAttribute("aria-expanded")) === "false")
+      await current.locator(".process-header").click();
     await current.getByRole("button", { name: "思考摘要", exact: true }).first().click();
     await page.getByText("等待中的公开摘要", { exact: true }).waitFor();
     await page.getByRole("button", { name: "停止回复", exact: true }).click();
@@ -234,7 +243,6 @@ test("Electron renders public thinking and real tool details, preserves disclosu
     stop.release();
     if (processHandle.exitCode === null) await app.close();
     await planner.close();
-    await remote.close();
     await rm(root, { recursive: true, force: true });
   }
 });

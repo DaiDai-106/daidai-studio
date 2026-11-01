@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
-import { createDraftWriter } from "../../src/renderer/workbench/draftWriter.ts";
+import { createDraftWriter } from "../../src/renderer/features/chat/logic/draftWriter.ts";
 
 test("draft writer coalesces rapid changes and flushes before switching", async () => {
   const writes: string[] = [];

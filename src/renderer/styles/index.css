@@ -1,0 +1,11 @@
+/* 保持原有层叠顺序，避免迁移时改变现有界面。 */
+@import "../app/styles/workbench.css";
+@import "../features/chat/styles/chat.css";
+@import "../features/chat/styles/welcome.css";
+@import "../features/scene/styles/scene.css";
+@import "../features/settings/styles/settings.css";
+@import "../shared/styles/dialog.css";
+@import "../shared/styles/controls.css";
+@import "./theme.css";
+@import "./base.css";
+@import "../app/styles/responsive.css";

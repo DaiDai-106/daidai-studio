@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { app, Menu, nativeImage, Tray } from "electron";
 
+// 托盘负责重新显示窗口和真正退出应用。
 export function createAppTray(showWindow: () => void): Tray {
   const filename =
     process.platform === "darwin"

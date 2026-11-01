@@ -15,18 +15,6 @@ if (!selected) throw new Error(`Unknown package target: ${target}`);
 if (selected.host !== process.platform)
   throw new Error(`Build ${target} on ${selected.host}; current host is ${process.platform}.`);
 
-// Use the tool's CLI and configuration schema; the host owns platform selection only.
-const native = spawn(
-  process.execPath,
-  ["--experimental-strip-types", join(projectRoot, "scripts/native.ts"), "--runtime"],
-  { cwd: projectRoot, stdio: "inherit", shell: false },
-);
-await new Promise<void>((resolve, reject) => {
-  native.once("error", reject);
-  native.once("close", (code) =>
-    code === 0 ? resolve() : reject(new Error(`CAD runtime build failed (${code}).`)),
-  );
-});
 const child = spawn(
   process.execPath,
   [

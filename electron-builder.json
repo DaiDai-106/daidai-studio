@@ -6,8 +6,19 @@
   "files": ["dist/**", "package.json", "!dist/icons/*.icns"],
   "asar": true,
   "extraResources": [
-    { "from": "resources/skills", "to": "skills", "filter": ["**/SKILL.md", "**/images/*.png"] },
-    { "from": "out/native-runtime", "to": "mcp/native" }
+    {
+      "from": "packages/scene/python",
+      "to": "scene/python",
+      "filter": [
+        "worker.py",
+        "geometry.py",
+        "gltf.py",
+        "distance.py",
+        "install.py",
+        "requirements.txt"
+      ]
+    },
+    { "from": "packages/scene/skills", "to": "scene/skills", "filter": ["**/SKILL.md"] }
   ],
   "publish": null,
   "artifactName": "Dai-${version}-${os}-${arch}.${ext}",
@@ -60,8 +71,6 @@
       "libuuid1",
       "libsecret-1-0",
       "libssl3t64",
-      "libtbb12",
-      "libfreeimage3",
       "libstdc++6"
     ]
   }
