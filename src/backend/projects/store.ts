@@ -16,6 +16,7 @@ export interface StoredConversation {
   id: string;
   projectId: string;
   title: string;
+  createdAt: number;
   modelId: string;
   draft: string;
   archived: boolean;
@@ -71,14 +72,18 @@ export function openProjectStore(dataRoot: string) {
 
   function project(id: string): StoredProject | undefined {
     return db
-      .prepare("SELECT id, name, mode, path FROM projects WHERE id = ? AND hidden = 0")
+      .prepare(
+        "SELECT id, name, mode, path FROM projects WHERE id = ? AND hidden = 0 AND mode IN ('coding', 'scene', 'robot')",
+      )
       .get(id) as StoredProject | undefined;
   }
 
   function anyProject(id: string): StoredProject | undefined {
-    return db.prepare("SELECT id, name, mode, path FROM projects WHERE id = ?").get(id) as
-      | StoredProject
-      | undefined;
+    return db
+      .prepare(
+        "SELECT id, name, mode, path FROM projects WHERE id = ? AND mode IN ('coding', 'scene', 'robot')",
+      )
+      .get(id) as StoredProject | undefined;
   }
 
   function requireProject(id: string) {
@@ -89,10 +94,10 @@ export function openProjectStore(dataRoot: string) {
 
   function conversation(id: string): StoredConversation | undefined {
     const row = db
-      .prepare(`SELECT id, project_id AS projectId, title, model_id AS modelId,
+      .prepare(`SELECT id, project_id AS projectId, title, created_at AS createdAt, model_id AS modelId,
       draft, archived, session_file AS sessionFile, thinking_level AS thinkingLevel, access_mode AS accessMode, interrupted,
       has_messages AS hasMessages
-      FROM conversations WHERE id = ?`)
+      FROM conversations WHERE id = ? AND project_id IN (SELECT id FROM projects WHERE mode IN ('coding', 'scene', 'robot'))`)
       .get(id) as
       | (Omit<StoredConversation, "archived" | "interrupted" | "hasMessages"> & {
           archived: number;
@@ -121,7 +126,7 @@ export function openProjectStore(dataRoot: string) {
     createProject(input: { name: string; mode: ConversationMode; path: string }): StoredProject {
       const name = input.name.trim();
       if (!name || name.length > 200) throw new Error("项目名称无效。");
-      if (!["general", "scene", "robot"].includes(input.mode)) throw new Error("项目模式无效。");
+      if (!["coding", "scene", "robot"].includes(input.mode)) throw new Error("项目模式无效。");
       if (!isAbsolute(input.path)) throw new Error("项目目录必须是绝对路径。");
       const path = realpathSync(input.path);
       if (!statSync(path).isDirectory()) throw new Error("请选择本地项目目录。");
@@ -136,7 +141,7 @@ export function openProjectStore(dataRoot: string) {
     listProjects(): StoredProject[] {
       return db
         .prepare(
-          "SELECT id, name, mode, path FROM projects WHERE hidden = 0 ORDER BY created_at DESC, rowid DESC",
+          "SELECT id, name, mode, path FROM projects WHERE hidden = 0 AND mode IN ('coding', 'scene', 'robot') ORDER BY created_at DESC, rowid DESC",
         )
         .all() as unknown as StoredProject[];
     },
@@ -144,7 +149,7 @@ export function openProjectStore(dataRoot: string) {
     listHiddenProjects(): StoredProject[] {
       return db
         .prepare(
-          "SELECT id, name, mode, path FROM projects WHERE hidden = 1 ORDER BY created_at DESC, rowid DESC",
+          "SELECT id, name, mode, path FROM projects WHERE hidden = 1 AND mode IN ('coding', 'scene', 'robot') ORDER BY created_at DESC, rowid DESC",
         )
         .all() as unknown as StoredProject[];
     },
@@ -188,13 +193,13 @@ export function openProjectStore(dataRoot: string) {
         cursor
           ? db
               .prepare(`SELECT c.id, c.created_at AS createdAt FROM conversations c
-            JOIN projects p ON p.id = c.project_id AND p.hidden = 0
-            WHERE c.created_at < ? OR (c.created_at = ? AND c.id < ?)
+            JOIN projects p ON p.id = c.project_id AND p.hidden = 0 AND p.mode IN ('coding', 'scene', 'robot')
+            WHERE (c.created_at < ? OR (c.created_at = ? AND c.id < ?))
             ORDER BY c.created_at DESC, c.id DESC LIMIT ?`)
               .all(cursor.createdAt, cursor.createdAt, cursor.id, limit + 1)
           : db
               .prepare(
-                "SELECT c.id, c.created_at AS createdAt FROM conversations c JOIN projects p ON p.id = c.project_id AND p.hidden = 0 ORDER BY c.created_at DESC, c.id DESC LIMIT ?",
+                "SELECT c.id, c.created_at AS createdAt FROM conversations c JOIN projects p ON p.id = c.project_id AND p.hidden = 0 AND p.mode IN ('coding', 'scene', 'robot') ORDER BY c.created_at DESC, c.id DESC LIMIT ?",
               )
               .all(limit + 1)
       ) as { id: string; createdAt: number }[];

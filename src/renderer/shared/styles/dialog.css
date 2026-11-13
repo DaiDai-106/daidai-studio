@@ -91,9 +91,6 @@
   line-height: 1.7;
   margin: 12px 0 0;
 }
-.model-input {
-  margin: 15px 0;
-}
 .authorization-state {
   text-align: center;
   padding: 20px 0 25px;
@@ -126,28 +123,6 @@
   font-size: 12px;
   margin: 15px 0;
 }
-.mode-options {
-  display: flex;
-  gap: 22px;
-  border: 0;
-  padding: 0;
-  margin: 20px 0;
-  font-size: 12px;
-}
-.mode-options legend {
-  margin-bottom: 10px;
-}
-.mode-options label {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.code-input {
-  min-height: 190px;
-  font-family: ui-monospace, monospace;
-  font-size: 11px;
-  tab-size: 2;
-}
 .diagnostic-output {
   font:
     12px / 1.8 ui-monospace,
@@ -156,43 +131,6 @@
   padding: 15px;
   border-radius: 8px;
   white-space: pre-wrap;
-}
-.file-project {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 12px;
-}
-.file-project span {
-  margin-left: auto;
-  font-size: 10px;
-}
-.file-list {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  margin-top: 18px;
-}
-.file-list button {
-  width: 100%;
-  border: 0;
-  border-radius: 0;
-  justify-content: flex-start;
-  padding: 14px;
-  background: transparent;
-  font-size: 12px;
-}
-.file-list button:hover {
-  background: var(--subtle);
-}
-.file-list span {
-  flex: 1;
-  text-align: left;
-}
-.file-list small {
-  display: block;
-  color: var(--muted);
-  font-size: 10px;
-  margin-top: 6px;
 }
 .empty-list {
   text-align: center;

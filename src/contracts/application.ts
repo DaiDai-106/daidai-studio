@@ -1,20 +1,20 @@
-import { ModelThinkingLevelSchema } from "@earendil-works/pi-ai/providers/model-schema";
+import { MODEL_THINKING_LEVELS } from "@earendil-works/pi-ai/providers/model-schema";
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
-
-export type { CaptureView, ViewportCapture } from "./viewport.ts";
 
 import { ConversationModeSchema } from "./capabilities.ts";
 import { id, object } from "./schema.ts";
 
 const text = (maxLength = 200) => Type.String({ maxLength });
 
+// Pi 1.5 的 schema 使用 pi-schema；应用 IPC 仍使用 TypeBox 校验。
+const ModelThinkingLevelSchema = Type.Enum(MODEL_THINKING_LEVELS);
 const ImportIdSchema = Type.String({ pattern: "^[0-9a-f]{64}$" });
 export type ThinkingLevel = Static<typeof ModelThinkingLevelSchema>;
-export const AccessModeSchema = Type.Union([Type.Literal("ask"), Type.Literal("full")]);
+const AccessModeSchema = Type.Union([Type.Literal("ask"), Type.Literal("full")]);
 export type AccessMode = Static<typeof AccessModeSchema>;
 
-export const ModelSchema = object({
+const ModelSchema = object({
   id,
   name: text(),
   context: Type.Integer({ minimum: 1024, maximum: 10_000_000 }),
@@ -35,7 +35,7 @@ export const ChatImageSchema = object({
 });
 export type ChatImage = Static<typeof ChatImageSchema>;
 
-export const SceneReferenceSchema = object({
+const SceneReferenceSchema = object({
   importId: ImportIdSchema,
   objectId: id,
   revision: Type.Integer({ minimum: 0 }),
@@ -97,7 +97,6 @@ const JointCandidateSchema = object({
   ]),
   limits: Type.Literal("unknown"),
 });
-export type SceneJointCandidate = Static<typeof JointCandidateSchema>;
 
 const SceneViewSchema = object({
   projectId: id,
@@ -186,7 +185,7 @@ const ExtensionUiRequestSchema = object({
 });
 export type ExtensionUiRequest = Static<typeof ExtensionUiRequestSchema>;
 
-export const ProviderSchema = object({
+const ProviderSchema = object({
   id,
   name: Type.String({ minLength: 1, maxLength: 100 }),
   providerType: id,
@@ -275,7 +274,6 @@ const ShellApprovalSchema = object({
 export type ShellApproval = Static<typeof ShellApprovalSchema>;
 export type ConversationView = Static<typeof ConversationViewSchema>;
 export type LoginInfo = Static<typeof LoginInfoSchema>;
-export type LoginPrompt = NonNullable<LoginInfo["prompt"]>;
 export type ApplicationEvent = Static<typeof EventSchema>;
 // 请求名和参数由前端、桌面进程与后端共同使用。
 export const commands = {
@@ -312,6 +310,20 @@ export const commands = {
   "project.remove": object({ id }),
   "project.hidden": object({}),
   "project.restore": object({ id }),
+  "coding.list": object({
+    projectId: id,
+    path: text(4096),
+    offset: Type.Integer({ minimum: 0, maximum: 1_000_000 }),
+    snapshot: Type.Optional(text(64)),
+  }),
+  "coding.read": object({ projectId: id, path: text(4096) }),
+  "coding.search": object({ projectId: id, query: Type.String({ maxLength: 200 }) }),
+  "coding.changes": object({ projectId: id }),
+  "coding.diff": object({
+    projectId: id,
+    path: text(4096),
+    kind: Type.Union([Type.Literal("staged"), Type.Literal("unstaged"), Type.Literal("untracked")]),
+  }),
   "scene.get": object({ projectId: id }),
   "scene.pythonStatus": object({}),
   "scene.installPython": object({}),
@@ -340,14 +352,6 @@ export const commands = {
     modelId: ImportIdSchema,
     objectId: id,
     revision: Type.Integer({ minimum: 0 }),
-  }),
-  "scene.createJointDraft": object({
-    projectId: id,
-    revision: Type.Integer({ minimum: 0 }),
-    parent: JointRefSchema,
-    child: JointRefSchema,
-    type: JointTypeSchema,
-    axis: Type.Optional(JointAxisSchema),
   }),
   "scene.confirmJoint": object({
     projectId: id,
@@ -447,13 +451,12 @@ const ProjectInfoSchema = object({
   name: text(4096),
   mode: ConversationModeSchema,
   path: text(4096),
-  files: Type.Array(text(4096), { maxItems: 200 }),
-  filesComplete: Type.Boolean(),
   available: Type.Union([Type.Boolean(), Type.Null()]),
 });
 
 const ConversationInfoSchema = object({
   id,
+  createdAt: Type.Integer({ minimum: 0 }),
   projectId: id,
   title: text(),
   mode: ConversationModeSchema,
@@ -474,6 +477,7 @@ const SettingsInfoSchema = object({
 
 const MessageInfoSchema = object({
   id,
+  eventLabel: Type.Optional(text(200)),
   role: Type.Union([
     Type.Literal("user"),
     Type.Literal("assistant"),
@@ -497,6 +501,7 @@ const ConversationViewSchema = object({
   streamId: id,
   sequence: Type.Integer({ minimum: 0 }),
   messages: Type.Array(MessageInfoSchema),
+  historyKey: Type.Optional(text(400)),
   partial: text(4_000_000),
   partialBlocks: Type.Optional(Type.Array(MessageBlockSchema)),
   partialHasToolCalls: Type.Optional(Type.Boolean()),
@@ -508,10 +513,14 @@ const ConversationViewSchema = object({
   busy: Type.Boolean(),
   error: text(10000),
   usage: UsageSchema,
+  branchUsage: Type.Optional(UsageSchema),
   latestResponse: Type.Union([ResponseSchema, Type.Null()]),
   respondingModel: Type.Union([text(500), Type.Null()]),
   activeTools: Type.Array(ToolProgressSchema, { maxItems: 100 }),
 });
+
+const ConversationProgressSchema = Type.Omit(ConversationViewSchema, ["messages"]);
+export type ConversationProgress = Static<typeof ConversationProgressSchema>;
 
 const LoginInfoSchema = object({
   id,
@@ -543,7 +552,7 @@ const LoginInfoSchema = object({
   ]),
 });
 // 返回值也按请求名校验，防止不符合契约的数据传到界面。
-export const resultSchemas = {
+const resultSchemas = {
   "workspace.get": object({
     settings: SettingsInfoSchema,
     projects: Type.Array(ProjectInfoSchema, { maxItems: 100 }),
@@ -576,6 +585,29 @@ export const resultSchemas = {
   "project.remove": Type.Null(),
   "project.hidden": Type.Array(ProjectInfoSchema),
   "project.restore": ProjectInfoSchema,
+  "coding.list": object({
+    snapshot: text(64),
+    entries: Type.Array(object({ name: text(4096), directory: Type.Boolean() }), { maxItems: 200 }),
+    nextOffset: Type.Union([Type.Integer({ minimum: 0, maximum: 1_000_000 }), Type.Null()]),
+  }),
+  "coding.read": object({ content: text(2_097_152), version: text(64) }),
+  "coding.search": object({
+    paths: Type.Array(text(4096), { maxItems: 100 }),
+    truncated: Type.Boolean(),
+  }),
+  "coding.changes": object({
+    entries: Type.Array(
+      object({
+        path: text(4096),
+        staged: Type.Boolean(),
+        unstaged: Type.Boolean(),
+        untracked: Type.Boolean(),
+      }),
+      { maxItems: 200 },
+    ),
+    truncated: Type.Boolean(),
+  }),
+  "coding.diff": object({ patch: text(4_194_304), untracked: Type.Boolean() }),
   "scene.get": SceneViewSchema,
   "scene.pythonStatus": ScenePythonStatusSchema,
   "scene.installPython": ScenePythonStatusSchema,
@@ -584,7 +616,6 @@ export const resultSchemas = {
   "scene.relocateSource": SceneViewSchema,
   "scene.setTransform": SceneViewSchema,
   "scene.deleteObject": SceneViewSchema,
-  "scene.createJointDraft": SceneViewSchema,
   "scene.confirmJoint": SceneViewSchema,
   "scene.discardJointDraft": SceneViewSchema,
   "scene.removeConfirmedJoint": SceneViewSchema,
@@ -629,6 +660,7 @@ const EventSchema = Type.Union([
   object({ type: Type.Literal("workspace") }),
   object({ type: Type.Literal("conversationDeleted"), id }),
   object({ type: Type.Literal("conversation"), view: ConversationViewSchema }),
+  object({ type: Type.Literal("conversation.progress"), view: ConversationProgressSchema }),
   object({ type: Type.Literal("login"), login: LoginInfoSchema }),
   object({
     type: Type.Literal("shell.approval"),

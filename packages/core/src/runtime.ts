@@ -12,37 +12,6 @@ export interface ToolCallOptions {
   signal?: AbortSignal;
 }
 
-export interface RuntimeTool extends ToolDescription {
-  execute(input: unknown, options: ToolCallOptions): Promise<unknown>;
-}
-
-/** 工具实现留在 Runtime 内，模型只看到名称、说明和参数格式。 */
-export function createToolRegistry() {
-  const tools = new Map<string, RuntimeTool>();
-  return {
-    register(tool: RuntimeTool): void {
-      if (!/^[a-z][a-z0-9_]*$/.test(tool.name)) throw new Error(`Invalid tool name: ${tool.name}`);
-      if (tools.has(tool.name)) throw new Error(`Duplicate tool: ${tool.name}`);
-      tools.set(tool.name, tool);
-    },
-
-    list(): ToolDescription[] {
-      return [...tools.values()].map(({ name, description, inputSchema }) => ({
-        name,
-        description,
-        inputSchema,
-      }));
-    },
-
-    async call(name: string, input: unknown, options: ToolCallOptions = {}): Promise<unknown> {
-      options.signal?.throwIfAborted();
-      const tool = tools.get(name);
-      if (!tool) throw new Error(`Unknown tool: ${name}`);
-      return tool.execute(input, options);
-    },
-  };
-}
-
 interface Entry<T> {
   runtime: Promise<T>;
   closing?: Promise<void>;

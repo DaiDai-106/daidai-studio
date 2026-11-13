@@ -1,6 +1,6 @@
 import type {
-  AccessMode,
   ApplicationEvent,
+  Arguments,
   ConversationInfo,
   ConversationView,
   LoginInfo,
@@ -12,15 +12,21 @@ import type {
   ProviderConfig,
   ProviderInfo,
   ProviderTypeInfo,
+  Results,
   ScenePythonStatus,
   SceneTransform,
   SceneView,
   SettingsInfo,
-  ThinkingLevel,
   WorkspaceInfo,
 } from "./application.ts";
 import type { ConversationMode } from "./capabilities.ts";
 import type { Theme } from "./desktop.ts";
+
+export type CreateProjectInput = {
+  name: string;
+  mode: ConversationMode;
+  directoryToken?: string;
+};
 
 // 渲染界面可通过 preload 调用的应用接口；具体执行交给桌面进程和后端。
 export interface ApplicationBridge {
@@ -49,16 +55,26 @@ export interface ApplicationBridge {
 
   // 项目路径通过系统选择器获取，对话保存和发送使用对话 ID。
   chooseProjectDirectory(): Promise<{ token: string; path: string } | null>;
-  createProject(input: {
-    name: string;
-    mode: ConversationMode;
-    directoryToken?: string;
-  }): Promise<ProjectInfo | null>;
+  createProject(input: CreateProjectInput): Promise<ProjectInfo | null>;
   refreshProject(id: string): Promise<ProjectInfo>;
   removeProject(id: string): Promise<null>;
   listHiddenProjects(): Promise<ProjectInfo[]>;
   restoreProject(id: string): Promise<ProjectInfo>;
 
+  listCodingFiles(
+    projectId: string,
+    path: string,
+    offset: number,
+    snapshot?: string,
+  ): Promise<Results["coding.list"]>;
+  searchCodingFiles(projectId: string, query: string): Promise<Results["coding.search"]>;
+  readCodingFile(projectId: string, path: string): Promise<Results["coding.read"]>;
+  listCodingChanges(projectId: string): Promise<Results["coding.changes"]>;
+  readCodingDiff(
+    projectId: string,
+    path: string,
+    kind: "staged" | "unstaged" | "untracked",
+  ): Promise<Results["coding.diff"]>;
   getProjectScene(projectId: string): Promise<SceneView>;
   getScenePythonStatus(): Promise<ScenePythonStatus>;
   installScenePython(): Promise<ScenePythonStatus>;
@@ -132,15 +148,7 @@ export interface ApplicationBridge {
   importSkillDirectory(): Promise<ManagedSkill | null>;
   createConversation(projectId: string): Promise<ConversationInfo>;
   deleteConversation(id: string): Promise<null>;
-  updateConversation(change: {
-    id: string;
-    title?: string;
-    modelId?: string;
-    thinkingLevel?: ThinkingLevel;
-    accessMode?: AccessMode;
-    draft?: string;
-    archived?: boolean;
-  }): Promise<ConversationInfo>;
+  updateConversation(change: Arguments<"conversation.update">): Promise<ConversationInfo>;
   watchConversation(id: string): Promise<ConversationView>;
   sendMessage(
     id: string,

@@ -1,6 +1,6 @@
 import { protocol } from "electron";
 import type { ResourceLocation } from "../../contracts/process.ts";
-import type { createSceneResourceReader } from "./resourceReader.ts";
+import type { createSceneResourceReader } from "./resource_reader.ts";
 
 // 前端只能读取后端确认过的场景资源，不能通过协议任意访问本地文件。
 export function installResourceProtocol(

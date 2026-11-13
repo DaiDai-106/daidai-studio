@@ -17,6 +17,7 @@
     "src/contracts/**/*.ts",
     "src/renderer/env.d.ts",
     "src/renderer/**/*.ts",
-    "tests/**/*.ts"
+    "tests/**/*.ts",
+    "src/shared/**/*.ts"
   ]
 }

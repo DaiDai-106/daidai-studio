@@ -126,5 +126,3 @@ export async function createCredentials(
     has: async (id: string) => !!(await store.read(id)),
   };
 }
-
-export type Credentials = Awaited<ReturnType<typeof createCredentials>>;

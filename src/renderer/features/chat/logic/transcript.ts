@@ -8,6 +8,7 @@ import type {
 export interface ConversationTurn {
   id: string;
   user?: MessageInfo;
+  event?: MessageInfo;
   messages: MessageInfo[];
 }
 
@@ -16,7 +17,7 @@ export function conversationTurns(messages: readonly MessageInfo[]): Conversatio
   const turns: ConversationTurn[] = [];
   for (const message of messages) {
     if (message.role === "user") turns.push({ id: message.id, user: message, messages: [] });
-    else if (message.role === "event") turns.push({ id: message.id, messages: [] });
+    else if (message.role === "event") turns.push({ id: message.id, event: message, messages: [] });
     else {
       if (!turns.length) turns.push({ id: message.id, messages: [] });
       turns.at(-1)?.messages.push(message);
@@ -85,11 +86,11 @@ export function completedTool(message: MessageInfo): ToolRowData {
   };
 }
 
-export function runningTool(tool: ToolProgressInfo): ToolRowData {
+function runningTool(tool: ToolProgressInfo): ToolRowData {
   return { ...tool, key: tool.callKey ?? tool.id };
 }
 
-export type ProcessItem =
+type ProcessItem =
   | { key: string; kind: "tool"; tool: ToolRowData }
   | { key: string; kind: "thinking"; block: MessageBlock }
   | { key: string; kind: "note"; text: string };

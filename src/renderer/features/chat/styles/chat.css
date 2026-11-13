@@ -19,6 +19,7 @@
   margin: 0 auto 24px;
 }
 .composer-wrap {
+  position: relative;
   width: min(800px, calc(100% - 64px));
   margin: 0 auto;
   padding-bottom: 12px;
@@ -405,37 +406,6 @@
   overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
 }
-.dialog-body > .usage-explanation {
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.8;
-  margin: 22px 0 0;
-}
-/* The selected STEP belongs to the conversation, not to a message. */
-.step-binding {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 6px;
-  font-size: 11px;
-}
-.step-binding > .text-button {
-  flex: 1;
-  min-width: 0;
-  justify-content: flex-start;
-}
-.step-binding strong {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 500;
-}
-.step-binding svg,
-.step-binding span {
-  flex-shrink: 0;
-}
 .compact .messages {
   padding: 24px 20px;
 }
@@ -496,4 +466,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.history-event {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.history-event summary {
+  color: var(--muted);
+  cursor: pointer;
 }

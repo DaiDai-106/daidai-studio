@@ -1,4 +1,5 @@
 import type { ApplicationBridge } from "./bridge.ts";
+import type { PreviewBridge } from "./web_preview.ts";
 
 // 渲染进程和主进程共同使用的 IPC 通道名。
 export const REQUEST_CHANNEL = "application:request";
@@ -33,6 +34,7 @@ export interface AppInfo {
 // preload 只向前端开放这里列出的桌面能力。
 export interface DesktopBridge {
   application: ApplicationBridge;
+  preview: PreviewBridge;
   getAppInfo(): Promise<AppInfo>;
   setTheme(theme: Theme): Promise<void>;
   onBeforeQuit(flush: () => Promise<void>): () => void;

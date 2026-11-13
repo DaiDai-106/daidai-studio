@@ -1,7 +1,7 @@
 import { type Static, Type } from "typebox";
 
 export const ConversationModeSchema = Type.Union([
-  Type.Literal("general"),
+  Type.Literal("coding"),
   Type.Literal("scene"),
   Type.Literal("robot"),
 ]);

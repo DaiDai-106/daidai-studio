@@ -25,7 +25,7 @@ import {
   THEME_CHANNEL,
 } from "../../contracts/desktop.ts";
 import type { connectBackend } from "./backend.ts";
-import { createProjectDirectory } from "./projectDirectory.ts";
+import { createProjectDirectory } from "./project_directory.ts";
 
 type DesktopIpcContext = {
   getWindow(): BrowserWindow | undefined;
@@ -130,7 +130,7 @@ export function registerDesktopIpc(context: DesktopIpcContext): void {
       typeof name !== "string" ||
       !name.trim() ||
       (directoryToken !== undefined && typeof directoryToken !== "string") ||
-      (mode !== "general" && mode !== "scene" && mode !== "robot")
+      (mode !== "coding" && mode !== "scene" && mode !== "robot")
     )
       throw new Error("无效的项目配置。");
 

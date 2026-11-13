@@ -39,7 +39,7 @@ test("development renderer survives Vite full reloads", {
       const page = await application.firstWindow();
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
-      const welcome = page.getByRole("heading", { name: "今天想和呆呆完成什么？" });
+      const welcome = page.getByRole("heading", { name: "项目", exact: true });
       await welcome.waitFor();
       await page.waitForFunction(() => document.querySelector("vite-error-overlay") === null);
       const origin = await page.evaluate(() => performance.timeOrigin);

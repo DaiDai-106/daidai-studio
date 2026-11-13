@@ -125,14 +125,14 @@ test("desktop configures a real local service, streams chat and restores Pi hist
     await page.getByRole("button", { name: `${project.name} 项目操作`, exact: true }).click();
     await page.getByRole("menuitem", { name: /^移除项目/ }).click();
     await page.locator(".project-group").waitFor({ state: "hidden" });
-    await page.getByRole("heading", { name: "今天想和呆呆完成什么？", exact: true }).waitFor();
+    await page.getByRole("heading", { name: "项目", exact: true }).waitFor();
     assert.ok((await readFile(join(project.path, "bracket.stp"))).equals(source));
     await application.close();
     application = await launch();
     child = application.process();
     page = await application.firstWindow();
     page.setDefaultTimeout(7000);
-    await page.getByRole("heading", { name: "今天想和呆呆完成什么？", exact: true }).waitFor();
+    await page.getByRole("heading", { name: "项目", exact: true }).waitFor();
     assert.deepEqual(
       (await page.evaluate(() => window.desktop.application.getWorkspace())).projects,
       [],
@@ -155,7 +155,7 @@ test("desktop configures a real local service, streams chat and restores Pi hist
     assert.equal(state.conversations[0]?.id, beforeRemoval.conversations[0]?.id);
     assert.equal(state.conversations.length, beforeRemoval.conversations.length);
     assert.equal(state.settings.providers[0]?.configured, true);
-    assert.equal(state.projects[0]?.filesComplete, false);
+    assert.equal(state.projects[0]?.mode, "coding");
     assert.equal(state.dataRoot, join(profile, "data"));
     assert.ok((await readFile(join(profile, "data", "projects.sqlite"))).length > 0);
     assert.equal(

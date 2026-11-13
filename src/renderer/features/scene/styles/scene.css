@@ -130,24 +130,6 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.viewport-error-retry {
-  flex-shrink: 0;
-  padding: 4px 8px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--subtle);
-  font-size: 12px;
-}
-.viewport-error-retry:hover {
-  background: var(--hover);
-}
-
-.object-tree,
-.object-tree ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
 
 .scene-object-panel {
   display: flex;
@@ -163,15 +145,6 @@
   border-radius: 10px;
   background: var(--surface);
   font-size: 11px;
-}
-.scene-object-count {
-  display: block;
-  padding: 0 12px 8px;
-  color: var(--muted);
-}
-.scene-object-panel > .object-tree {
-  min-height: 0;
-  overflow: auto;
 }
 .project-scene-objects {
   overflow-y: auto;
@@ -238,66 +211,11 @@
   white-space: nowrap;
   font-weight: 500;
 }
-.scene-transparency-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 7px 0 4px;
-  color: var(--muted);
-}
-.scene-transparency-label output {
-  margin-left: auto;
-  font-variant-numeric: tabular-nums;
-}
-.scene-transparency-label .text-button {
-  padding: 2px 0 2px 4px;
-  font-size: inherit;
-}
 .scene-object-properties input {
   display: block;
   width: 100%;
 }
-.object-tree-row {
-  display: flex;
-  min-height: 29px;
-  padding-right: 8px;
-}
-.object-tree-row:has(> .object-tree-name:hover),
-.object-tree [data-selected="true"] > .object-tree-row {
-  background: var(--hover);
-}
-.object-tree-toggle {
-  width: 18px;
-  flex-shrink: 0;
-  padding: 0;
-  color: var(--muted);
-  background: none;
-  border: 0;
-}
-.object-tree-name {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 4px 0;
-  text-align: left;
-  color: var(--text);
-  background: none;
-  border: 0;
-  font-size: inherit;
-}
-.object-tree-name span {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.object-tree-name svg {
-  flex-shrink: 0;
-  color: var(--muted);
-}
-.scene-loading,
-.scene-selection {
+.scene-loading {
   position: absolute;
   bottom: 12px;
   right: 12px;
@@ -305,16 +223,5 @@
   border: 1px solid var(--border);
   border-radius: 7px;
   background: var(--surface);
-  font-size: 11px;
-}
-.scene-selection {
-  right: auto;
-  left: 12px;
-}
-.scene-version-note {
-  margin: 0;
-  padding: 6px 16px;
-  background: var(--surface);
-  color: var(--muted);
   font-size: 11px;
 }

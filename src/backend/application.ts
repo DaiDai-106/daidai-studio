@@ -7,16 +7,20 @@ import {
   validateRequest,
 } from "../contracts/application.ts";
 import type { DataRootIdentity, ResourceLocation } from "../contracts/process.ts";
+import { openDirectoryRoot } from "../shared/node/file_access.ts";
 import { createConversations } from "./agent/conversations.ts";
-import { createExtensionUi } from "./agent/extensionUi.ts";
-import { createShellApproval } from "./agent/shellApproval.ts";
-import { createPackageHandlers } from "./packages.ts";
-import { createScenePythonService } from "./projects/pythonService.ts";
-import { openOrCreateSceneDataRoot, openSceneDataRoot } from "./projects/scenePaths.ts";
-import { createSceneService } from "./projects/sceneService.ts";
+import { createExtensionUi } from "./agent/extension_ui.ts";
+import { createShellApproval } from "./agent/shell_approval.ts";
+import { createCodingFileService } from "./coding/file_service.ts";
+import { createCodingGitService } from "./coding/git_service.ts";
+import { createPackageHandlers } from "./extensions/package_handlers.ts";
+import { createSkillHandlers } from "./extensions/skill_handlers.ts";
 import { openProjectStore } from "./projects/store.ts";
+import { requestPolicy } from "./request_policy.ts";
+import { createScenePythonService } from "./scene/python_service.ts";
+import { openOrCreateSceneDataRoot } from "./scene/scene_paths.ts";
+import { createSceneService } from "./scene/scene_service.ts";
 import { createSettingsService } from "./settings/service.ts";
-import { createSkillHandlers } from "./skills.ts";
 import type { Handlers } from "./types.ts";
 
 /** 独立应用数据、项目 Runtime 与 Pi 会话的组合入口。 */
@@ -34,7 +38,7 @@ export async function openApplication(options: {
   let rootIdentity: DataRootIdentity | undefined;
   if (process.platform === "linux") {
     const root = options.expectedRoot
-      ? await openSceneDataRoot(configuredRoot, options.expectedRoot)
+      ? await openDirectoryRoot(configuredRoot, options.expectedRoot)
       : await openOrCreateSceneDataRoot(configuredRoot);
     try {
       const info = await root.handle.stat({ bigint: true });
@@ -48,6 +52,8 @@ export async function openApplication(options: {
     dataRoot = await realpath(configuredRoot);
   }
   const store = openProjectStore(dataRoot);
+  const coding = createCodingFileService(store);
+  const codingGit = createCodingGitService(store, coding);
   let settings: Awaited<ReturnType<typeof createSettingsService>>;
   try {
     settings = await createSettingsService({ dataRoot, publish });
@@ -63,6 +69,8 @@ export async function openApplication(options: {
   });
   const scenes = createSceneService({
     store,
+    changed: (view) =>
+      publish({ type: "scene.changed", projectId: view.projectId, revision: view.revision }),
     dataRoot: configuredRoot,
     ...(rootIdentity ? { expectedRoot: rootIdentity } : {}),
     pythonExecutable: scenePython.executable,
@@ -98,7 +106,7 @@ export async function openApplication(options: {
     } catch {
       /* 目录被移动或删除。 */
     }
-    return { ...project, files: [], filesComplete: false, available };
+    return { ...project, available };
   }
 
   let closing = false;
@@ -134,9 +142,7 @@ export async function openApplication(options: {
         }
       }
       // 启动仅返回注册信息；选择项目后由 project.refresh 检查目录。
-      const projects = store
-        .listProjects()
-        .map((project) => ({ ...project, files: [], filesComplete: false, available: null }));
+      const projects = store.listProjects().map((project) => ({ ...project, available: null }));
       const page = store.listConversationPage(position);
       return {
         settings: await settings.info(),
@@ -171,9 +177,7 @@ export async function openApplication(options: {
     },
 
     async "project.hidden"() {
-      return store
-        .listHiddenProjects()
-        .map((project) => ({ ...project, files: [], filesComplete: false, available: null }));
+      return store.listHiddenProjects().map((project) => ({ ...project, available: null }));
     },
 
     async "project.restore"({ id }) {
@@ -181,7 +185,27 @@ export async function openApplication(options: {
         throw new Error("最多可打开 100 个项目，请先移除其他项目。");
       const project = store.restoreProject(id);
       changed();
-      return { ...project, files: [], filesComplete: false, available: null };
+      return { ...project, available: null };
+    },
+
+    async "coding.list"({ projectId, path, offset, snapshot }) {
+      return coding.list(projectId, path, offset, snapshot);
+    },
+
+    async "coding.changes"({ projectId }) {
+      return codingGit.changes(projectId);
+    },
+
+    async "coding.diff"({ projectId, path, kind }) {
+      return codingGit.diff(projectId, path, kind);
+    },
+
+    async "coding.search"({ projectId, query }) {
+      return coding.search(projectId, query);
+    },
+
+    async "coding.read"({ projectId, path }) {
+      return coding.read(projectId, path);
     },
 
     async "scene.get"({ projectId }) {
@@ -205,49 +229,36 @@ export async function openApplication(options: {
       if (conversations.isProjectBusy(input.projectId))
         throw new Error("此项目有会话正在运行，请先停止或等待后再导入场景。");
       const result = await scenes.import(input);
-      publish({ type: "scene.changed", projectId: input.projectId, revision: result.revision });
       return result;
     },
 
     async "scene.relocateSource"(input) {
       const result = await scenes.relocateSource(input);
-      publish({ type: "scene.changed", projectId: input.projectId, revision: result.revision });
       return result;
     },
 
     async "scene.setTransform"(input) {
       const result = scenes.setTransform(input);
-      publish({ type: "scene.changed", projectId: input.projectId, revision: result.revision });
       return result;
     },
 
     async "scene.deleteObject"(input) {
       const result = scenes.deleteObject(input);
-      publish({ type: "scene.changed", projectId: input.projectId, revision: result.revision });
-      return result;
-    },
-
-    async "scene.createJointDraft"(input) {
-      const result = scenes.createJointDraft(input);
-      publish({ type: "scene.changed", projectId: input.projectId, revision: result.revision });
       return result;
     },
 
     async "scene.confirmJoint"(input) {
       const result = scenes.confirmJoint(input);
-      publish({ type: "scene.changed", projectId: input.projectId, revision: result.revision });
       return result;
     },
 
     async "scene.discardJointDraft"(input) {
       const result = scenes.discardJointDraft(input);
-      publish({ type: "scene.changed", projectId: input.projectId, revision: result.revision });
       return result;
     },
 
     async "scene.removeConfirmedJoint"(input) {
       const result = scenes.removeConfirmedJoint(input);
-      publish({ type: "scene.changed", projectId: input.projectId, revision: result.revision });
       return result;
     },
 
@@ -295,26 +306,14 @@ export async function openApplication(options: {
   let mutations = Promise.resolve();
   let closePromise: Promise<void> | undefined;
   const imports = new Set<Promise<unknown>>();
-  const readOnly = new Set<Method>([
-    "workspace.get",
-    "project.refresh",
-    "scene.get",
-    "scene.pythonStatus",
-    "conversation.watch",
-    "package.list",
-    "skill.library.list",
-    "skill.library.read",
-  ]);
   return {
     // 处理请求，方法名与参数作为输入，返回值作为输出。 区分串行并行处理。
     async request<K extends Method>(method: K, args: Arguments<K>): Promise<Results[K]> {
       if (closing) throw new Error("应用正在退出。");
       validateRequest(method, args);
-      if (method === "conversation.stop") return handlers[method](args);
-      if (method === "shell.respond") return handlers[method](args);
-      if (method === "extension.ui.respond") return handlers[method](args);
-      if (method === "scene.cancelImport") return handlers[method](args);
-      if (method === "scene.import") {
+      const policy = requestPolicy[method];
+      if (policy === "interrupt" || policy === "read") return handlers[method](args);
+      if (policy === "long-running") {
         const result = handlers[method](args);
         imports.add(result);
         void result.then(
@@ -323,7 +322,6 @@ export async function openApplication(options: {
         );
         return result;
       }
-      if (readOnly.has(method)) return handlers[method](args);
       const result = mutations.then(() => handlers[method](args));
       mutations = result.then(
         () => {},

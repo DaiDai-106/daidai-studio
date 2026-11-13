@@ -140,7 +140,8 @@ test("menus and shortcuts preserve drafts, respect dialogs and fit narrow window
     );
     assert.equal(await model.evaluate((element) => element === document.activeElement), true);
     await model.click();
-    await message.click();
+    // Coding 的聊天区较窄，菜单可能覆盖输入框中心；点击仍可见的左上角来验证外部关闭。
+    await message.click({ position: { x: 5, y: 5 } });
     await menu.waitFor({ state: "hidden" });
 
     assert.equal(await page.getByRole("button", { name: "通用对话", exact: true }).count(), 0);

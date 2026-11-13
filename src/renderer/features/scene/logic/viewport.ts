@@ -3,21 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { createAppearance } from "./appearance.ts";
 import { isGeometryMesh, visibleGeometryBounds } from "./bounds.ts";
 import { updateCameraClipping } from "./camera.ts";
-import { captureTransition } from "./placementComparison.ts";
-import type { CameraView, DisplayState } from "./types.ts";
-
-const directions: Record<CameraView, [number, number, number]> = {
-  isometric: [1, -1, 0.8],
-  front: [1, 0, 0],
-  right: [0, -1, 0],
-  top: [0, 0, 1],
-  "+X": [1, 0, 0],
-  "-X": [-1, 0, 0],
-  "+Y": [0, 1, 0],
-  "-Y": [0, -1, 0],
-  "+Z": [0, 0, 1],
-  "-Z": [0, 0, -1],
-};
+import type { DisplayState } from "./types.ts";
 
 export function createViewport(host: HTMLDivElement, onPick: (id: string | null) => void) {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -50,7 +36,6 @@ export function createViewport(host: HTMLDivElement, onPick: (id: string | null)
   let frame = 0;
   let disposed = false;
   let fitted = false;
-  let radius = 2;
   const clipBounds = new THREE.Sphere(new THREE.Vector3(), 10);
 
   function requestRender() {
@@ -120,7 +105,7 @@ export function createViewport(host: HTMLDivElement, onPick: (id: string | null)
     const sphere = box.isEmpty()
       ? new THREE.Sphere(new THREE.Vector3(), 2)
       : box.getBoundingSphere(new THREE.Sphere());
-    radius = Math.max(sphere.radius, 0.1);
+    const radius = Math.max(sphere.radius, 0.1);
     const vertical = THREE.MathUtils.degToRad(camera.fov / 2);
     const horizontal = Math.atan(Math.tan(vertical) * camera.aspect);
     const distance = (radius / Math.sin(Math.min(vertical, horizontal))) * 1.15;
@@ -133,15 +118,6 @@ export function createViewport(host: HTMLDivElement, onPick: (id: string | null)
     updateClip();
   }
 
-  function setView(view: CameraView) {
-    const distance = camera.position.distanceTo(controls.target);
-    const direction = new THREE.Vector3(...directions[view]).normalize();
-    camera.position.copy(controls.target).addScaledVector(direction, distance);
-    camera.lookAt(controls.target);
-    controls.update();
-    requestRender();
-  }
-
   function update(next: DisplayState) {
     state = next;
     if (model !== (next.model ?? null)) {
@@ -152,13 +128,6 @@ export function createViewport(host: HTMLDivElement, onPick: (id: string | null)
       hoveredId = null;
       hoverPoint = null;
       canvas.style.cursor = "";
-    }
-    const position = new THREE.Vector3().fromArray(state.placement?.translation ?? [0, 0, 0]);
-    const rotation = new THREE.Quaternion().fromArray(state.placement?.rotation ?? [0, 0, 0, 1]);
-    if (!group.position.equals(position) || !group.quaternion.equals(rotation)) {
-      group.position.copy(position);
-      group.quaternion.copy(rotation);
-      fitted = false;
     }
     appearance.update(state, hoveredId, dark);
     grid.visible = state.showGrid;
@@ -258,196 +227,8 @@ export function createViewport(host: HTMLDivElement, onPick: (id: string | null)
   return {
     canvas,
     fit,
-    setView,
     update,
-    updateWithComparison(next: DisplayState) {
-      const frozen = camera.clone();
-
-      function captureImage(snapshot: THREE.PerspectiveCamera) {
-        if (
-          !model ||
-          document.hidden ||
-          !canvas.clientWidth ||
-          !canvas.clientHeight ||
-          disposed ||
-          renderer.getContext().isContextLost()
-        )
-          return null;
-        renderer.render(scene, snapshot);
-        const data = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
-        return data && data.length <= 7_000_000 ? `data:image/jpeg;base64,${data}` : null;
-      }
-      try {
-        return captureTransition(frozen, captureImage, () => update(next));
-      } finally {
-        requestRender();
-      }
-    },
     requestRender,
-    capture(view: import("../../../../contracts/application.ts").CaptureView) {
-      if (!model || document.hidden || !canvas.clientWidth || !canvas.clientHeight || disposed)
-        return null;
-      let captureCamera: THREE.Camera = camera;
-      let position = camera.position;
-      let up = camera.up;
-      let target = controls.target;
-      const cameraFor = (
-        selected: Exclude<typeof view, "current" | "overview">,
-        aspect = canvas.clientWidth / canvas.clientHeight,
-        fitBox = false,
-      ) => {
-        const directions: Record<
-          Exclude<typeof view, "current" | "overview">,
-          [number, number, number]
-        > = {
-          isometric: [1, -1, 0.8],
-          "+X": [1, 0, 0],
-          "-X": [-1, 0, 0],
-          "+Y": [0, 1, 0],
-          "-Y": [0, -1, 0],
-          "+Z": [0, 0, 1],
-          "-Z": [0, 0, -1],
-        };
-        const box = visibleGeometryBounds(group);
-        if (box.isEmpty()) return null;
-        const sphere = box.getBoundingSphere(new THREE.Sphere());
-        const radius = Math.max(sphere.radius, 0.1);
-        const height = radius * 1.2 * Math.max(1, 1 / aspect);
-        const orthographic = new THREE.OrthographicCamera(
-          -height * aspect,
-          height * aspect,
-          height,
-          -height,
-          0.01,
-          radius * 10 + 1,
-        );
-        const target = sphere.center;
-        if (selected === "+Z" || selected === "-Z") orthographic.up.set(0, 1, 0);
-        else orthographic.up.set(0, 0, 1);
-        orthographic.position
-          .copy(target)
-          .addScaledVector(
-            new THREE.Vector3(...directions[selected]).normalize(),
-            radius * 3 + 0.1,
-          );
-        orthographic.lookAt(target);
-        orthographic.updateMatrixWorld();
-        if (fitBox) {
-          let horizontal = 0,
-            vertical = 0;
-          for (const x of [box.min.x, box.max.x])
-            for (const y of [box.min.y, box.max.y])
-              for (const z of [box.min.z, box.max.z]) {
-                const point = new THREE.Vector3(x, y, z).applyMatrix4(
-                  orthographic.matrixWorldInverse,
-                );
-                horizontal = Math.max(horizontal, Math.abs(point.x));
-                vertical = Math.max(vertical, Math.abs(point.y));
-              }
-          const halfHeight = Math.max(vertical, horizontal / aspect, 0.1) * 1.1;
-          orthographic.left = -halfHeight * aspect;
-          orthographic.right = halfHeight * aspect;
-          orthographic.top = halfHeight;
-          orthographic.bottom = -halfHeight;
-          orthographic.updateProjectionMatrix();
-        }
-        return { camera: orthographic, target };
-      };
-      if (view === "overview") {
-        const views = ["+X", "-X", "+Y", "-Y", "+Z", "-Z"] as const;
-        const sheet = document.createElement("canvas");
-        const width = 600,
-          height = 450,
-          labelHeight = 28;
-        sheet.width = width * 3;
-        sheet.height = height * 2;
-        const context = sheet.getContext("2d");
-        if (!context) return null;
-        context.fillStyle = "#ffffff";
-        context.fillRect(0, 0, sheet.width, sheet.height);
-        context.fillStyle = "#222222";
-        context.font = "bold 18px sans-serif";
-        const imageRight = {
-          "+X": "+Y",
-          "-X": "-Y",
-          "+Y": "-X",
-          "-Y": "+X",
-          "+Z": "+X",
-          "-Z": "-X",
-        } as const;
-        const cameras: {
-          view: (typeof views)[number];
-          camera: {
-            position: number[];
-            target: number[];
-            up: number[];
-            projection: "orthographic";
-          };
-        }[] = [];
-        const originalSize = renderer.getSize(new THREE.Vector2());
-        const originalRatio = renderer.getPixelRatio();
-        try {
-          renderer.setPixelRatio(1);
-          renderer.setSize(width, height - labelHeight, false);
-          for (const [index, selected] of views.entries()) {
-            const result = cameraFor(selected, width / (height - labelHeight), true);
-            if (!result) return null;
-            renderer.render(scene, result.camera);
-            const x = (index % 3) * width,
-              y = Math.floor(index / 3) * height;
-            context.drawImage(canvas, x, y + labelHeight, width, height - labelHeight);
-            const imageUp = selected === "+Z" || selected === "-Z" ? "+Y" : "+Z";
-            context.fillText(
-              `From ${selected}  |  Right ${imageRight[selected]}  |  Up ${imageUp}`,
-              x + 12,
-              y + 21,
-            );
-            cameras.push({
-              view: selected,
-              camera: {
-                position: result.camera.position.toArray(),
-                target: result.target.toArray(),
-                up: result.camera.up.toArray(),
-                projection: "orthographic",
-              },
-            });
-          }
-        } finally {
-          renderer.setPixelRatio(originalRatio);
-          renderer.setSize(originalSize.x, originalSize.y, false);
-          requestRender();
-        }
-        const data = sheet.toDataURL("image/jpeg", 0.85).split(",")[1];
-        const first = cameras[0];
-        if (!first || !data || data.length > 7_000_000) return null;
-        return {
-          image: { mimeType: "image/jpeg" as const, data },
-          camera: first.camera,
-          views: cameras,
-        };
-      }
-      if (view !== "current") {
-        const result = cameraFor(view);
-        if (!result) return null;
-        captureCamera = result.camera;
-        position = result.camera.position;
-        up = result.camera.up;
-        target = result.target;
-      }
-      renderer.render(scene, captureCamera);
-      const data = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
-      if (view !== "current") requestRender();
-      if (!data || data.length > 7_000_000) return null;
-      return {
-        image: { mimeType: "image/jpeg" as const, data },
-        camera: {
-          position: position.toArray(),
-          target: target.toArray(),
-          up: up.toArray(),
-          projection: view === "current" ? ("perspective" as const) : ("orthographic" as const),
-        },
-      };
-    },
     dispose() {
       disposed = true;
       cancelAnimationFrame(frame);

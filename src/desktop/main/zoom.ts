@@ -17,6 +17,6 @@ export function installZoomShortcuts(contents: WebContents): void {
     const percentage = direction
       ? Math.round(contents.getZoomFactor() * 100) + direction * 10
       : 100;
-    contents.setZoomFactor(Math.max(80, Math.min(150, percentage)) / 100);
+    contents.setZoomFactor(Math.max(60, Math.min(120, percentage)) / 100);
   });
 }

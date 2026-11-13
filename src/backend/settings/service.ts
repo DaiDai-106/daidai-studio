@@ -11,7 +11,7 @@ import type {
   SettingsInfo,
 } from "../../contracts/application.ts";
 import type { Theme } from "../../contracts/desktop.ts";
-import { createPackageMcpCredentials } from "../extensions/packageMcpCredentials.ts";
+import { createPackageMcpCredentials } from "../extensions/package_mcp_credentials.ts";
 import { createCredentials, type StoredProvider } from "./credentials.ts";
 import { discoverModels } from "./discovery.ts";
 import { createLogins } from "./login.ts";

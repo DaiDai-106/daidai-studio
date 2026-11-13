@@ -8,6 +8,8 @@ coverage/
 *.log
 __pycache__/
 *.py[cod]
+*.egg-info/
+.eggs/
 
 # Local configuration and runtime data
 .env

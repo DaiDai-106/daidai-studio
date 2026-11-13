@@ -18,6 +18,14 @@ import {
   SKILL_IMPORT_CHANNEL,
   THEME_CHANNEL,
 } from "../../contracts/desktop.ts";
+import {
+  PREVIEW_CONTROL_CHANNEL,
+  PREVIEW_EVENT_CHANNEL,
+  PREVIEW_OPEN_CHANNEL,
+  PREVIEW_OPEN_FILE_CHANNEL,
+  PREVIEW_SHOW_CHANNEL,
+  type PreviewEvent,
+} from "../../contracts/web_preview.ts";
 
 // 前端只能使用下方显式开放的方法，实际请求由主进程转发给后端。
 function call<K extends Method>(method: K, args: Arguments<K>): Promise<Results[K]> {
@@ -39,6 +47,21 @@ const desktop: DesktopBridge = {
     ipcRenderer.on(QUIT_FLUSH_CHANNEL, receive);
     ipcRenderer.send(QUIT_FLUSH_REGISTER_CHANNEL);
     return () => ipcRenderer.removeListener(QUIT_FLUSH_CHANNEL, receive);
+  },
+  preview: {
+    open: (projectId, tabId, url) =>
+      ipcRenderer.invoke(PREVIEW_OPEN_CHANNEL, { projectId, tabId, url }),
+    openFile: (projectId, tabId, path) =>
+      ipcRenderer.invoke(PREVIEW_OPEN_FILE_CHANNEL, { projectId, tabId, path }),
+    show: (projectId, tabId, bounds) =>
+      ipcRenderer.invoke(PREVIEW_SHOW_CHANNEL, { projectId, tabId, bounds }),
+    control: (projectId, tabId, action) =>
+      ipcRenderer.invoke(PREVIEW_CONTROL_CHANNEL, { projectId, tabId, action }),
+    subscribe(listener) {
+      const receive = (_event: Electron.IpcRendererEvent, value: PreviewEvent) => listener(value);
+      ipcRenderer.on(PREVIEW_EVENT_CHANNEL, receive);
+      return () => ipcRenderer.removeListener(PREVIEW_EVENT_CHANNEL, receive);
+    },
   },
   application: {
     // 工作区、模型提供方、设置与认证。
@@ -64,6 +87,12 @@ const desktop: DesktopBridge = {
     listHiddenProjects: () => call("project.hidden", {}),
     restoreProject: (id) => call("project.restore", { id }),
 
+    listCodingFiles: (projectId, path, offset, snapshot) =>
+      call("coding.list", { projectId, path, offset, ...(snapshot ? { snapshot } : {}) }),
+    searchCodingFiles: (projectId, query) => call("coding.search", { projectId, query }),
+    readCodingFile: (projectId, path) => call("coding.read", { projectId, path }),
+    listCodingChanges: (projectId) => call("coding.changes", { projectId }),
+    readCodingDiff: (projectId, path, kind) => call("coding.diff", { projectId, path, kind }),
     getProjectScene: (projectId) => call("scene.get", { projectId }),
     cancelSceneImport: (projectId) => call("scene.cancelImport", { projectId }),
     getScenePythonStatus: () => call("scene.pythonStatus", {}),

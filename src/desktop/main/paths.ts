@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import type { App } from "electron";
-import { createSceneResourceReader } from "./resourceReader.ts";
+import { createSceneResourceReader } from "./resource_reader.ts";
 
 type PathHooks = { beforeMkdir?: (name: string) => void };
 const directoryFlags = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;

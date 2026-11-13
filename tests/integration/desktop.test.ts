@@ -35,11 +35,19 @@ test("built desktop starts with an isolated renderer and shuts down its backend"
       info: await window.desktop.getAppInfo(),
       hasNode: "require" in window || "process" in window,
       bridgeKeys: Object.keys(window.desktop).sort(),
+      previewKeys: Object.keys(window.desktop.preview).sort(),
     }));
     assert.equal(state.info.name, "daidai_pi");
     assert.equal(state.info.version, packageInfo.version);
     assert.equal(state.hasNode, false);
-    assert.deepEqual(state.bridgeKeys, ["application", "getAppInfo", "onBeforeQuit", "setTheme"]);
+    assert.deepEqual(state.bridgeKeys, [
+      "application",
+      "getAppInfo",
+      "onBeforeQuit",
+      "preview",
+      "setTheme",
+    ]);
+    assert.deepEqual(state.previewKeys, ["control", "open", "openFile", "show", "subscribe"]);
     if (process.platform !== "darwin") {
       const menuVisible = await application.evaluate(({ BrowserWindow }) =>
         BrowserWindow.getAllWindows()[0]?.isMenuBarVisible(),

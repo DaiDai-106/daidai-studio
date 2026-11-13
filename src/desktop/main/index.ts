@@ -10,7 +10,9 @@ import {
 } from "electron";
 import { EVENT_CHANNEL } from "../../contracts/desktop.ts";
 import type { connectBackend } from "./backend.ts";
-import { startBackend } from "./backendProcess.ts";
+import { startBackend } from "./backend_process.ts";
+import { createWebPreviewController } from "./browser/controller.ts";
+import { registerWebPreviewIpc } from "./browser/ipc.ts";
 import { registerDesktopIpc } from "./ipc.ts";
 import { configureDataPaths } from "./paths.ts";
 import { registerQuitLifecycle } from "./quit.ts";
@@ -44,6 +46,14 @@ if (process.platform === "linux") app.setDesktopName("daidai-pi.desktop");
 if (process.platform === "win32") app.setAppUserModelId("local.daidai.pi");
 nativeTheme.themeSource = "light";
 
+const preview = createWebPreviewController(() => mainWindow);
+registerWebPreviewIpc({
+  getWindow: () => mainWindow,
+  getClient: () => client,
+  isQuitting: () => quitting,
+  preview,
+});
+
 registerDesktopIpc({
   getWindow: () => mainWindow,
   getClient: () => client,
@@ -69,6 +79,12 @@ const windows = createWindowController({
   getWindow: () => mainWindow,
   setWindow: (window) => {
     mainWindow = window;
+    if (window) {
+      window.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
+        if (isMainFrame && !isInPlace) preview.dispose();
+      });
+      window.once("closed", () => preview.dispose());
+    }
   },
   getTray: () => tray,
   setTray: (value) => {

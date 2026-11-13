@@ -26,7 +26,7 @@ export function modelChoice(model: Model<import("@earendil-works/pi-ai").Api>): 
   };
 }
 
-export function validateEndpoint(value: string) {
+function validateEndpoint(value: string) {
   if (!value) return;
   const url = new URL(value);
   if (

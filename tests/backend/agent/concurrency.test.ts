@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createConversations } from "../../../src/backend/agent/conversations.ts";
-import { createPackageHandlers } from "../../../src/backend/packages.ts";
-import { createSceneService } from "../../../src/backend/projects/sceneService.ts";
+import { createPackageHandlers } from "../../../src/backend/extensions/package_handlers.ts";
+import { createSkillHandlers } from "../../../src/backend/extensions/skill_handlers.ts";
 import { openProjectStore } from "../../../src/backend/projects/store.ts";
+import { createSceneService } from "../../../src/backend/scene/scene_service.ts";
 import { createSettingsService } from "../../../src/backend/settings/service.ts";
-import { createSkillHandlers } from "../../../src/backend/skills.ts";
 
 test("并发发送先占位；执行中拒绝变更包和技能，避免半成功", { timeout: 15_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "dai-concurrency-"));
@@ -69,11 +69,13 @@ test("并发发送先占位；执行中拒绝变更包和技能，避免半成�
     conversations.watch(conversation.id);
     const initialSessionFile = store.getConversation(conversation.id)?.sessionFile;
     assert.ok(initialSessionFile);
+    await conversations.update({ id: conversation.id, title: "初始化期间手动命名" });
     await assert.rejects(
       conversations.send({ id: conversation.id, requestId: "b", text: "第二条" }),
       /正在运行/,
     );
     await first;
+    assert.equal(store.getConversation(conversation.id)?.title, "初始化期间手动命名");
     assert.equal(store.getConversation(conversation.id)?.sessionFile, initialSessionFile);
     const packages = createPackageHandlers({ dataRoot, store, changed: conversations.invalidate });
     await assert.rejects(

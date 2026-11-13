@@ -24,20 +24,25 @@
   }
 }
 @media (max-width: 1100px) {
+  .workspace.coding-mode,
   .workspace.scene-mode,
   .workspace.robot-mode {
     display: block;
     position: relative;
   }
+  .coding-mode > .coding-workspace,
+  .coding-mode > .assistant-workspace,
   .scene-mode > .scene-panel,
-  .scene-mode > .chat-panel,
-  .robot-mode > .chat-panel,
+  .scene-mode > .assistant-workspace,
+  .robot-mode > .assistant-workspace,
   .robot-mode > .robot-panel {
     height: 100%;
   }
-  .scene-mode[data-mobile-tab="scene"] > .chat-panel,
+  .coding-mode[data-mobile-tab="scene"] > .assistant-workspace,
+  .coding-mode[data-mobile-tab="chat"] > .coding-workspace,
+  .scene-mode[data-mobile-tab="scene"] > .assistant-workspace,
   .scene-mode[data-mobile-tab="chat"] > .scene-panel,
-  .robot-mode[data-mobile-tab="scene"] > .chat-panel,
+  .robot-mode[data-mobile-tab="scene"] > .assistant-workspace,
   .robot-mode[data-mobile-tab="chat"] > .robot-panel,
   .splitter {
     display: none;

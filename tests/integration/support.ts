@@ -6,7 +6,7 @@ export async function openTestProject(
   application: ElectronApplication,
   page: Page,
   profile: string,
-  mode: "general" | "scene" | "robot" = "general",
+  mode: "coding" | "scene" | "robot" = "coding",
 ) {
   const directory = join(profile, "project");
   await mkdir(join(directory, "assemblies"), { recursive: true });
@@ -27,7 +27,7 @@ export async function chooseProject(
   application: ElectronApplication,
   page: Page,
   directory: string,
-  mode: "general" | "scene" | "robot" = "general",
+  mode: "coding" | "scene" | "robot" = "coding",
 ) {
   // Only the native picker is substituted. Directory enumeration and all backend
   // persistence, authentication, rendering and IPC use the production code.
@@ -37,7 +37,7 @@ export async function chooseProject(
   await page.getByRole("button", { name: "新建项目", exact: true }).first().click();
   const dialog = page.getByRole("dialog", { name: "新建项目" });
   await dialog.getByLabel("项目名称").fill(basename(directory));
-  if (mode !== "general") {
+  if (mode !== "coding") {
     await dialog.getByLabel("项目模式").click();
     await page
       .getByRole("menuitemradio", { name: mode === "scene" ? "场景搭建" : "Dai Robotics" })
