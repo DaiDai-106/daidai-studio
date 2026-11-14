@@ -22,7 +22,7 @@ test("各模块和设置可回项目主页，侧栏会话可恢复草稿", { tim
   try {
     const page = await app.firstWindow();
     page.setDefaultTimeout(10_000);
-    for (const mode of ["coding", "scene", "robot"] as const) {
+    for (const mode of ["coding"] as const) {
       const directory = join(root, mode);
       await mkdir(directory);
       if (mode === "coding")

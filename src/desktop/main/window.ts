@@ -1,5 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, nativeImage, nativeTheme, shell, type Tray } from "electron";
+import type { Theme } from "../../contracts/desktop.ts";
+import type { WindowPalette } from "../../contracts/desktop_theme.ts";
 import { createAppTray } from "./tray.ts";
 import { installZoomShortcuts } from "./zoom.ts";
 
@@ -14,6 +16,7 @@ interface WindowContext {
 
 // 统一管理窗口、托盘和系统主题；真正退出时不再显示窗口。
 export function createWindowController(context: WindowContext) {
+  let palette: WindowPalette | undefined;
   function show(): void {
     const window = context.getWindow();
     if (!window || window.isDestroyed() || context.isQuitting()) return;
@@ -23,19 +26,28 @@ export function createWindowController(context: WindowContext) {
   }
 
   function colors() {
+    const selected = palette?.[nativeTheme.shouldUseDarkColors ? "dark" : "light"];
+    if (selected) return { color: selected.background, symbolColor: selected.text };
     return nativeTheme.shouldUseDarkColors
       ? { color: "#1b1b1b", symbolColor: "#e6e6e6" }
       : { color: "#ffffff", symbolColor: "#252628" };
   }
 
-  nativeTheme.on("updated", () => {
+  function applyColors() {
     const window = context.getWindow();
     if (!window) return;
     const current = colors();
     window.setBackgroundColor(current.color);
     if (process.platform !== "darwin")
       window.setTitleBarOverlay({ color: "rgba(0, 0, 0, 0)", symbolColor: current.symbolColor });
-  });
+  }
+  nativeTheme.on("updated", applyColors);
+
+  function setTheme(theme: Theme, colors?: WindowPalette) {
+    palette = colors;
+    nativeTheme.themeSource = theme;
+    applyColors();
+  }
 
   async function create(): Promise<void> {
     if (context.isQuitting()) return;
@@ -117,5 +129,5 @@ export function createWindowController(context: WindowContext) {
     show();
   }
 
-  return { show, create };
+  return { show, create, setTheme };
 }

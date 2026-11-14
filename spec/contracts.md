@@ -20,11 +20,9 @@ renderer 通过 preload 的 `DesktopBridge` 调用应用接口和预览接口；
 | --- | --- |
 | `ProjectInfo` / `ConversationInfo` | 项目标识、模式和路径；会话归属、标题、模型、草稿及运行相关状态 |
 | `WorkspaceInfo` / `ConversationView` | 工作区分页快照；当前会话历史、流式内容、工具状态、序号和错误；`usage` 为会话文件累计，`branchUsage` 为当前分支；历史事件可带 `eventLabel` |
-| `SceneView` | 项目版本、模型/对象、资源及关节；见 [场景 Runtime](design/scene_runtime.md#数据结构与提交流程) |
 | `BackendRequest` / `BackendResponse` | 主进程与后端内部消息，版本化请求携带 ID、方法和参数，响应用 ID 配对并返回结果或错误 |
 | `PreviewEvent` / `PreviewBounds` | 网页实例的项目/标签身份、加载状态、导航状态和显示边界 |
 
-资源请求通过身份获取项目、媒体类型和大小，不从后端接收可直接打开的文件路径。前端私有状态、Pi 历史和 Python worker 消息不属于应用 IPC 契约。
 
 ## 验收
 

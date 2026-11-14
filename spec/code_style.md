@@ -5,7 +5,7 @@
 ## 通用原则
 
 - 名称准确表达职责和单位，优先使用项目已有术语；缩写只用于团队熟悉的概念，不通过冗长名称弥补复杂逻辑。
-- 仓库自有文件名使用小写 `snake_case`，如 `scene_service.ts`、`chat_panel.tsx` 和 `scene_service.test.ts`；文件扩展名及测试等工具识别的后缀保持不变。工具或生态要求固定名称的文件（如 `README.md`、`SKILL.md`、`package-lock.json` 和配置文件）保留约定名称。
+- 仓库自有文件名使用小写 `snake_case`，如 `file_service.ts`、`chat_panel.tsx` 和 `file_service.test.ts`；文件扩展名及测试等工具识别的后缀保持不变。工具或生态要求固定名称的文件（如 `README.md`、`SKILL.md`、`package-lock.json` 和配置文件）保留约定名称。
 - 同级函数、类方法和较长的对象方法之间留空行；函数内按校验、准备、处理和返回等逻辑阶段分组，相关语句保持相邻，不逐行插空行。
 - 注释以中文为主，解释所有权、边界、单位、并发和不直观的取舍；不重复代码字面意思，也不为每个函数机械添加注释。
 - 在用户输入、跨进程通信、文件系统和第三方调用等边界做必要的校验与错误处理；信任已建立的内部约定，避免重复校验、无依据的兜底和过度防御，不用静默失败掩盖问题。
@@ -39,4 +39,4 @@
 
 ## 检查范围
 
-`npm run lint` 使用 Biome 检查当前配置覆盖的 TypeScript、TSX、`.mjs`、CSS、HTML 和 JSON（不含 `package-lock.json`）；`npm run typecheck` 检查 TypeScript 类型。Python 开发环境可通过 `python -m pip install -e ".[dev]"` 安装 Ruff，再运行 `npm run lint:python` 检查格式与基础错误。工具不会自动判断按职责分组的空行；仍需人工审阅和适用测试，不把工具通过等同于代码可读性或行为正确。
+`npm run lint` 使用 Biome 检查当前配置覆盖的 TypeScript、TSX、`.mjs`、CSS、HTML 和 JSON（不含 `package-lock.json`）；`npm run typecheck` 检查 TypeScript 类型。工具不会自动判断按职责分组的空行；仍需人工审阅和适用测试，不把工具通过等同于代码可读性或行为正确。

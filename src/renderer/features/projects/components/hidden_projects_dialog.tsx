@@ -43,7 +43,7 @@ export function HiddenProjectsDialog({
   }
   return (
     <Dialog title="已隐藏项目" onClose={onClose}>
-      <p>隐藏只从项目列表移除，项目文件、聊天和场景仍会保留。</p>
+      <p>隐藏只从项目列表移除，项目文件和聊天仍会保留。</p>
       {error && <p role="alert">{error}</p>}
       {!projects.length && !error && <p>暂无隐藏项目。</p>}
       {projects.map((project) => (

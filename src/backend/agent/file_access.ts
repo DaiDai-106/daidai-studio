@@ -7,7 +7,6 @@ import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 type Options = {
   cwd: string;
   skillRoots?: readonly string[] | (() => readonly string[]);
-  approvedFiles?: () => readonly string[];
   fullAccess?: () => boolean;
 };
 
@@ -70,13 +69,6 @@ export async function validateFileToolPath(options: Options & { path: string; wr
         if (isWithinRoot(await realpath(path), target)) return;
       } catch {
         /* 失效的技能不授予访问。 */
-      }
-    }
-    for (const path of options.approvedFiles?.() ?? []) {
-      try {
-        if ((await realpath(path)) === target) return;
-      } catch {
-        /* 来源文件已不存在。 */
       }
     }
   }

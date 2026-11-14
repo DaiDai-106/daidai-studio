@@ -73,7 +73,7 @@ test("project chats and a fork persist independently through the new Pi backend"
     const project = await app.request("project.create", {
       name: "场景",
       path: root,
-      mode: "scene",
+      mode: "coding",
     });
     const first = await app.request("conversation.create", { projectId: project.id });
     const independent = await app.request("conversation.create", { projectId: project.id });
@@ -115,7 +115,6 @@ test("project chats and a fork persist independently through the new Pi backend"
       (await app.request("conversation.watch", { id: fork.id })).messages.length,
       result.messages.length,
     );
-    assert.equal((await app.request("scene.get", { projectId: project.id })).revision, 0);
     await app.close();
     app = await openApplication({ dataRoot: join(root, "data"), publish: () => {} });
     assert.equal((await app.request("workspace.get", {})).projects[0]?.id, project.id);

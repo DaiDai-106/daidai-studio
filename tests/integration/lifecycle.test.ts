@@ -29,11 +29,6 @@ async function launchFixture(
   });
   const dist = fileURLToPath(new URL("../../dist/", import.meta.url));
   await cp(dist, join(directory, "dist"), { recursive: true });
-  await cp(
-    fileURLToPath(new URL("../../packages/scene/skills/", import.meta.url)),
-    join(directory, "packages/scene/skills"),
-    { recursive: true },
-  );
   await symlink(
     join(process.cwd(), "node_modules"),
     join(directory, "node_modules"),

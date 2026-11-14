@@ -11,7 +11,6 @@ import type {
   SettingsInfo,
 } from "../../contracts/application.ts";
 import type { Theme } from "../../contracts/desktop.ts";
-import { createPackageMcpCredentials } from "../extensions/package_mcp_credentials.ts";
 import { createCredentials, type StoredProvider } from "./credentials.ts";
 import { discoverModels } from "./discovery.ts";
 import { createLogins } from "./login.ts";
@@ -22,6 +21,7 @@ type Settings = {
   providers: StoredProvider[];
   defaultModel: string;
   theme: Theme;
+  desktopTheme: string;
   showThinking: boolean;
   deviceId: string;
 };
@@ -31,9 +31,15 @@ export async function createSettingsService(options: {
   dataRoot: string;
   publish: (event: ApplicationEvent) => void;
 }) {
-  await mkdir(options.dataRoot, { recursive: true, mode: 0o700 });
-  const path = join(options.dataRoot, "settings.json");
-  async function writeSettings(value: Settings) {
+  const agentRoot = join(options.dataRoot, "agent");
+  const desktopRoot = join(options.dataRoot, "desktop");
+  await Promise.all([
+    mkdir(agentRoot, { recursive: true, mode: 0o700 }),
+    mkdir(desktopRoot, { recursive: true, mode: 0o700 }),
+  ]);
+  const path = join(agentRoot, "settings.json");
+  const desktopPath = join(desktopRoot, "settings.json");
+  async function writeJson(path: string, value: unknown) {
     const temporary = `${path}.${randomUUID()}.tmp`;
     try {
       await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, {
@@ -45,6 +51,20 @@ export async function createSettingsService(options: {
       await rm(temporary, { force: true });
     }
   }
+  async function writeSettings(value: Settings) {
+    await writeJson(path, {
+      version: 1,
+      providers: value.providers,
+      defaultModel: value.defaultModel,
+      deviceId: value.deviceId,
+    });
+    await writeJson(desktopPath, {
+      version: 1,
+      theme: value.theme,
+      desktopTheme: value.desktopTheme,
+      showThinking: value.showThinking,
+    });
+  }
   let settings: Settings;
   try {
     const text = await readFile(path, "utf8");
@@ -55,7 +75,18 @@ export async function createSettingsService(options: {
       typeof value.deviceId !== "string"
     )
       throw new Error("应用配置格式无效。");
-    settings = value;
+    let desktop: Partial<Settings> = {};
+    try {
+      desktop = JSON.parse(await readFile(desktopPath, "utf8"));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    settings = {
+      ...value,
+      theme: desktop.theme ?? "light",
+      desktopTheme: desktop.desktopTheme ?? "",
+      showThinking: desktop.showThinking ?? true,
+    };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     settings = {
@@ -63,16 +94,13 @@ export async function createSettingsService(options: {
       providers: [],
       defaultModel: "",
       theme: "light",
+      desktopTheme: "",
       showThinking: true,
       deviceId: randomUUID(),
     };
   }
 
-  const credentials = await createCredentials(options.dataRoot, () => settings.providers);
-  const packageMcpCredentials = await createPackageMcpCredentials({
-    read: () => credentials.readApplicationSecret("dai:package-mcp-oauth:v1"),
-    write: (value) => credentials.writeApplicationSecret("dai:package-mcp-oauth:v1", value),
-  });
+  const credentials = await createCredentials(agentRoot, () => settings.providers);
   const providers = createProviders(credentials.store);
   const logins = createLogins(providers, settings.deviceId, (login) =>
     options.publish({ type: "login", login }),
@@ -184,6 +212,7 @@ export async function createSettingsService(options: {
 
   async function info(): Promise<SettingsInfo> {
     return {
+      desktopTheme: settings.desktopTheme,
       providers: await Promise.all(settings.providers.map(providerInfo)),
       defaultModel: settings.defaultModel,
       theme: settings.theme,
@@ -256,12 +285,16 @@ export async function createSettingsService(options: {
       }),
     "settings.update": (change: Arguments<"settings.update">) =>
       serialize(async () => {
+        const { expectedDesktopTheme, ...next } = change;
+        // 回退请求可能晚于用户的新选择；在写入队列内比较，不能由前端快照决定。
+        if (expectedDesktopTheme !== undefined && settings.desktopTheme !== expectedDesktopTheme)
+          return info();
         if (
           change.defaultModel &&
           defaultModel(settings.providers, change.defaultModel) !== change.defaultModel
         )
           throw new Error("请选择有效模型。");
-        await commit({ ...settings, ...change }, false);
+        await commit({ ...settings, ...next }, false);
         return info();
       }),
     async "auth.start"({ providerType, method }: Arguments<"auth.start">) {
@@ -287,7 +320,6 @@ export async function createSettingsService(options: {
   };
   return {
     handlers,
-    packageMcpCredentials,
     info,
     modelRuntime,
     model(selection: string) {
@@ -302,7 +334,6 @@ export async function createSettingsService(options: {
     async close() {
       logins.close();
       await pending;
-      await packageMcpCredentials.flush();
     },
   };
 }

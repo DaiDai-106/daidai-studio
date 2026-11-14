@@ -38,8 +38,8 @@ test("menus and shortcuts preserve drafts, respect dialogs and fit narrow window
     // Keyboard focus avoids native pointer interference from other Electron tests.
     await footer.getByRole("button", { name: "设置", exact: true }).focus();
     await page.getByRole("tooltip").filter({ hasText: "设置" }).waitFor();
-    await footer.getByRole("button", { name: "工具与技能", exact: true }).click();
-    await page.getByRole("heading", { name: "工具与技能", exact: true }).waitFor();
+    await footer.getByRole("button", { name: "插件与技能", exact: true }).click();
+    await page.getByRole("heading", { name: "插件与技能", exact: true }).waitFor();
     await page.getByRole("button", { name: "返回工作台", exact: true }).click();
     await footer.getByRole("button", { name: "已归档对话", exact: true }).click();
     await page.getByRole("dialog", { name: "已归档对话", exact: true }).waitFor();
@@ -77,11 +77,11 @@ test("menus and shortcuts preserve drafts, respect dialogs and fit narrow window
     await zoomKey("numsub");
     assert.equal(await zoom(), 1.1);
     for (let index = 0; index < 10; index++) await zoomKey("=");
-    assert.equal(await zoom(), 1.5);
+    assert.equal(await zoom(), 1.2);
     await application.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]?.setContentSize(840, 640),
     );
-    await page.waitForFunction(() => innerWidth < 600);
+    await page.waitForFunction(() => innerWidth < 750);
     const enlargedLayout = await page.evaluate(() => {
       const input = document.querySelector(".composer")?.getBoundingClientRect();
       return {
@@ -102,7 +102,7 @@ test("menus and shortcuts preserve drafts, respect dialogs and fit narrow window
       );
     }
     for (let index = 0; index < 10; index++) await zoomKey("-");
-    assert.equal(await zoom(), 0.8);
+    assert.equal(await zoom(), 0.6);
     await zoomKey("0");
     assert.equal(await zoom(), 1);
     assert.equal(await message.inputValue(), "保留这段草稿");
@@ -145,7 +145,7 @@ test("menus and shortcuts preserve drafts, respect dialogs and fit narrow window
     await menu.waitFor({ state: "hidden" });
 
     assert.equal(await page.getByRole("button", { name: "通用对话", exact: true }).count(), 0);
-    await chooseProject(application, page, join(userData, "project"), "scene");
+    await chooseProject(application, page, join(userData, "project"), "coding");
     await application.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]?.setContentSize(840, 640),
     );
@@ -195,8 +195,9 @@ test("menus and shortcuts preserve drafts, respect dialogs and fit narrow window
     await page.getByRole("button", { name: "模型提供方", exact: true }).waitFor();
     await page.getByRole("button", { name: "关闭弹窗", exact: true }).click();
     await page.getByRole("button", { name: "放弃修改", exact: true }).click();
-    await page.getByRole("button", { name: "工具与技能", exact: true }).click();
-    await page.getByRole("heading", { name: "技能", exact: true }).waitFor();
+    await page.getByRole("button", { name: "插件与技能", exact: true }).click();
+    await page.getByRole("tab", { name: "我的技能", exact: true }).click();
+    await page.getByRole("heading", { name: "我的技能", exact: true }).waitFor();
     await page.getByRole("button", { name: "新建技能", exact: true }).click();
     await page.getByRole("dialog", { name: "新建技能" }).waitFor();
     await page.getByRole("button", { name: "关闭弹窗", exact: true }).click();

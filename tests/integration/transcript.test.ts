@@ -230,9 +230,11 @@ test("Electron renders public thinking and real tool details, preserves disclosu
       .locator(".message.assistant .message-text")
       .filter({ hasText: "请求已停止。" })
       .waitFor();
-    assert.match(
-      (await page.locator(".turn-process").last().locator(".process-header").textContent()) ?? "",
-      /已停止/,
+    // 停止消息先到达，运行终态由随后的会话事件提交。
+    await page.waitForFunction(() =>
+      Array.from(document.querySelectorAll(".turn-process .process-header"))
+        .at(-1)
+        ?.textContent?.includes("已停止"),
     );
     assert.equal(await page.locator(".turn-process.active").count(), 0);
     assert.deepEqual(planner.failures, []);

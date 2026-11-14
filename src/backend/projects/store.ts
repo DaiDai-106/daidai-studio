@@ -27,11 +27,6 @@ export interface StoredConversation {
   hasMessages: boolean;
 }
 
-export interface StoredScene {
-  revision: number;
-  document: unknown;
-}
-
 /** Dai 自身的数据位于数据根目录；项目路径只是工具的工作目录。 */
 export function openProjectStore(dataRoot: string) {
   mkdirSync(dataRoot, { recursive: true, mode: 0o700 });
@@ -51,10 +46,6 @@ export function openProjectStore(dataRoot: string) {
       has_messages INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS conversations_project ON conversations(project_id);
-    CREATE TABLE IF NOT EXISTS scenes (
-      project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
-      revision INTEGER NOT NULL, document TEXT NOT NULL
-    );
   `);
   // 兼容新版开发期间创建的数据表，不改变已有会话内容。
   const columns = db.prepare("PRAGMA table_info(conversations)").all() as { name: string }[];
@@ -73,16 +64,14 @@ export function openProjectStore(dataRoot: string) {
   function project(id: string): StoredProject | undefined {
     return db
       .prepare(
-        "SELECT id, name, mode, path FROM projects WHERE id = ? AND hidden = 0 AND mode IN ('coding', 'scene', 'robot')",
+        "SELECT id, name, mode, path FROM projects WHERE id = ? AND hidden = 0 AND mode = 'coding'",
       )
       .get(id) as StoredProject | undefined;
   }
 
   function anyProject(id: string): StoredProject | undefined {
     return db
-      .prepare(
-        "SELECT id, name, mode, path FROM projects WHERE id = ? AND mode IN ('coding', 'scene', 'robot')",
-      )
+      .prepare("SELECT id, name, mode, path FROM projects WHERE id = ? AND mode = 'coding'")
       .get(id) as StoredProject | undefined;
   }
 
@@ -97,7 +86,7 @@ export function openProjectStore(dataRoot: string) {
       .prepare(`SELECT id, project_id AS projectId, title, created_at AS createdAt, model_id AS modelId,
       draft, archived, session_file AS sessionFile, thinking_level AS thinkingLevel, access_mode AS accessMode, interrupted,
       has_messages AS hasMessages
-      FROM conversations WHERE id = ? AND project_id IN (SELECT id FROM projects WHERE mode IN ('coding', 'scene', 'robot'))`)
+      FROM conversations WHERE id = ? AND project_id IN (SELECT id FROM projects WHERE mode = 'coding')`)
       .get(id) as
       | (Omit<StoredConversation, "archived" | "interrupted" | "hasMessages"> & {
           archived: number;
@@ -126,7 +115,7 @@ export function openProjectStore(dataRoot: string) {
     createProject(input: { name: string; mode: ConversationMode; path: string }): StoredProject {
       const name = input.name.trim();
       if (!name || name.length > 200) throw new Error("项目名称无效。");
-      if (!["coding", "scene", "robot"].includes(input.mode)) throw new Error("项目模式无效。");
+      if (input.mode !== "coding") throw new Error("项目模式无效。");
       if (!isAbsolute(input.path)) throw new Error("项目目录必须是绝对路径。");
       const path = realpathSync(input.path);
       if (!statSync(path).isDirectory()) throw new Error("请选择本地项目目录。");
@@ -141,7 +130,7 @@ export function openProjectStore(dataRoot: string) {
     listProjects(): StoredProject[] {
       return db
         .prepare(
-          "SELECT id, name, mode, path FROM projects WHERE hidden = 0 AND mode IN ('coding', 'scene', 'robot') ORDER BY created_at DESC, rowid DESC",
+          "SELECT id, name, mode, path FROM projects WHERE hidden = 0 AND mode = 'coding' ORDER BY created_at DESC, rowid DESC",
         )
         .all() as unknown as StoredProject[];
     },
@@ -149,7 +138,7 @@ export function openProjectStore(dataRoot: string) {
     listHiddenProjects(): StoredProject[] {
       return db
         .prepare(
-          "SELECT id, name, mode, path FROM projects WHERE hidden = 1 AND mode IN ('coding', 'scene', 'robot') ORDER BY created_at DESC, rowid DESC",
+          "SELECT id, name, mode, path FROM projects WHERE hidden = 1 AND mode = 'coding' ORDER BY created_at DESC, rowid DESC",
         )
         .all() as unknown as StoredProject[];
     },
@@ -193,13 +182,13 @@ export function openProjectStore(dataRoot: string) {
         cursor
           ? db
               .prepare(`SELECT c.id, c.created_at AS createdAt FROM conversations c
-            JOIN projects p ON p.id = c.project_id AND p.hidden = 0 AND p.mode IN ('coding', 'scene', 'robot')
+            JOIN projects p ON p.id = c.project_id AND p.hidden = 0 AND p.mode = 'coding'
             WHERE (c.created_at < ? OR (c.created_at = ? AND c.id < ?))
             ORDER BY c.created_at DESC, c.id DESC LIMIT ?`)
               .all(cursor.createdAt, cursor.createdAt, cursor.id, limit + 1)
           : db
               .prepare(
-                "SELECT c.id, c.created_at AS createdAt FROM conversations c JOIN projects p ON p.id = c.project_id AND p.hidden = 0 AND p.mode IN ('coding', 'scene', 'robot') ORDER BY c.created_at DESC, c.id DESC LIMIT ?",
+                "SELECT c.id, c.created_at AS createdAt FROM conversations c JOIN projects p ON p.id = c.project_id AND p.hidden = 0 AND p.mode = 'coding' ORDER BY c.created_at DESC, c.id DESC LIMIT ?",
               )
               .all(limit + 1)
       ) as { id: string; createdAt: number }[];
@@ -252,40 +241,6 @@ export function openProjectStore(dataRoot: string) {
     deleteConversation(id: string) {
       requireConversation(id);
       db.prepare("DELETE FROM conversations WHERE id = ?").run(id);
-    },
-
-    getScene(projectId: string): StoredScene | null {
-      requireProject(projectId);
-      const row = db
-        .prepare("SELECT revision, document FROM scenes WHERE project_id = ?")
-        .get(projectId) as { revision: number; document: string } | undefined;
-      return row ? { revision: row.revision, document: JSON.parse(row.document) as unknown } : null;
-    },
-
-    saveScene(projectId: string, expectedRevision: number, document: unknown): StoredScene {
-      if (requireProject(projectId).mode !== "scene") throw new Error("当前项目不是场景搭建模式。");
-      const serialized = JSON.stringify(document);
-      if (serialized === undefined) throw new Error("场景数据无效。");
-      db.exec("BEGIN IMMEDIATE");
-      try {
-        const row = db.prepare("SELECT revision FROM scenes WHERE project_id = ?").get(projectId) as
-          | { revision: number }
-          | undefined;
-        if ((row?.revision ?? 0) !== expectedRevision)
-          throw new Error("场景已被其他会话更新，请重新加载。");
-        const revision = expectedRevision + 1;
-        db.prepare(`INSERT INTO scenes (project_id, revision, document) VALUES (?, ?, ?)
-          ON CONFLICT(project_id) DO UPDATE SET revision = excluded.revision, document = excluded.document`).run(
-          projectId,
-          revision,
-          serialized,
-        );
-        db.exec("COMMIT");
-        return { revision, document: JSON.parse(serialized) as unknown };
-      } catch (error) {
-        db.exec("ROLLBACK");
-        throw error;
-      }
     },
 
     close() {

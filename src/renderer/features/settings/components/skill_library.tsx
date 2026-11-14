@@ -1,103 +1,167 @@
 import { useEffect, useState } from "react";
-import type { ManagedSkill, ProjectInfo as Project } from "../../../../contracts/application.ts";
+import type { ManagedSkill } from "../../../../contracts/application.ts";
+import type { PluginModule, PluginScope } from "../../../../contracts/catalog.ts";
 import { Dialog, Field } from "../../../shared/components/dialog.tsx";
+import { errorMessage } from "../../../shared/logic/error_message.ts";
+import { Empty } from "./plugin_presentation.tsx";
 import "../styles/skill.css";
 
 type Editor = { name: string; text: string; mode: "create" | "edit" | "view" };
 
-export function SkillLibrary({ project }: { project: Project | undefined }) {
+export function SkillLibrary({
+  moduleId = "coding",
+  userOnly = false,
+  packageSource,
+  packageScope,
+}: {
+  moduleId?: PluginModule;
+  userOnly?: boolean;
+  packageSource?: string;
+  packageScope?: PluginScope;
+}) {
   const [skills, setSkills] = useState<ManagedSkill[]>([]);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const projectId = project?.id;
+  const [query, setQuery] = useState("");
+  const visible = skills.filter(
+    (skill) =>
+      (!userOnly || skill.source === "user") &&
+      (!packageSource || skill.ownerSource === packageSource) &&
+      (!packageScope || skill.ownerScope === packageScope) &&
+      `${skill.name} ${skill.description}`.toLowerCase().includes(query.toLowerCase()),
+  );
   useEffect(() => {
     let active = true;
+    let request = 0;
     setSkills([]);
-    setError("");
-    void window.desktop.application
-      .listSkills(projectId)
-      .then((items) => {
-        if (active) setSkills(items);
-      })
-      .catch((cause: unknown) => {
-        if (active) setError(cause instanceof Error ? cause.message : "读取技能失败。");
-      });
+    const refresh = async () => {
+      const version = ++request;
+      setError("");
+      try {
+        const items = await window.desktop.application.listSkills(moduleId, userOnly);
+        if (active && version === request) setSkills(items);
+      } catch (cause) {
+        if (active && version === request) setError(errorMessage(cause, "读取技能失败。"));
+      }
+    };
+    void refresh();
+    // 同版本更新也可能改变技能内容；按实际任务刷新，不依赖版本号变化。
+    const unsubscribe = window.desktop.application.subscribe((event) => {
+      if (
+        !userOnly &&
+        event.type === "catalog.task" &&
+        event.task.host === "pi" &&
+        event.task.state !== "running" &&
+        (event.task.scope === "global" ||
+          event.task.action === "update" ||
+          event.task.moduleId === moduleId)
+      )
+        void refresh();
+    });
     return () => {
       active = false;
+      unsubscribe();
     };
-  }, [projectId]);
+  }, [moduleId, userOnly]);
 
-  async function change(action: () => Promise<unknown>) {
+  // 读取和写入共用提交状态；只有写入成功后才刷新列表。
+  async function run(action: () => Promise<unknown>) {
     if (busy) return false;
     setBusy(true);
     setError("");
     try {
       await action();
-      setSkills(await window.desktop.application.listSkills(projectId));
       return true;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "技能操作失败。");
+      setError(errorMessage(cause, "技能操作失败。"));
       return false;
     } finally {
       setBusy(false);
     }
   }
 
-  async function open(skill: ManagedSkill) {
-    if (busy) return;
-    setBusy(true);
-    setError("");
-    try {
-      const text = await window.desktop.application.readSkillDocument(skill.id, projectId);
+  function change(action: () => Promise<unknown>) {
+    return run(async () => {
+      await action();
+      setSkills(await window.desktop.application.listSkills(moduleId, userOnly));
+    });
+  }
+
+  function open(skill: ManagedSkill) {
+    return run(async () => {
+      const text = await window.desktop.application.readSkillDocument(skill.id, moduleId);
       setEditor({ name: skill.name, text, mode: skill.editable ? "edit" : "view" });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "读取技能失败。");
-    } finally {
-      setBusy(false);
-    }
+    });
   }
   return (
     <section
-      className="settings-section capability-section"
+      className="settings-section capability-section skill-library"
       aria-labelledby="skill-library-heading"
     >
       <header className="capability-section-heading">
         <div>
-          <h2 id="skill-library-heading">技能</h2>
-          <p>使用标准 SKILL.md。内置和包内技能只读。</p>
+          <h2 id="skill-library-heading">{userOnly ? "我的技能" : "技能"}</h2>
+          <p>
+            {packageSource
+              ? "插件附带的技能，随插件一起管理。"
+              : "把常用的方法和步骤保存为技能，让 Dai 按你的方式工作。"}
+          </p>
         </div>
-        <div className="button-group">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void change(() => window.desktop.application.importSkillDirectory())}
-          >
-            导入技能目录
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => setEditor({ name: "", text: "", mode: "create" })}
-          >
-            新建技能
-          </button>
-        </div>
+        {!packageSource && (
+          <div className="button-group">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void change(() => window.desktop.application.importSkillDirectory())}
+            >
+              导入技能目录
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setEditor({ name: "", text: "", mode: "create" })}
+            >
+              新建技能
+            </button>
+          </div>
+        )}
       </header>
-      {error && <p role="alert">{error}</p>}
-      {!skills.length && !error && <p>暂无可用技能。</p>}
-      {skills.map((skill) => (
+      <label className="plugin-search">
+        <input
+          aria-label="搜索我的技能"
+          placeholder="搜索技能名称或说明…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </label>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {!visible.length && !error && (
+        <Empty
+          icon={query ? "search" : "tool"}
+          title={
+            query ? "没有匹配的技能" : packageSource ? "这个插件没有附带技能" : "还没有自己的技能"
+          }
+        >
+          <p>
+            {query
+              ? "换个关键词试试。"
+              : packageSource
+                ? "可以在插件说明中了解它提供的其他功能。"
+                : "新建一个技能，或导入已有的技能目录。"}
+          </p>
+        </Empty>
+      )}
+      {visible.map((skill) => (
         <div key={skill.id} className="setting-row">
           <div>
             <strong>{skill.name}</strong>
             <p>{skill.description}</p>
-            <small>
-              {skill.source === "user"
-                ? "用户"
-                : skill.source === "builtin"
-                  ? "内置 · 只读"
-                  : "扩展包 · 只读"}
-            </small>
+            <small>{skill.source === "user" ? "我的技能" : "插件附带 · 只读"}</small>
           </div>
           <button type="button" disabled={busy} onClick={() => void open(skill)}>
             {skill.editable ? "编辑" : "查看"}
@@ -144,7 +208,11 @@ export function SkillLibrary({ project }: { project: Project | undefined }) {
                 placeholder={"---\nname: example\ndescription: 技能说明\n---\n\n# 技能步骤"}
               />
             </Field>
-            {error && <p role="alert">{error}</p>}
+            {error && (
+              <p className="error" role="alert">
+                {error}
+              </p>
+            )}
             <div className="dialog-actions">
               <button type="button" onClick={() => setEditor(null)}>
                 关闭

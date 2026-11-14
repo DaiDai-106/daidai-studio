@@ -43,7 +43,7 @@ test("projects sharing a directory keep separate identities and hidden projects 
     assert.equal(second.path, first.path);
     assert.ok(both.conversations.some((item) => item.projectId === second.id));
     await assert.rejects(access(join(directory, ".dai")));
-    assert.match(await readFile(join(directory, "bracket.stp"), "utf8"), /placeholder/);
+    assert.match(await readFile(join(directory, "example.ts"), "utf8"), /example/);
 
     const firstIndex = both.projects.findIndex((item) => item.id === first.id);
     await page

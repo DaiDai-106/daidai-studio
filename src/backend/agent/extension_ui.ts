@@ -120,7 +120,13 @@ export function createExtensionUi(publish: (event: ApplicationEvent) => void) {
           },
           opts,
         ),
-      notify: () => {},
+      notify: (message, level = "info") =>
+        publish({
+          type: "extension.ui.notification",
+          conversationId,
+          message: message.slice(0, 4000),
+          level,
+        }),
       onTerminalInput: () => () => {},
       setStatus: () => {},
       setWorkingMessage: () => {},

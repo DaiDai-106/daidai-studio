@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, type UtilityProcess, utilityProcess } from "electron";
 import type { ApplicationEvent } from "../../contracts/application.ts";
@@ -17,22 +16,9 @@ interface BackendContext {
 
 // 窗口显示前等待后端准备就绪；异常退出时不能留下无法工作的托盘应用。
 export async function startBackend(context: BackendContext): Promise<void> {
-  // Python worker 必须从真实文件系统加载，不能放进 Electron asar。
-  const sceneRoot = app.isPackaged
-    ? join(process.resourcesPath, "scene")
-    : join(app.getAppPath(), "packages", "scene");
-  const workerPath = join(sceneRoot, "python", "worker.py");
-  const sceneSkillPath = join(sceneRoot, "skills", "scene");
-
   const child = utilityProcess.fork(
     fileURLToPath(new URL("./backend.js", import.meta.url)),
-    [
-      context.root,
-      workerPath,
-      sceneSkillPath,
-      context.rootIdentity?.dev ?? "",
-      context.rootIdentity?.ino ?? "",
-    ],
+    [context.root, context.rootIdentity?.dev ?? "", context.rootIdentity?.ino ?? ""],
     { serviceName: "daidai-pi-backend" },
   );
 

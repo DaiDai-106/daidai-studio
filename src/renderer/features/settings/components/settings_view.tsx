@@ -1,22 +1,28 @@
 import { useState } from "react";
 import licenseText from "../../../../../LICENSE?raw";
-import type { ProjectInfo as Project, ProviderInfo } from "../../../../contracts/application.ts";
+import type { ProviderInfo } from "../../../../contracts/application.ts";
 import type { AppInfo, Theme } from "../../../../contracts/desktop.ts";
+import type { DesktopTheme } from "../../../../contracts/desktop_theme.ts";
 import { BrandIcon } from "../../../shared/components/brand_icon.tsx";
 import { Dialog } from "../../../shared/components/dialog.tsx";
 import { Icon } from "../../../shared/components/icon.tsx";
 import { Select } from "../../../shared/components/select.tsx";
 import { AiSettings } from "./ai_settings.tsx";
-import { PackageSettings } from "./package_settings.tsx";
+import { PluginCenter } from "./plugin_center.tsx";
 import { SettingRow, Toggle } from "./settings_controls.tsx";
 import { ShortcutsSettings } from "./shortcuts_settings.tsx";
-import { SkillLibrary } from "./skill_library.tsx";
 
 const pages = [
   { id: "general", label: "常规", icon: "sliders", group: "偏好", keywords: "外观 主题 语言" },
   { id: "shortcuts", label: "快捷键", icon: "keyboard", group: "偏好", keywords: "键盘 操作" },
   { id: "ai", label: "AI 设置", icon: "model", group: "能力", keywords: "模型 服务 登录 账号" },
-  { id: "tools", label: "工具与技能", icon: "tool", group: "能力", keywords: "MCP Skills 命令" },
+  {
+    id: "tools",
+    label: "插件与技能",
+    icon: "tool",
+    group: "能力",
+    keywords: "插件 市场 扩展 Skills 命令 公司 Pi",
+  },
   { id: "data", label: "本地数据", icon: "archive", group: "系统", keywords: "归档 记录 存储" },
   { id: "about", label: "信息", icon: "info", group: "系统", keywords: "版本 诊断" },
 ] as const;
@@ -29,14 +35,17 @@ interface Props {
   info: AppInfo | undefined;
   theme: Theme;
   onTheme: (theme: Theme) => void;
+  desktopTheme: string;
+  desktopThemes: DesktopTheme[];
+  desktopThemeErrors: Record<string, string>;
+  desktopThemeError: string;
+  onDesktopTheme: (id: string) => void;
   showThinking: boolean;
   onShowThinking: (value: boolean) => void;
   providers: ProviderInfo[];
   defaultModel: string;
   onProviders: () => void;
   onDefault: (id: string) => void;
-  project: Project | undefined;
-  projects: Project[];
   onArchives: () => void;
 }
 
@@ -44,7 +53,6 @@ export function SettingsView(props: Props) {
   const [search, setSearch] = useState("");
   const [diagnostics, setDiagnostics] = useState(false);
   const [licenseOpen, setLicenseOpen] = useState(false);
-  const [packageRevision, setPackageRevision] = useState(0);
   const filtered = pages.filter((page) =>
     `${page.label} ${page.keywords}`.toLowerCase().includes(search.toLowerCase()),
   );
@@ -82,14 +90,16 @@ export function SettingsView(props: Props) {
           ))}
           {!filtered.length && <p className="small muted">没有匹配的设置分类。</p>}
         </nav>
-        <button type="button" className="back-button" onClick={props.onHome}>
-          <Icon name="home" size={16} />
-          返回项目主页
-        </button>
-        <button type="button" className="back-button" onClick={props.onBack}>
-          <Icon name="back" size={16} />
-          返回工作台
-        </button>
+        <div className="settings-footer">
+          <button type="button" className="settings-nav-item" onClick={props.onBack}>
+            <Icon name="back" size={16} />
+            返回工作台
+          </button>
+          <button type="button" className="settings-nav-item" onClick={props.onHome}>
+            <Icon name="home" size={16} />
+            返回项目主页
+          </button>
+        </div>
       </aside>
       <main className="settings-main">
         <header className="topbar">
@@ -105,7 +115,31 @@ export function SettingsView(props: Props) {
               <>
                 <section className="settings-section">
                   <h2>外观</h2>
-                  <SettingRow title="主题">
+                  <SettingRow title="主题方案" description="安装的桌面主题会显示在这里。">
+                    <Select
+                      aria-label="主题方案"
+                      value={props.desktopTheme}
+                      onValueChange={props.onDesktopTheme}
+                      options={[
+                        { value: "", label: "Dai 默认" },
+                        ...(props.desktopTheme &&
+                        !props.desktopThemes.some((theme) => theme.id === props.desktopTheme)
+                          ? [
+                              {
+                                value: props.desktopTheme,
+                                label: "当前主题暂不可用",
+                                disabled: true,
+                              },
+                            ]
+                          : []),
+                        ...props.desktopThemes.map((theme) => ({
+                          value: theme.id,
+                          label: theme.label,
+                        })),
+                      ]}
+                    />
+                  </SettingRow>
+                  <SettingRow title="明暗模式">
                     <Select
                       aria-label="主题"
                       value={props.theme}
@@ -117,6 +151,11 @@ export function SettingsView(props: Props) {
                       ]}
                     />
                   </SettingRow>
+                  {props.desktopThemeError && (
+                    <p className="small muted" role="status">
+                      {props.desktopThemeError}
+                    </p>
+                  )}
                   <SettingRow title="语言">
                     <Select
                       aria-label="语言"
@@ -138,23 +177,20 @@ export function SettingsView(props: Props) {
                     />
                   </SettingRow>
                   <SettingRow
-                    title="按模式组织界面"
-                    description="通用对话使用主聊天区；场景搭建在中央展示场景，聊天位于右侧。"
+                    title="Coding 工作区"
+                    description="在聊天中讨论代码，并在工作区查看项目文件和变更。"
                   />
-                  <SettingRow
-                    title="项目与场景"
-                    description="场景搭建项目的对话共享一个场景，聊天历史各自独立。"
-                  />
+                  <SettingRow title="项目与对话" description="每个项目可包含多个独立的对话。" />
                   <SettingRow
                     title="设置保留当前现场"
-                    description="打开设置不会清空场景或聊天草稿。返回工作台后继续操作。"
+                    description="打开设置不会清空聊天草稿。返回工作台后继续操作。"
                   />
                 </section>
                 <section className="settings-section">
                   <h2>本地记录</h2>
                   <SettingRow
                     title="项目与设置会保留"
-                    description="聊天、AI 和扩展包配置保存在本机；STEP 源文件保留在用户选择的位置。"
+                    description="聊天、AI 和扩展包配置保存在本机，项目文件保留在原位置。"
                   />
                 </section>
               </>
@@ -168,13 +204,11 @@ export function SettingsView(props: Props) {
               />
             )}
             {props.page === "tools" && (
-              <>
-                <PackageSettings
-                  project={props.project}
-                  onChanged={() => setPackageRevision((value) => value + 1)}
-                />
-                <SkillLibrary key={packageRevision} project={props.project} />
-              </>
+              <PluginCenter
+                onAppearance={() => props.onPage("general")}
+                desktopThemes={props.desktopThemes}
+                desktopThemeErrors={props.desktopThemeErrors}
+              />
             )}
             {props.page === "data" && (
               <>
@@ -186,7 +220,7 @@ export function SettingsView(props: Props) {
                   <h2>历史管理</h2>
                   <SettingRow
                     title="已归档对话"
-                    description="归档可恢复；删除后无法从应用恢复，项目文件与共享场景保留。"
+                    description="归档可恢复；删除后无法从应用恢复，项目文件保留。"
                   >
                     <button type="button" onClick={props.onArchives}>
                       查看已归档对话

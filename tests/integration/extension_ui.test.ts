@@ -66,11 +66,21 @@ test("real Pi package dialogs support background recovery, confirm, select, inpu
     const workspace = await page.evaluate(() => window.desktop.application.getWorkspace());
     const project = workspace.projects[0];
     assert.ok(project);
-    await page.evaluate((input) => window.desktop.application.installPackage(input), {
-      source,
-      scope: "project" as const,
-      projectId: project.id,
-    });
+    const installed = await page.evaluate(
+      (input) => window.desktop.application.packageAction({ action: "install", ...input }),
+      {
+        source,
+        scope: "module" as const,
+        moduleId: "coding" as const,
+      },
+    );
+    await page.waitForFunction(
+      async (id) =>
+        (await window.desktop.application.catalogTasks()).some(
+          (task) => task.id === id && task.state === "completed",
+        ),
+      installed.id,
+    );
     await page.getByRole("textbox", { name: "消息内容" }).fill("运行扩展交互");
     await page.getByRole("button", { name: "发送消息" }).click();
     await page.getByRole("dialog", { name: "确认操作" }).waitFor();

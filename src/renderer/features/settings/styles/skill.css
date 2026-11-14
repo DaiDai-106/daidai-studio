@@ -1,3 +1,10 @@
+.skill-library .plugin-search {
+  margin-bottom: 16px;
+}
+.skill-library .setting-row small {
+  color: var(--muted);
+  font-size: 11px;
+}
 .skill-document {
   height: clamp(150px, 40dvh, 420px);
   max-height: 60dvh;

@@ -21,29 +21,23 @@ import {
 } from "../../coding/components/file_reference_picker.tsx";
 import { FileReferenceTags } from "../../coding/components/file_reference_tags.tsx";
 import { fileMention } from "../../coding/logic/file_mention.ts";
-import { modeLabel, modes } from "../../projects/logic/modes.ts";
 import type { Conversation } from "../logic/types.ts";
 import { useImageDrafts } from "../logic/use_image_drafts.ts";
 import { ConversationTranscript } from "./conversation_transcript.tsx";
 import { ConversationUsage } from "./usage_details.tsx";
-import { Welcome } from "./welcome.tsx";
 
 interface Props {
   inputRef: RefObject<HTMLTextAreaElement | null>;
   conversation: Conversation;
   models: Model[];
   compact: boolean;
-  projectScene?: boolean;
   codingProjectId?: string;
-  sceneBusy?: boolean;
-  onStepDrop?: (file: File) => void;
   onDraft: (value: string) => void;
   onModel: (id: string) => void;
   onThinking: (level: ThinkingLevel) => void;
   onAccessMode: (mode: AccessMode) => void;
   accessPending: boolean;
   onSend: (images: ChatImage[]) => Promise<boolean>;
-  onFiles: () => void;
   onConfigure: () => void;
   stream: ConversationView | null;
   shellApproval: ShellApproval | null;
@@ -75,7 +69,6 @@ export function ChatPanel(props: Props) {
   const thinkingLevel = thinkingLevels.includes(props.conversation.thinkingLevel ?? "off")
     ? (props.conversation.thinkingLevel ?? "off")
     : (thinkingLevels[0] ?? "off");
-  const activeMode = modes.find((mode) => mode.id === props.conversation.mode);
   const hasMessages = props.conversation.messages.length > 0;
   const approval =
     props.shellApproval?.conversationId === props.conversation.id ? props.shellApproval : null;
@@ -156,19 +149,7 @@ export function ChatPanel(props: Props) {
               )}
             <div ref={end} />
           </div>
-        ) : props.conversation.mode === "scene" ? (
-          <div className="welcome">
-            <div className="welcome-symbol">
-              <Icon name="box" size={30} />
-            </div>
-            <h1>从一个场景需求开始</h1>
-            <p>
-              {activeModel
-                ? "描述需求；有多个 STEP 时可先选择文件。"
-                : "配置并选择模型后，助手会询问场景类型和任务。"}
-            </p>
-          </div>
-        ) : props.conversation.mode === "coding" ? (
+        ) : (
           <div className="welcome">
             <div className="welcome-symbol">
               <Icon name="file" size={30} />
@@ -180,8 +161,6 @@ export function ChatPanel(props: Props) {
                 : "配置并选择模型后，开始讨论代码任务。"}
             </p>
           </div>
-        ) : (
-          <Welcome />
         )}
       </div>
       <div className="composer-wrap">
@@ -227,10 +206,7 @@ export function ChatPanel(props: Props) {
             const files = Array.from(event.dataTransfer.files);
             if (files.length) {
               event.preventDefault();
-              const step =
-                props.onStepDrop && files.find((file) => /\.(step|stp)$/iu.test(file.name));
-              if (step) props.onStepDrop?.(step);
-              else void addImages(files);
+              void addImages(files);
             }
           }}
         >
@@ -258,11 +234,6 @@ export function ChatPanel(props: Props) {
               {imageError}
             </p>
           )}
-          {props.sceneBusy && (
-            <p className="notice" role="status">
-              场景处理中，请等待完成后发送。
-            </p>
-          )}
           {props.codingProjectId && draftParts.references.length > 0 && (
             <FileReferenceTags
               references={draftParts.references}
@@ -279,13 +250,7 @@ export function ChatPanel(props: Props) {
           <textarea
             ref={props.inputRef}
             aria-label="消息内容"
-            placeholder={
-              props.conversation.mode === "scene"
-                ? "描述你想搭建的场景…"
-                : props.conversation.mode === "coding"
-                  ? "描述你的代码任务…"
-                  : "随便问问，或描述你的工作…"
-            }
+            placeholder="描述你的代码任务…"
             aria-controls={referenceOpen ? "file-reference-options" : undefined}
             aria-activedescendant={referenceOpen ? activeOption : undefined}
             aria-autocomplete={props.codingProjectId ? "list" : undefined}
@@ -334,15 +299,6 @@ export function ChatPanel(props: Props) {
                 event.key === "Enter" &&
                 !event.shiftKey &&
                 !event.nativeEvent.isComposing &&
-                props.sceneBusy
-              ) {
-                event.preventDefault();
-                return;
-              }
-              if (
-                event.key === "Enter" &&
-                !event.shiftKey &&
-                !event.nativeEvent.isComposing &&
                 !props.stream?.busy
               ) {
                 event.preventDefault();
@@ -351,9 +307,6 @@ export function ChatPanel(props: Props) {
             }}
           />
           <div className="composer-toolbar">
-            {props.projectScene && (
-              <IconButton icon="plus" label="添加 STEP 文件" onClick={props.onFiles} />
-            )}
             <input
               ref={picker}
               type="file"
@@ -382,8 +335,8 @@ export function ChatPanel(props: Props) {
             )}
             <IconButton icon="image" label="添加图片" onClick={() => picker.current?.click()} />
             <span className="composer-picker mode-button" title="项目模式">
-              <Icon name={activeMode?.icon ?? "chat"} size={16} />
-              <span>{modeLabel(props.conversation.mode)}</span>
+              <Icon name="chat" size={16} />
+              <span>Coding</span>
             </span>
             <div className="composer-spacer" />
             <div className="thinking-picker access-picker">
@@ -441,9 +394,7 @@ export function ChatPanel(props: Props) {
               aria-label={props.stream?.busy ? "停止回复" : "发送消息"}
               disabled={
                 !props.stream?.busy &&
-                (props.accessPending ||
-                  props.sceneBusy ||
-                  (!props.conversation.draft.trim() && !images.length))
+                (props.accessPending || (!props.conversation.draft.trim() && !images.length))
               }
               onClick={props.stream?.busy ? props.onStop : () => void send()}
             >
@@ -452,13 +403,6 @@ export function ChatPanel(props: Props) {
           </div>
         </fieldset>
         {props.stream && <ConversationUsage key={props.conversation.id} view={props.stream} />}
-        {props.conversation.mode !== "coding" && (
-          <p className="composer-note">
-            {props.conversation.mode === "scene"
-              ? "对象引用随草稿保存在本机，发送前检查场景版本"
-              : "真实模型对话"}
-          </p>
-        )}
       </div>
     </section>
   );

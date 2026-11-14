@@ -33,6 +33,8 @@ test("standard skill import retains complete directory and editing preserves unr
       "A guide\n",
     );
     await assert.rejects(service.importDirectory(source), /已存在/);
+    await assert.rejects(service.create("sample", skillText), /已存在/);
+    assert.equal(await service.read("sample"), edited, "失败的重复创建不能回收已有技能");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

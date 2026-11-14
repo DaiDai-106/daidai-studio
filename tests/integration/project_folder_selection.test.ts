@@ -54,8 +54,6 @@ test("项目文件夹可直接选择，取消保留表单，未选择时使用�
     await page.getByRole("button", { name: "新建项目", exact: true }).first().click();
     form = page.getByRole("dialog", { name: "新建项目" });
     await form.getByLabel("项目名称").fill("选择项目");
-    await form.getByLabel("项目模式").click();
-    await page.getByRole("menuitemradio", { name: "场景搭建" }).click();
     const choose = form.getByRole("button", { name: "选择文件夹", exact: true });
     await choose.click();
     await form.getByText(selectedDirectory, { exact: true }).waitFor();
@@ -67,7 +65,7 @@ test("项目文件夹可直接选择，取消保留表单，未选择时使用�
     workspace = await page.evaluate(() => window.desktop.application.getWorkspace());
     const selected = workspace.projects.find((project) => project.name === "选择项目");
     assert.equal(selected?.path, selectedDirectory);
-    assert.equal(selected?.mode, "scene");
+    assert.equal(selected?.mode, "coding");
 
     const result = await page.evaluate(async () => {
       const chosen = await window.desktop.application.chooseProjectDirectory();

@@ -9,6 +9,10 @@ export function useSettings(application: ApplicationState) {
     providers: settings?.providers ?? [],
     models: availableModels(settings?.providers ?? []),
     theme: settings?.theme ?? "light",
+    desktopTheme: settings?.desktopTheme ?? "",
+    setDesktopTheme: (desktopTheme: string) => {
+      void application.run(() => application.api.updateSettings({ desktopTheme }));
+    },
     showThinking: settings?.showThinking ?? true,
     setShowThinking: (showThinking: boolean) => {
       void application.run(() => application.api.updateSettings({ showThinking }));

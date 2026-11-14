@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, webUtils } from "electron";
+import { contextBridge, ipcRenderer } from "electron";
 import type { ApplicationEvent, Arguments, Method, Results } from "../../contracts/application.ts";
 import {
   APP_INFO_CHANNEL,
@@ -10,13 +10,9 @@ import {
   QUIT_FLUSH_READY_CHANNEL,
   QUIT_FLUSH_REGISTER_CHANNEL,
   REQUEST_CHANNEL,
-  SCENE_CONFIRM_JOINT_CHANNEL,
-  SCENE_DROP_CHANNEL,
-  SCENE_IMPORT_CHANNEL,
-  SCENE_RELOCATE_SOURCE_CHANNEL,
-  SCENE_REMOVE_CONFIRMED_JOINT_CHANNEL,
   SKILL_IMPORT_CHANNEL,
   THEME_CHANNEL,
+  THEMES_CHANNEL,
 } from "../../contracts/desktop.ts";
 import {
   PREVIEW_CONTROL_CHANNEL,
@@ -34,7 +30,8 @@ function call<K extends Method>(method: K, args: Arguments<K>): Promise<Results[
 
 const desktop: DesktopBridge = {
   getAppInfo: () => ipcRenderer.invoke(APP_INFO_CHANNEL),
-  setTheme: (theme) => ipcRenderer.invoke(THEME_CHANNEL, theme),
+  getThemes: (selectedId) => ipcRenderer.invoke(THEMES_CHANNEL, selectedId),
+  setTheme: (theme, palette) => ipcRenderer.invoke(THEME_CHANNEL, theme, palette),
   onBeforeQuit(flush) {
     // 退出前等待界面保存草稿，并将结果交回主进程决定是否继续退出。
     const receive = (_event: Electron.IpcRendererEvent, requestId: string) => {
@@ -64,6 +61,14 @@ const desktop: DesktopBridge = {
     },
   },
   application: {
+    catalogSources: () => call("catalog.sources", {}),
+    searchCatalog: (input) => call("catalog.search", input),
+    catalogDetail: (input) => call("catalog.detail", input),
+    configureCatalog: (input) => call("catalog.configure", input),
+    installedPlugins: (moduleId) => call("catalog.installed", moduleId ? { moduleId } : {}),
+    catalogTasks: () => call("catalog.tasks", {}),
+    installCatalog: (input) => call("catalog.install", input),
+    packageAction: (input) => call("catalog.packageAction", input),
     // 工作区、模型提供方、设置与认证。
     getWorkspace: (cursor) => call("workspace.get", cursor ? { cursor } : {}),
     getProviderTypes: () => call("provider.types", {}),
@@ -93,36 +98,16 @@ const desktop: DesktopBridge = {
     readCodingFile: (projectId, path) => call("coding.read", { projectId, path }),
     listCodingChanges: (projectId) => call("coding.changes", { projectId }),
     readCodingDiff: (projectId, path, kind) => call("coding.diff", { projectId, path, kind }),
-    getProjectScene: (projectId) => call("scene.get", { projectId }),
-    cancelSceneImport: (projectId) => call("scene.cancelImport", { projectId }),
-    getScenePythonStatus: () => call("scene.pythonStatus", {}),
-    installScenePython: () => call("scene.installPython", {}),
-    importStep: (input) => ipcRenderer.invoke(SCENE_IMPORT_CHANNEL, input),
-    relocateSceneSource: (input) => ipcRenderer.invoke(SCENE_RELOCATE_SOURCE_CHANNEL, input),
-    setSceneTransform: (input) => call("scene.setTransform", input),
-    deleteSceneObject: (input) => call("scene.deleteObject", input),
-    confirmSceneJoint: (input) => ipcRenderer.invoke(SCENE_CONFIRM_JOINT_CHANNEL, input),
-    discardSceneJointDraft: (input) => call("scene.discardJointDraft", input),
-    removeConfirmedSceneJoint: (input) =>
-      ipcRenderer.invoke(SCENE_REMOVE_CONFIRMED_JOINT_CHANNEL, input),
-    importDroppedStep: (file, input) => {
-      const path = webUtils.getPathForFile(file);
-      if (!path || !/\.(step|stp)$/iu.test(path))
-        return Promise.reject(new Error("请拖入本地 STEP 文件。"));
-      return ipcRenderer.invoke(SCENE_DROP_CHANNEL, input, path);
-    },
-
     forkConversation: (id) => call("conversation.fork", { id }),
-    listPackages: (projectId) => call("package.list", projectId ? { projectId } : {}),
-    updatePackage: (input) => call("package.update", input),
     respondExtensionUi: (input) => call("extension.ui.respond", input),
-    installPackage: (input) => call("package.install", input),
-    removePackage: (input) => call("package.remove", input),
-    setPackageEnabled: (input) => call("package.setEnabled", input),
 
-    listSkills: (projectId) => call("skill.library.list", projectId ? { projectId } : {}),
-    readSkillDocument: (id, projectId) =>
-      call("skill.library.read", { id, ...(projectId ? { projectId } : {}) }),
+    listSkills: (moduleId, userOnly) =>
+      call("skill.library.list", {
+        ...(moduleId ? { moduleId } : {}),
+        ...(userOnly ? { userOnly } : {}),
+      }),
+    readSkillDocument: (id, moduleId) =>
+      call("skill.library.read", { id, ...(moduleId ? { moduleId } : {}) }),
     createSkillDocument: (input) => call("skill.library.create", input),
     saveSkillDocument: (input) => call("skill.library.save", input),
     importSkillDirectory: () => ipcRenderer.invoke(SKILL_IMPORT_CHANNEL),
@@ -131,13 +116,12 @@ const desktop: DesktopBridge = {
     deleteConversation: (id) => call("conversation.delete", { id }),
     updateConversation: (change) => call("conversation.update", change),
     watchConversation: (id) => call("conversation.watch", { id }),
-    sendMessage: (id, requestId, text, images, sceneReference) =>
+    sendMessage: (id, requestId, text, images) =>
       call("conversation.send", {
         id,
         requestId,
         text,
         ...(images?.length ? { images } : {}),
-        ...(sceneReference ? { sceneReference } : {}),
       }),
     stopConversation: (id) => call("conversation.stop", { id }),
 

@@ -39,7 +39,7 @@ test("Pi shell commands wait for approval and can be rejected or cancelled", {
     const project = await app.request("project.create", {
       name: "测试",
       path: root,
-      mode: "scene",
+      mode: "coding",
     });
     const chat = await app.request("conversation.create", { projectId: project.id });
     let calls = 0;

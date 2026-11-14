@@ -1,9 +1,6 @@
 import { useState } from "react";
 import type { CreateProjectInput } from "../../../../contracts/bridge.ts";
-import type { ConversationMode as Mode } from "../../../../contracts/capabilities.ts";
 import { Dialog, Field } from "../../../shared/components/dialog.tsx";
-import { Select } from "../../../shared/components/select.tsx";
-import { modes } from "../logic/modes.ts";
 import "../styles/create_project.css";
 
 // 工作目录的选择交给主进程，界面不会自行提交未授权的绝对路径。
@@ -17,7 +14,6 @@ export function CreateProjectDialog({
   onClose: () => void;
 }) {
   const [name, setName] = useState("");
-  const [mode, setMode] = useState<Mode>("coding");
   const [directory, setDirectory] = useState<{ token: string; path: string } | null>(null);
   const [selecting, setSelecting] = useState(false);
   const [selectionError, setSelectionError] = useState("");
@@ -44,7 +40,7 @@ export function CreateProjectDialog({
       if (
         await onCreate({
           name: name.trim(),
-          mode,
+          mode: "coding",
           ...(directory ? { directoryToken: directory.token } : {}),
         })
       )
@@ -64,13 +60,6 @@ export function CreateProjectDialog({
       >
         <Field label="项目名称">
           <input value={name} onChange={(event) => setName(event.target.value)} maxLength={80} />
-        </Field>
-        <Field label="项目模式" hint="项目内对话共享该模式，创建后不能在聊天中切换。">
-          <Select
-            value={mode}
-            onValueChange={setMode}
-            options={modes.map(({ id, label }) => ({ value: id, label }))}
-          />
         </Field>
         <div className="project-directory-choice">
           <span className="project-directory-label">项目文件夹</span>

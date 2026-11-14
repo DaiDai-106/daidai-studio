@@ -1,6 +1,6 @@
 import type { WebContents } from "electron";
 
-// 仅处理应用内缩放快捷键，并将缩放范围限制在 80%–150%。
+// 仅处理应用内缩放快捷键，并将缩放范围限制在 60%–120%。
 export function installZoomShortcuts(contents: WebContents): void {
   contents.on("before-input-event", (event, input) => {
     if (

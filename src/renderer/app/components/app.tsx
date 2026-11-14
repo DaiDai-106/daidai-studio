@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { ExtensionNotifications } from "../../features/chat/components/extension_notifications.tsx";
 import { CreateProjectDialog } from "../../features/projects/components/create_project_dialog.tsx";
 import { HiddenProjectsDialog } from "../../features/projects/components/hidden_projects_dialog.tsx";
 import { ProjectHome } from "../../features/projects/components/project_home.tsx";
@@ -27,7 +28,8 @@ export function App() {
   const application = useApplication();
   const configuration = useSettings(application);
   const { theme } = configuration;
-  const { info, error: desktopError } = useDesktop(theme);
+  const desktop = useDesktop(theme, configuration.desktopTheme);
+  const { info, error: desktopError } = desktop;
   const workbench = useWorkbench(application);
 
   const [settings, setSettings] = useState<SettingsPage | null>(null);
@@ -75,6 +77,7 @@ export function App() {
 
   return (
     <>
+      <ExtensionNotifications />
       <div className="app-layout" hidden={settings !== null}>
         {sidebar && (
           <Sidebar
@@ -112,10 +115,6 @@ export function App() {
             )}
             <div className="workbench-title">
               <span>{project?.name ?? "工作台"}</span>
-              {project?.mode === "scene" && <span className="title-breadcrumb">/ 场景搭建</span>}
-              {project?.mode === "robot" && (
-                <span className="title-breadcrumb">/ Dai Robotics</span>
-              )}
             </div>
             <div className="topbar-actions">
               <IconButton icon="home" label="返回项目主页" onClick={() => void goHome()} />
@@ -142,7 +141,7 @@ export function App() {
           )}
           {project?.available === false && (
             <p className="bridge-error" role="alert">
-              项目文件夹不可用。已保存的聊天和场景仍可查看，使用文件工具前请恢复项目文件夹。
+              项目文件夹不可用。已保存的聊天仍可查看，使用文件工具前请恢复项目文件夹。
             </p>
           )}
           {application.workspace?.nextCursor && (
@@ -181,14 +180,17 @@ export function App() {
           info={info}
           theme={configuration.theme}
           onTheme={configuration.setTheme}
+          desktopTheme={configuration.desktopTheme}
+          desktopThemes={desktop.themes}
+          desktopThemeErrors={desktop.themeErrors}
+          desktopThemeError={desktop.themeNotice}
+          onDesktopTheme={configuration.setDesktopTheme}
           showThinking={configuration.showThinking}
           onShowThinking={configuration.setShowThinking}
           providers={configuration.providers}
           defaultModel={configuration.defaultModel}
           onProviders={configuration.updateProviders}
           onDefault={configuration.setDefaultModel}
-          project={project}
-          projects={workbench.projects}
           onArchives={() => setDialog({ type: "archives", projectId: null })}
         />
       )}

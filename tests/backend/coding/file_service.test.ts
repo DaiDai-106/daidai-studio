@@ -18,7 +18,6 @@ test("Coding 文件服务限制项目路径并安全读取文本", async () => {
   const store = openProjectStore(join(root, "data"));
   try {
     const project = store.createProject({ name: "代码", mode: "coding", path: work });
-    const scene = store.createProject({ name: "场景", mode: "scene", path: work });
     const files = createCodingFileService(store);
     const list = await files.list(project.id, "", 0);
     assert.deepEqual(
@@ -51,7 +50,6 @@ test("Coding 文件服务限制项目路径并安全读取文本", async () => {
     }
     await writeFile(join(work, "oversized.ts"), "x".repeat(2 * 1024 * 1024 + 1));
     await assert.rejects(files.read(project.id, "oversized.ts"), /超过 2 MiB/);
-    await assert.rejects(files.list(scene.id, "", 0), /项目不存在/);
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });

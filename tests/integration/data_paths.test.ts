@@ -32,8 +32,8 @@ test("desktop app data defaults to ~/.dai and test profiles remain isolated", as
     } as unknown as App);
     assert.equal(isolated.root, join(home, "test-profile", "data"));
     assert.equal(isolated.profile, join(home, "test-profile"));
-    normal.resourceReader.close();
-    isolated.resourceReader.close();
+    normal.close();
+    isolated.close();
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -127,12 +127,12 @@ test("Linux 显式数据根符号链接保持支持，并固定相同根身份",
     try {
       assert.equal(paths.root, target);
       const info = await stat(target, { bigint: true });
-      assert.deepEqual(paths.resourceReader.identity, {
+      assert.deepEqual(paths.rootIdentity, {
         dev: info.dev.toString(),
         ino: info.ino.toString(),
       });
     } finally {
-      paths.resourceReader.close();
+      paths.close();
     }
   } finally {
     await rm(base, { recursive: true, force: true });

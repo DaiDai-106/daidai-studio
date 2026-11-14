@@ -1,0 +1,172 @@
+/* 桌面主题共用组件样式；配色来自已校验的插件 JSON，移除主题标记即恢复默认。 */
+:root[data-dai-theme]:is([data-theme="light"], [data-theme="dark"]) {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "Noto Sans CJK SC", "PingFang SC",
+    "Microsoft YaHei", "Liberation Sans", Arial, sans-serif;
+  accent-color: var(--theme-accent);
+
+  &::selection,
+  & ::selection {
+    color: var(--theme-selection-text);
+    background: var(--theme-selection);
+  }
+
+  & :is(button, summary, [tabindex]):focus-visible,
+  & :is(input, textarea, select):focus-visible {
+    outline-color: var(--focus-border);
+  }
+
+  & :is(input[type="checkbox"], input[type="range"]) {
+    accent-color: var(--theme-accent);
+  }
+
+  & :is(.sidebar, .settings-sidebar) {
+    border-right: 1px solid var(--border);
+  }
+
+  & :is(.nav-action, .conversation-row, .settings-nav-item) {
+    border-radius: 8px;
+  }
+
+  & :is(.conversation-row.selected, .project-row.selected, .settings-nav-item.selected) {
+    background: var(--selected);
+  }
+
+  & .welcome h1 {
+    font-family: Georgia, "Noto Serif CJK SC", "Songti SC", serif;
+    color: var(--text);
+    letter-spacing: -0.5px;
+  }
+
+  & .welcome-symbol {
+    color: var(--theme-brand);
+  }
+
+  & .chat-panel:not(.compact) .message {
+    font-size: 15px;
+    line-height: 1.85;
+  }
+
+  & .message.user {
+    background: var(--theme-user);
+    border-radius: 14px;
+  }
+
+  & .message.assistant {
+    color: var(--text);
+  }
+
+  & .composer {
+    background: var(--theme-composer);
+    border-color: var(--border);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+  }
+
+  & .composer:focus-within {
+    border-color: var(--focus-border);
+  }
+
+  & .send-button {
+    border-radius: 10px;
+    color: var(--theme-on-accent);
+    background: var(--theme-accent);
+  }
+
+  & .send-button:hover:not(:disabled) {
+    background: var(--theme-accent-hover);
+    opacity: 1;
+  }
+
+  & .send-button:disabled {
+    color: var(--muted);
+    background: var(--selected);
+    opacity: 0.6;
+  }
+
+  & .markdown {
+    line-height: 1.85;
+  }
+
+  & .markdown a {
+    color: var(--theme-link);
+  }
+
+  & :is(.markdown code, .coding-content, .coding-diff, .tool-message pre) {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", "Noto Sans Mono CJK SC", monospace;
+  }
+
+  & .markdown :not(pre) > code {
+    color: var(--theme-inline-text);
+    background: var(--theme-inline-code);
+    border-radius: 5px;
+    padding: 2px 5px;
+  }
+
+  & .markdown pre {
+    background: var(--theme-code);
+    border-color: var(--border);
+    border-radius: 10px;
+  }
+
+  & .markdown pre code {
+    background: transparent;
+    color: inherit;
+  }
+
+  & .markdown blockquote {
+    border-color: var(--theme-brand);
+  }
+
+  /* 保留宿主原有 hidden、折叠和滚动行为，只调整颜色与边框。 */
+  & :is(.tool-message, .shell-approval, .history-event) {
+    border-color: var(--border);
+    border-radius: 10px;
+  }
+
+  & .tool-message.failed {
+    color: var(--danger);
+  }
+
+  & .plugin-center {
+    --plugin-accent: var(--theme-link);
+  }
+
+  & :is(.plugin-tabs > button, .plugin-detail-tabs button)[aria-selected="true"] {
+    border-bottom-color: var(--theme-accent);
+  }
+
+  & :is(.coding-tabs button[aria-selected="true"]) {
+    border-bottom-color: var(--theme-accent);
+  }
+
+  & .content-tab.active {
+    box-shadow: inset 0 -2px var(--theme-accent);
+  }
+
+  & .coding-diff-line.addition {
+    color: var(--theme-success);
+    background: var(--theme-success-bg);
+  }
+
+  & .coding-diff-line.deletion {
+    color: var(--theme-deletion);
+    background: var(--theme-deletion-bg);
+  }
+
+  & :is(.select-content, .action-menu, .tooltip, .file-reference-picker) {
+    background: var(--theme-composer);
+    border-color: var(--border);
+    box-shadow: var(--popup-shadow);
+  }
+
+  & .dialog {
+    background: var(--surface);
+    border-color: var(--border);
+    box-shadow: var(--popup-shadow);
+  }
+
+  & .dialog::backdrop {
+    background: var(--theme-backdrop);
+  }
+}

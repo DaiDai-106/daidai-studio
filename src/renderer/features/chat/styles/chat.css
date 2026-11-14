@@ -478,3 +478,29 @@
   color: var(--muted);
   cursor: pointer;
 }
+
+.extension-notifications {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 100;
+  max-width: min(390px, calc(100vw - 48px));
+}
+.extension-notification {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  margin-top: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--popup-shadow);
+  border-radius: 11px;
+  font-size: 12px;
+}
+.extension-notification-text {
+  overflow-wrap: anywhere;
+}
+.extension-notification.level-error {
+  color: var(--danger);
+}

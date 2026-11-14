@@ -2,24 +2,12 @@
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   "appId": "local.daidai.pi",
   "productName": "Dai",
-  "directories": { "output": "release", "buildResources": "dist/icons" },
+  "directories": {
+    "output": "release",
+    "buildResources": "dist/icons"
+  },
   "files": ["dist/**", "package.json", "!dist/icons/*.icns"],
   "asar": true,
-  "extraResources": [
-    {
-      "from": "packages/scene/python",
-      "to": "scene/python",
-      "filter": [
-        "worker.py",
-        "geometry.py",
-        "gltf.py",
-        "distance.py",
-        "install.py",
-        "requirements.txt"
-      ]
-    },
-    { "from": "packages/scene/skills", "to": "scene/skills", "filter": ["**/SKILL.md"] }
-  ],
   "publish": null,
   "artifactName": "Dai-${version}-${os}-${arch}.${ext}",
   "mac": {
@@ -34,11 +22,24 @@
     "icon": "dist/icons/app.icns",
     "backgroundColor": "#F4F1EA",
     "contents": [
-      { "x": 160, "y": 180, "type": "file" },
-      { "x": 380, "y": 180, "type": "link", "path": "/Applications" }
+      {
+        "x": 160,
+        "y": 180,
+        "type": "file"
+      },
+      {
+        "x": 380,
+        "y": 180,
+        "type": "link",
+        "path": "/Applications"
+      }
     ]
   },
-  "win": { "target": ["nsis"], "icon": "dist/icons/app.ico", "signExecutable": false },
+  "win": {
+    "target": ["nsis"],
+    "icon": "dist/icons/app.ico",
+    "signExecutable": false
+  },
   "nsis": {
     "artifactName": "Dai-Setup-${version}-${arch}.exe",
     "oneClick": false,
@@ -54,7 +55,12 @@
     "icon": "dist/icons",
     "executableName": "daidai-pi",
     "category": "Utility",
-    "desktop": { "entry": { "Name": "Dai", "StartupWMClass": "daidai-pi" } }
+    "desktop": {
+      "entry": {
+        "Name": "Dai",
+        "StartupWMClass": "daidai-pi"
+      }
+    }
   },
   "deb": {
     "artifactName": "daidai-pi_${version}_${arch}.${ext}",

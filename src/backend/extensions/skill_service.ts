@@ -44,14 +44,10 @@ function inspectSkill(dir: string, name?: string): Skill {
   return skill;
 }
 
-/** 用户 Skill 保存在 Dai 数据根；包内 Skill 由包管理器只读发现。
- *  导入技能目录
- *
- *
- */
+/** 用户 Skill 保存在 Dai 数据根；包内 Skill 由包管理器只读发现。 */
 export function createSkillService({ dataRoot }: { dataRoot: string }) {
   if (!isAbsolute(dataRoot)) throw new Error("数据目录必须是绝对路径。");
-  const skillsRoot = join(dataRoot, "data", "skills");
+  const skillsRoot = join(dataRoot, "agent", "skills");
 
   async function ownedSkillDirectory(name: string): Promise<string> {
     checkName(name);
@@ -77,6 +73,25 @@ export function createSkillService({ dataRoot }: { dataRoot: string }) {
     }
   }
 
+  // 创建和导入共用目录占用、发布和失败回收；SKILL.md 最后写入，避免发现半成品。
+  async function storeSkill(name: string, text: string, prepare?: (dir: string) => Promise<void>) {
+    const dir = join(skillsRoot, name);
+    try {
+      await mkdir(dir);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("Skill 已存在。");
+      throw error;
+    }
+    try {
+      await prepare?.(dir);
+      await writeFile(join(dir, "SKILL.md"), text, { mode: 0o600, flag: "wx" });
+      return inspectSkill(dir, name);
+    } catch (error) {
+      await rm(dir, { recursive: true, force: true });
+      throw error;
+    }
+  }
+
   return {
     async list() {
       return loadSkillsFromDir({ dir: skillsRoot, source: "dai-user" });
@@ -88,20 +103,7 @@ export function createSkillService({ dataRoot }: { dataRoot: string }) {
 
     async create(name: string, text: string): Promise<Skill> {
       await validateSkillText(name, text);
-      const dir = join(skillsRoot, name);
-      try {
-        await mkdir(dir);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("Skill 已存在。");
-        throw error;
-      }
-      try {
-        await writeFile(join(dir, "SKILL.md"), text, { mode: 0o600, flag: "wx" });
-        return inspectSkill(dir, name);
-      } catch (error) {
-        await rm(dir, { recursive: true, force: true });
-        throw error;
-      }
+      return storeSkill(name, text);
     },
 
     async save(name: string, text: string): Promise<Skill> {
@@ -135,16 +137,7 @@ export function createSkillService({ dataRoot }: { dataRoot: string }) {
       const skill = inspectSkill(source);
       const text = await readFile(join(source, "SKILL.md"), "utf8");
       await validateSkillText(skill.name, text);
-      const dir = join(skillsRoot, skill.name);
-
-      try {
-        await mkdir(dir);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("Skill 已存在。");
-        throw error;
-      }
-      try {
-        // 最后写 SKILL.md，避免半完成的目录被资源发现器当作有效 Skill。
+      return storeSkill(skill.name, text, async (dir) => {
         for (const entry of await readdir(source)) {
           if (entry !== "SKILL.md") {
             await cp(join(source, entry), join(dir, entry), {
@@ -154,12 +147,7 @@ export function createSkillService({ dataRoot }: { dataRoot: string }) {
             });
           }
         }
-        await writeFile(join(dir, "SKILL.md"), text, { mode: 0o600, flag: "wx" });
-        return inspectSkill(dir, skill.name);
-      } catch (error) {
-        await rm(dir, { recursive: true, force: true });
-        throw error;
-      }
+      });
     },
   };
 }

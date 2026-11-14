@@ -10,6 +10,7 @@ export function Dialog({
   wide = false,
   protectChanges = false,
   className = "",
+  closeLabel = "关闭弹窗",
 }: {
   title: string;
   children: ReactNode;
@@ -17,6 +18,7 @@ export function Dialog({
   wide?: boolean;
   protectChanges?: boolean;
   className?: string;
+  closeLabel?: string;
 }) {
   const [element, setElement] = useState<HTMLDialogElement | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -43,7 +45,7 @@ export function Dialog({
     >
       <header className="dialog-header">
         <h2>{title}</h2>
-        <button type="button" className="icon-button" aria-label="关闭弹窗" onClick={close}>
+        <button type="button" className="icon-button" aria-label={closeLabel} onClick={close}>
           <Icon name="close" />
         </button>
       </header>

@@ -55,8 +55,6 @@ test("Electron selects native reasoning, renders streamed/history GFM and keeps 
     release = resolve;
   });
   const planner = await servePlanner((request) => {
-    const user = request.messages.filter((message) => message.role === "user").at(-1)?.content;
-    if (user?.includes("应用事件：用户已进入场景搭建")) return { text: "请问是什么场景？" };
     return !turnResults(request).count
       ? {
           id: "read",

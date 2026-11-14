@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
+import { createThemePackage } from "../../support/desktop_theme.ts";
 
 const exec = promisify(execFile);
 test("Pi npm 使用本地测试 registry 安装和更新，隔离作用域且失败不写配置", {
@@ -14,16 +15,19 @@ test("Pi npm 使用本地测试 registry 安装和更新，隔离作用域且失
 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "dai-npm-package-"));
   const packages = new Map<string, { bytes: Buffer; sha: string }>();
-  for (const version of ["1.0.0", "2.0.0"]) {
+  for (const version of ["1.0.0", "2.0.0", "3.0.0"]) {
     const build = join(root, `build-${version}`);
     const dir = join(build, "package");
     await mkdir(join(dir, "extensions"), { recursive: true });
+    if (version === "3.0.0") await createThemePackage(dir);
     await writeFile(
       join(dir, "package.json"),
       JSON.stringify({
         name: "dai-offline-fixture",
         version,
-        pi: { extensions: ["extensions/index.ts"] },
+        ...(version === "3.0.0"
+          ? { dai: JSON.parse(await readFile(join(dir, "package.json"), "utf8")).dai }
+          : { pi: { extensions: ["extensions/index.ts"] } }),
       }),
     );
     await writeFile(
@@ -47,6 +51,13 @@ test("Pi npm 使用本地测试 registry 安装和更新，隔离作用域且失
     }
     if (req.url === "/make-unavailable") {
       unavailable = true;
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+    if (req.url === "/desktop") {
+      unavailable = false;
+      current = "3.0.0";
       res.writeHead(204);
       res.end();
       return;

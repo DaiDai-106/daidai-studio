@@ -10,7 +10,7 @@ export default defineConfig(({ command }) => {
     "default-src 'self'",
     `script-src 'self'${development ? " 'unsafe-inline'" : ""}`,
     `style-src 'self'${development ? " 'unsafe-inline'" : ""}`,
-    development ? "connect-src 'self' dai-resource: ws://127.0.0.1:*" : "connect-src dai-resource:",
+    development ? "connect-src 'self' ws://127.0.0.1:*" : "connect-src 'none'",
     "img-src 'self' data:",
     "object-src 'none'",
     "base-uri 'none'",

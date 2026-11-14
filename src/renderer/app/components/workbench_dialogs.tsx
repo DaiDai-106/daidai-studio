@@ -60,7 +60,7 @@ export function ArchivesDialog({
   return (
     <Dialog title="已归档对话" onClose={onClose}>
       <p className="muted">
-        归档可恢复，删除后无法从应用恢复。项目文件和共享场景保留；底层历史暂留，不释放磁盘空间。
+        归档可恢复，删除后无法从应用恢复。项目文件保留；底层历史暂留，不释放磁盘空间。
       </p>
       {error && (
         <p className="error" role="alert">

@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type { UtilityProcess } from "electron";
-import { Value } from "typebox/value";
 import {
   type ApplicationEvent,
   type Arguments,
@@ -11,7 +10,6 @@ import {
   validEvent,
 } from "../../contracts/application.ts";
 import type { BackendMessage } from "../../contracts/process.ts";
-import { type ResourceLocation, ResourceLocationSchema } from "../../contracts/process.ts";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -23,7 +21,7 @@ export function connectBackend(child: UtilityProcess, publish: (event: Applicati
     {
       resolve: (value: unknown) => void;
       reject: (error: Error) => void;
-      timer: ReturnType<typeof setTimeout> | undefined;
+      timer: ReturnType<typeof setTimeout>;
     }
   >();
 
@@ -53,21 +51,14 @@ export function connectBackend(child: UtilityProcess, publish: (event: Applicati
     pending.clear();
   });
 
-  function send(
-    message: object,
-    validate: (value: unknown) => void,
-    waitForCleanup = false,
-  ): Promise<unknown> {
+  function send(message: object, validate: (value: unknown) => void): Promise<unknown> {
     if (exited) return Promise.reject(new Error("应用后端已退出。"));
     return new Promise((resolve, reject) => {
       const id = randomUUID();
-      // 长任务由后端完成或在进程退出时结束，避免超时后后台继续修改场景。
-      const timer = waitForCleanup
-        ? undefined
-        : setTimeout(() => {
-            pending.delete(id);
-            reject(new Error("后端请求超时，请检查当前状态后再试。"));
-          }, REQUEST_TIMEOUT_MS);
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error("后端请求超时，请检查当前状态后再试。"));
+      }, REQUEST_TIMEOUT_MS);
       pending.set(id, {
         resolve: (value) => {
           try {
@@ -85,19 +76,10 @@ export function connectBackend(child: UtilityProcess, publish: (event: Applicati
   }
 
   return {
-    async resolveResource(importId: string, resourceId: string): Promise<ResourceLocation> {
-      const value = await send({ type: "resource", importId, resourceId }, (value) => {
-        if (!Value.Check(ResourceLocationSchema, value)) throw new Error("资源响应无效。");
-      });
-      return value as ResourceLocation;
-    },
-
     async request<K extends Method>(method: K, args: Arguments<K>): Promise<Results[K]> {
       validateRequest(method, args);
-      const value = await send(
-        { type: "request", method, args },
-        (value) => validateResult(method, value),
-        method === "scene.import",
+      const value = await send({ type: "request", method, args }, (value) =>
+        validateResult(method, value),
       );
       return value as Results[K];
     },

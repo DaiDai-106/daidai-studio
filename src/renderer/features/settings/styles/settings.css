@@ -45,6 +45,7 @@
 }
 .settings-sidebar nav {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 .settings-sidebar .section-caption {
@@ -71,17 +72,14 @@
 .settings-nav-item.selected {
   background: var(--selected);
 }
-.back-button {
-  background: transparent;
-  border: 0;
-  align-self: flex-start;
-  margin: 18px 0;
-  color: var(--muted);
-  font-size: 12px;
+.settings-footer {
+  display: grid;
+  gap: 4px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
 }
-.back-button span {
-  font-size: 22px;
-  line-height: 16px;
+.settings-footer button:last-child {
+  color: var(--muted);
 }
 .settings-main {
   flex: 1;
@@ -154,7 +152,7 @@
 .button-group button {
   font-size: 12px;
 }
-/* 模型提供方、MCP 与技能共用的卡片和操作区。 */
+/* 模型提供方与技能共用的卡片和操作区。 */
 .service-card {
   border: 1px solid transparent;
   background: var(--subtle);

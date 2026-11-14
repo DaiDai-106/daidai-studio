@@ -9,7 +9,6 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import type { App } from "electron";
-import { createSceneResourceReader } from "./resource_reader.ts";
 
 type PathHooks = { beforeMkdir?: (name: string) => void };
 const directoryFlags = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
@@ -74,7 +73,7 @@ export function configureDataPaths(app: App, hooks: PathHooks = {}) {
     mkdirSync(configuredRoot, { recursive: true, mode: 0o700 });
     const root = realpathSync(configuredRoot);
     const profile = isolated || join(root, "desktop");
-    for (const path of [profile, join(root, "logs"), join(root, "cache"), join(root, "tmp")])
+    for (const path of [profile, join(root, "logs")])
       mkdirSync(path, { recursive: true, mode: 0o700 });
     app.setPath("userData", profile);
     app.setAppLogsPath(join(root, "logs"));
@@ -83,7 +82,8 @@ export function configureDataPaths(app: App, hooks: PathHooks = {}) {
       configuredRoot,
       profile,
       database: join(root, "app.sqlite"),
-      resourceReader: createSceneResourceReader(root),
+      rootIdentity: undefined,
+      close() {},
     };
   }
 
@@ -94,9 +94,7 @@ export function configureDataPaths(app: App, hooks: PathHooks = {}) {
     rootDirectory = openOrCreateDirectory(rootInput, hooks);
     const root = rootDirectory.path;
     verifyDirectoryPath(configuredRoot, rootDirectory.handle);
-    for (const name of isolatedDirectory
-      ? ["logs", "cache", "tmp"]
-      : ["desktop", "logs", "cache", "tmp"]) {
+    for (const name of isolatedDirectory ? ["logs"] : ["desktop", "logs"]) {
       const path = `/proc/self/fd/${rootDirectory.handle}/${name}`;
       hooks.beforeMkdir?.(name);
       try {
@@ -112,12 +110,15 @@ export function configureDataPaths(app: App, hooks: PathHooks = {}) {
     verifyDirectoryPath(root, rootDirectory.handle);
     if (isolatedDirectory) verifyDirectoryPath(isolated, isolatedDirectory.handle);
     const profile = isolatedDirectory?.path ?? join(root, "desktop");
-    const resourceReader = createSceneResourceReader(root, {}, rootDirectory.handle);
+    const rootFd = openSync(`/proc/self/fd/${rootDirectory.handle}/.`, directoryFlags);
+    const rootStat = fstatSync(rootFd, { bigint: true });
+    const rootIdentity = { dev: rootStat.dev.toString(), ino: rootStat.ino.toString() };
+    let closed = false;
     try {
       app.setPath("userData", profile);
       app.setAppLogsPath(join(root, "logs"));
     } catch (error) {
-      resourceReader.close();
+      closeSync(rootFd);
       throw error;
     }
     return {
@@ -125,7 +126,13 @@ export function configureDataPaths(app: App, hooks: PathHooks = {}) {
       configuredRoot,
       profile,
       database: join(root, "app.sqlite"),
-      resourceReader,
+      rootIdentity,
+      close() {
+        if (!closed) {
+          closed = true;
+          closeSync(rootFd);
+        }
+      },
     };
   } finally {
     if (rootDirectory) closeSync(rootDirectory.handle);

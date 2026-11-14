@@ -6,21 +6,15 @@ import type {
   LoginInfo,
   ManagedSkill,
   ModelChoice,
-  PackageInfo,
-  PackageScope,
   ProjectInfo,
   ProviderConfig,
   ProviderInfo,
   ProviderTypeInfo,
   Results,
-  ScenePythonStatus,
-  SceneTransform,
-  SceneView,
   SettingsInfo,
   WorkspaceInfo,
 } from "./application.ts";
 import type { ConversationMode } from "./capabilities.ts";
-import type { Theme } from "./desktop.ts";
 
 export type CreateProjectInput = {
   name: string;
@@ -30,6 +24,18 @@ export type CreateProjectInput = {
 
 // 渲染界面可通过 preload 调用的应用接口；具体执行交给桌面进程和后端。
 export interface ApplicationBridge {
+  catalogSources(): Promise<Results["catalog.sources"]>;
+  searchCatalog(input: Arguments<"catalog.search">): Promise<Results["catalog.search"]>;
+  catalogDetail(input: Arguments<"catalog.detail">): Promise<Results["catalog.detail"]>;
+  configureCatalog(input: Arguments<"catalog.configure">): Promise<null>;
+  installedPlugins(
+    moduleId?: Arguments<"catalog.installed">["moduleId"],
+  ): Promise<Results["catalog.installed"]>;
+  catalogTasks(): Promise<Results["catalog.tasks"]>;
+  installCatalog(input: Arguments<"catalog.install">): Promise<Results["catalog.install"]>;
+  packageAction(
+    input: Arguments<"catalog.packageAction">,
+  ): Promise<Results["catalog.packageAction"]>;
   // 工作区、模型提供方和配置。
   getWorkspace(cursor?: string): Promise<WorkspaceInfo>;
   getProviderTypes(): Promise<ProviderTypeInfo[]>;
@@ -40,11 +46,7 @@ export interface ApplicationBridge {
   ): Promise<ModelChoice[]>;
   saveProvider(config: ProviderConfig, loginId?: string): Promise<ProviderInfo>;
   removeProvider(id: string): Promise<null>;
-  updateSettings(change: {
-    theme?: Theme;
-    defaultModel?: string;
-    showThinking?: boolean;
-  }): Promise<SettingsInfo>;
+  updateSettings(change: Arguments<"settings.update">): Promise<SettingsInfo>;
 
   // 认证交互由后端维护状态，前端只提交当前步骤的回答。
   startLogin(providerType: string, method: "api_key" | "oauth"): Promise<LoginInfo>;
@@ -75,74 +77,20 @@ export interface ApplicationBridge {
     path: string,
     kind: "staged" | "unstaged" | "untracked",
   ): Promise<Results["coding.diff"]>;
-  getProjectScene(projectId: string): Promise<SceneView>;
-  getScenePythonStatus(): Promise<ScenePythonStatus>;
-  installScenePython(): Promise<ScenePythonStatus>;
-  cancelSceneImport(projectId: string): Promise<null>;
-  relocateSceneSource(input: {
-    projectId: string;
-    modelId: string;
-    revision: number;
-  }): Promise<SceneView | null>;
-  importStep(input: {
-    projectId: string;
-    operation: "replace" | "append";
-    revision: number;
-  }): Promise<SceneView | null>;
-  importDroppedStep(
-    file: File,
-    input: {
-      projectId: string;
-      operation: "replace" | "append";
-      revision: number;
-    },
-  ): Promise<SceneView>;
-  setSceneTransform(input: {
-    projectId: string;
-    modelId: string;
-    objectId: string;
-    revision: number;
-    transform: SceneTransform;
-  }): Promise<SceneView>;
-  deleteSceneObject(input: {
-    projectId: string;
-    modelId: string;
-    objectId: string;
-    revision: number;
-  }): Promise<SceneView>;
-  confirmSceneJoint(input: {
-    projectId: string;
-    candidateId: string;
-    revision: number;
-  }): Promise<SceneView>;
-  discardSceneJointDraft(input: {
-    projectId: string;
-    candidateId: string;
-    revision: number;
-  }): Promise<SceneView>;
-  removeConfirmedSceneJoint(input: {
-    projectId: string;
-    candidateId: string;
-    revision: number;
-  }): Promise<SceneView>;
   forkConversation(id: string): Promise<ConversationInfo>;
-  listPackages(projectId?: string): Promise<PackageInfo[]>;
-  updatePackage(input: { projectId?: string; source?: string }): Promise<null>;
   respondExtensionUi(input: {
     requestId: string;
     cancelled: boolean;
     value?: string;
   }): Promise<null>;
-  installPackage(input: { source: string; scope: PackageScope; projectId?: string }): Promise<null>;
-  removePackage(input: { source: string; scope: PackageScope; projectId?: string }): Promise<null>;
-  setPackageEnabled(input: {
-    source: string;
-    scope: PackageScope;
-    projectId?: string;
-    enabled: boolean;
-  }): Promise<null>;
-  listSkills(projectId?: string): Promise<ManagedSkill[]>;
-  readSkillDocument(id: string, projectId?: string): Promise<string>;
+  listSkills(
+    moduleId?: Arguments<"skill.library.list">["moduleId"],
+    userOnly?: boolean,
+  ): Promise<ManagedSkill[]>;
+  readSkillDocument(
+    id: string,
+    moduleId?: Arguments<"skill.library.read">["moduleId"],
+  ): Promise<string>;
   createSkillDocument(input: { name: string; text: string }): Promise<ManagedSkill>;
   saveSkillDocument(input: { name: string; text: string }): Promise<ManagedSkill>;
   importSkillDirectory(): Promise<ManagedSkill | null>;
@@ -155,7 +103,6 @@ export interface ApplicationBridge {
     requestId: string,
     text: string,
     images?: import("./application.ts").ChatImage[],
-    sceneReference?: import("./application.ts").SceneReference,
   ): Promise<{ submissionId: string }>;
   stopConversation(id: string): Promise<null>;
   // 工具确认和后端主动推送的状态。

@@ -1,29 +1,34 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import {
   DefaultPackageManager,
   type ResolvedPaths,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-
-type Scope = "user" | "project";
-
-export type PackageInfo = {
-  source: string;
-  scope: Scope;
-  enabled: boolean;
-  filtered: boolean;
-  installedPath?: string;
-};
+import {
+  type CatalogResource,
+  type InstalledPackage,
+  type PluginHost,
+  type PluginModule,
+  pluginModules,
+  type PluginScope as Scope,
+} from "../../contracts/catalog.ts";
+import { packageManifest } from "./package_manifest.ts";
 
 type Options = {
   dataRoot: string;
-  projectId?: string;
-  cwd?: string;
+  host?: PluginHost;
+  moduleId?: PluginModule;
+  progress?: (message: string) => void;
+  beforeAgentChange?: () => Promise<void>;
 };
+type PackageLocation = Pick<InstalledPackage, "source" | "scope" | "installedPath" | "enabled">;
 
-// 项目之间共享全局包配置，必须使用同一队列避免并发写入互相覆盖。
+// 同宿主的各模块共享全局设置和 npm 目录，读写必须跨服务实例排队。
+// 两个宿主使用不同队列，安装桌面主题不会阻塞 Agent 的资源读取。
 const operations = new Map<string, Promise<unknown>>();
 
 function readText(path: string): string | undefined {
@@ -37,22 +42,51 @@ function writeText(path: string, text: string): void {
   renameSync(temporary, path);
 }
 
-/** Pi 的项目作用域放在 Dai 数据根，避免修改用户工作目录或 ~/.pi。 */
-export function createPackageService({ dataRoot, projectId, cwd }: Options) {
-  if (!isAbsolute(dataRoot)) throw new Error("数据目录必须是绝对路径。");
-  if (projectId !== undefined && !/^[a-zA-Z0-9_-]{1,128}$/.test(projectId)) {
-    throw new Error("无效的项目 ID。");
+/** 在任务登记前统一来源，避免索引使用别名，或把 URL 密码写入任务与日志。 */
+export function normalizePackageSource(source: string): string {
+  const trimmed = source.trim();
+  const value = /^~[\\/]/.test(trimmed) ? resolve(homedir(), trimmed.slice(2)) : trimmed;
+  if (!value) throw new Error("包来源不能为空。");
+  if (!isAbsolute(value) && !/^(npm:|git:|https?:\/\/|ssh:\/\/)/i.test(value))
+    throw new Error("请使用本地插件的绝对路径或 ~/ 路径。");
+  if (/^(git:)?(https?|ssh):\/\//i.test(value)) {
+    let url: URL;
+    try {
+      url = new URL(value.replace(/^git:/i, ""));
+    } catch {
+      throw new Error("Git 地址格式无效。");
+    }
+    if (url.password || (url.username && url.protocol !== "ssh:"))
+      throw new Error("请通过系统 Git 凭据配置认证，不要把凭据写入包地址。");
   }
-  const root = resolve(dataRoot);
-  const packageRoot = join(root, "packages");
-  const projectRoot = join(packageRoot, "projects", projectId ?? "_global");
+  return value;
+}
+
+/** 共用 Pi 的安装能力；配置目录决定宿主，包清单不能在更新时改变归属。 */
+export function createPackageService({
+  dataRoot,
+  host = "pi",
+  moduleId = "coding",
+  progress,
+  beforeAgentChange,
+}: Options) {
+  if (!isAbsolute(dataRoot)) throw new Error("数据目录必须是绝对路径。");
+  if (host !== "pi" && host !== "desktop") throw new Error("无效的插件宿主。");
+  if (!Object.hasOwn(pluginModules, moduleId)) throw new Error("无效的插件模块。");
+  const packageRoot = join(resolve(dataRoot), host === "pi" ? "agent" : "desktop", "packages");
+  const moduleRoot = join(packageRoot, "modules", moduleId);
   const globalSettings = join(packageRoot, "settings.json");
-  const projectSettings = join(projectRoot, "settings.json");
+  const moduleSettings = host === "pi" ? join(moduleRoot, "settings.json") : undefined;
   const disabledPath = join(packageRoot, "disabled.json");
   const settings = SettingsManager.fromStorage(
     {
       withLock(scope, update) {
-        const path = scope === "global" ? globalSettings : projectSettings;
+        const path = scope === "global" ? globalSettings : moduleSettings;
+        // Desktop 仅全局生效，SDK 的 project 视图保持空，不读取遗留模块配置。
+        if (!path) {
+          update(undefined);
+          return;
+        }
         const current = readText(path);
         const next = update(current);
         if (next !== undefined && next !== current) writeText(path, next);
@@ -60,50 +94,51 @@ export function createPackageService({ dataRoot, projectId, cwd }: Options) {
     },
     { projectTrusted: true },
   );
-  // Pi 的 project package 安装目录依赖 cwd；此处使用受控目录，绝不写用户项目下的 .pi。
+  // SDK 的 project 作用域对应 Dai 模块，cwd 不指向用户项目。
   const manager = new DefaultPackageManager({
-    cwd: join(projectRoot, "workspace"),
-    agentDir: join(packageRoot, "agent"),
+    cwd: host === "pi" ? join(moduleRoot, "workspace") : packageRoot,
+    agentDir: packageRoot,
     settingsManager: settings,
   });
+  if (progress)
+    manager.setProgressCallback((event) =>
+      progress(event.message ?? `${event.action}: ${event.source}`),
+    );
 
   function scopeOptions(scope: Scope) {
-    if (scope !== "user" && scope !== "project") throw new Error("无效的包作用域。");
-    if (scope === "project" && !projectId) throw new Error("项目作用域需要项目 ID。");
-    return { local: scope === "project" };
-  }
-
-  function normalizeSource(source: string): string {
-    const value = source.trim();
-    if (!value) throw new Error("包来源不能为空。");
-    if (value.startsWith("./") || value.startsWith("../")) {
-      if (!cwd) throw new Error("相对路径需要项目工作目录。");
-      return resolve(cwd, value);
-    }
-    return value;
+    if (scope !== "global" && scope !== "module") throw new Error("无效的包作用域。");
+    if (host === "desktop" && scope !== "global") throw new Error("桌面插件需要全局安装。");
+    return { local: scope === "module" };
   }
 
   function disabledKey(source: string, scope: Scope): string {
-    return JSON.stringify(scope === "user" ? [scope, source] : [scope, projectId, source]);
+    return JSON.stringify(scope === "global" ? [scope, source] : [scope, moduleId, source]);
   }
 
   function displaySource(source: string, scope: Scope): string {
-    // Pi 将本地包写成相对设置目录的路径；对应用展示和索引使用稳定绝对路径。
-    if (source === "." || source.startsWith("./") || source.startsWith("../")) {
+    // Pi 持久化本地相对路径，界面和索引统一使用绝对路径。
+    if (source === "." || source.startsWith("./") || source.startsWith("../"))
       return resolve(
-        scope === "user" ? join(packageRoot, "agent") : join(projectRoot, "workspace", ".pi"),
+        scope === "global" ? packageRoot : join(moduleRoot, "workspace", ".pi"),
         source,
       );
-    }
     return source;
   }
 
   function disabled(): Set<string> {
     const value: unknown = JSON.parse(readText(disabledPath) ?? "[]");
-    if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    if (!Array.isArray(value) || value.some((item) => typeof item !== "string"))
       throw new Error("包启用状态文件损坏。");
-    }
     return new Set(value);
+  }
+
+  function saveEnabled(source: string, scope: Scope, enabled: boolean) {
+    const stopped = disabled();
+    const key = disabledKey(source, scope);
+    if (stopped.has(key) === !enabled) return;
+    if (enabled) stopped.delete(key);
+    else stopped.add(key);
+    writeText(disabledPath, JSON.stringify([...stopped]));
   }
 
   function checkErrors(): void {
@@ -111,8 +146,13 @@ export function createPackageService({ dataRoot, projectId, cwd }: Options) {
     if (errors.length) throw new Error(errors.map(({ error }) => error.message).join("\n"));
   }
 
+  async function flush() {
+    await settings.flush();
+    checkErrors();
+  }
+
   function run<T>(fn: () => Promise<T> | T): Promise<T> {
-    const result = (operations.get(root) ?? Promise.resolve()).then(async () => {
+    const result = (operations.get(packageRoot) ?? Promise.resolve()).then(async () => {
       await settings.reload();
       checkErrors();
       return fn();
@@ -121,86 +161,145 @@ export function createPackageService({ dataRoot, projectId, cwd }: Options) {
       () => undefined,
       () => undefined,
     );
-    operations.set(root, pending);
+    operations.set(packageRoot, pending);
     void pending.then(() => {
-      if (operations.get(root) === pending) operations.delete(root);
+      if (operations.get(packageRoot) === pending) operations.delete(packageRoot);
     });
     return result;
   }
 
-  function configured(): PackageInfo[] {
-    const stopped = disabled();
+  function configured(stopped = disabled()) {
     return manager.listConfiguredPackages().map((entry) => {
-      const source = displaySource(entry.source, entry.scope);
-      return { ...entry, source, enabled: !stopped.has(disabledKey(source, entry.scope)) };
+      const scope: Scope = entry.scope === "user" ? "global" : "module";
+      const source = displaySource(entry.source, scope);
+      return {
+        source,
+        scope,
+        installedPath: entry.installedPath ?? "",
+        enabled: !stopped.has(disabledKey(source, scope)),
+      };
     });
   }
 
-  async function flush(): Promise<void> {
-    await settings.flush();
-    checkErrors();
+  // 清单边界只解析一次；列表展示和安装／加载校验复用同一结果。
+  async function readManifest(installedPath: string) {
+    let manifest: Record<string, unknown> = {};
+    let manifestError = "";
+    let resources: CatalogResource[] = [];
+    try {
+      if (!installedPath) throw new Error("插件安装内容暂不可用。");
+      try {
+        const value: unknown = JSON.parse(
+          await readFile(join(installedPath, "package.json"), "utf8"),
+        );
+        if (!value || typeof value !== "object" || Array.isArray(value))
+          throw new Error("包清单需要 JSON 对象。");
+        manifest = value as Record<string, unknown>;
+      } catch (error) {
+        // Pi 支持无 package.json 的本地资源目录；Desktop 始终需要显式声明。
+        if (host !== "pi" || (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      const parsed = packageManifest(manifest);
+      resources = parsed.resources;
+      if (parsed.host !== host)
+        throw new Error("插件清单与安装宿主不匹配，请选择正确的插件类型重新安装。");
+    } catch (error) {
+      manifestError = (error instanceof Error ? error.message : "包清单读取失败。").slice(0, 2000);
+    }
+    return { manifest, resources, manifestError };
   }
 
+  async function describe(item: PackageLocation): Promise<InstalledPackage> {
+    const { manifest, resources, manifestError } = await readManifest(item.installedPath);
+    const text = (value: unknown, limit = 4096) =>
+      typeof value === "string" ? value.slice(0, limit) : "";
+    return {
+      ...item,
+      host,
+      ...(item.scope === "module" ? { moduleId } : {}),
+      name: text(manifest.name, 500) || item.source,
+      description: text(manifest.description),
+      version: text(manifest.version, 100),
+      resources,
+      dai: manifest.dai ?? null,
+      manifestError,
+    };
+  }
+
+  async function validateSource(source: string, scope: Scope) {
+    const path = manager.getInstalledPath(source, scope === "global" ? "user" : "project");
+    const { manifestError } = await readManifest(path ?? "");
+    if (manifestError) throw new Error(manifestError);
+  }
+
+  const beforeChange = () => (host === "pi" ? beforeAgentChange?.() : undefined);
+
   return {
-    list(): Promise<PackageInfo[]> {
-      return run(() => configured());
-    },
+    inspect: () => run(() => Promise.all(configured().map(describe))),
 
     install(source: string, scope: Scope): Promise<void> {
       return run(async () => {
         const options = scopeOptions(scope);
-        await manager.installAndPersist(normalizeSource(source), options);
+        const normalized = normalizePackageSource(source);
+        await beforeChange();
+        await manager.install(normalized, options);
+        await validateSource(normalized, scope);
+        manager.addSourceToSettings(normalized, options);
         await flush();
+        // 安装与启用共用同一次队列操作；新会话不能在两步之间读取旧的停用状态。
+        saveEnabled(normalized, scope, true);
       });
     },
 
     remove(source: string, scope: Scope): Promise<boolean> {
       return run(async () => {
         const options = scopeOptions(scope);
-        const normalized = normalizeSource(source);
-        if (!configured().some((entry) => entry.source === normalized && entry.scope === scope))
+        const normalized = normalizePackageSource(source);
+        if (!configured().some((item) => item.source === normalized && item.scope === scope))
           return false;
+        await beforeChange();
         const removed = await manager.removeAndPersist(normalized, options);
         await flush();
-        const stopped = disabled();
-        if (stopped.delete(disabledKey(normalized, scope)))
-          writeText(disabledPath, JSON.stringify([...stopped]));
+        saveEnabled(normalized, scope, true);
         return removed;
       });
     },
 
     setEnabled(source: string, scope: Scope, enabled: boolean): Promise<void> {
-      return run(() => {
+      return run(async () => {
         scopeOptions(scope);
-        const normalized = normalizeSource(source);
-        if (!configured().some((entry) => entry.source === normalized && entry.scope === scope)) {
+        const normalized = normalizePackageSource(source);
+        if (!configured().some((item) => item.source === normalized && item.scope === scope))
           throw new Error("找不到指定作用域的包。");
-        }
-        const stopped = disabled();
-        const key = disabledKey(normalized, scope);
-        if (enabled) stopped.delete(key);
-        else stopped.add(key);
-        writeText(disabledPath, JSON.stringify([...stopped]));
+        if (enabled) await validateSource(normalized, scope);
+        await beforeChange();
+        saveEnabled(normalized, scope, enabled);
       });
     },
 
     resolve(): Promise<ResolvedPaths> {
+      if (host !== "pi") throw new Error("桌面插件不使用 Pi 资源加载器。");
       return run(async () => {
         const stopped = disabled();
-        // 禁止资源发现阶段隐式联网安装缺失的包。
+        const packages = configured(stopped);
+        // 停用或缺失的包不参与加载校验；加载阶段不构造界面展示字段。
+        await Promise.all(
+          packages
+            .filter((item) => item.enabled && item.installedPath)
+            .map((item) => validateSource(item.source, item.scope)),
+        );
+        // 这里只读取 Pi 安装空间，并禁止资源发现阶段隐式联网补装。
         const resources = await manager.resolve(async () => "skip");
         const visible = (items: ResolvedPaths["extensions"]) =>
-          items.filter(
-            (item) =>
-              item.metadata.origin !== "package" ||
-              item.metadata.scope === "temporary" ||
-              !stopped.has(
-                disabledKey(
-                  displaySource(item.metadata.source, item.metadata.scope),
-                  item.metadata.scope,
-                ),
-              ),
-          );
+          items.flatMap((item) => {
+            const { origin, scope } = item.metadata;
+            if (origin !== "package" || scope === "temporary") return [item];
+            const packageScope = scope === "user" ? "global" : "module";
+            const source = displaySource(item.metadata.source, packageScope);
+            return stopped.has(disabledKey(source, packageScope))
+              ? []
+              : [{ ...item, metadata: { ...item.metadata, source } }];
+          });
         return {
           extensions: visible(resources.extensions),
           skills: visible(resources.skills),
@@ -210,15 +309,23 @@ export function createPackageService({ dataRoot, projectId, cwd }: Options) {
       });
     },
 
-    update(source?: string): Promise<void> {
+    update(source: string): Promise<void> {
       return run(async () => {
-        await manager.update(source ? normalizeSource(source) : undefined);
+        const normalized = normalizePackageSource(source);
+        const paths = (["global", "module"] as const).map((scope) =>
+          manager.getInstalledPath(normalized, scope === "global" ? "user" : "project"),
+        );
+        const targets = configured().filter(
+          (item) =>
+            item.source === normalized ||
+            (!!item.installedPath && paths.includes(item.installedPath)),
+        );
+        await beforeChange();
+        await manager.update(normalized);
+        // 更新可同时影响全局和模块配置，验证该宿主的实际清单，不自动切换宿主。
+        for (const item of targets) await validateSource(item.source, item.scope);
         await flush();
       });
-    },
-
-    async dispose(): Promise<void> {
-      await run(flush);
     },
   };
 }

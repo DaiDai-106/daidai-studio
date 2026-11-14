@@ -99,17 +99,6 @@ export async function createCredentials(
 
   return {
     store,
-    async readApplicationSecret(key: string): Promise<string | undefined> {
-      const credential = await memory.read(key);
-      return credential?.type === "api_key" ? credential.key : undefined;
-    },
-
-    async writeApplicationSecret(key: string, value: string): Promise<void> {
-      const credential: Credential = { type: "api_key", key: value };
-      await persist(key, credential);
-      await memory.modify(key, async () => credential);
-    },
-
     async stage(credential: Credential) {
       const key = crypto.randomUUID();
       await persist(key, credential);

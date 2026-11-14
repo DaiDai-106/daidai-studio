@@ -190,24 +190,6 @@
 .workspace.coding-mode[data-coding-open="false"] {
   grid-template-columns: minmax(0, 1fr);
 }
-.workspace.scene-mode {
-  grid-template-columns: minmax(0, 1fr) 5px var(--chat-width);
-}
-.workspace.robot-mode {
-  grid-template-columns: minmax(0, 1fr) 5px var(--robot-width);
-}
-.robot-mode > .robot-panel {
-  grid-column: 1;
-  grid-row: 1;
-}
-.robot-mode > .robot-splitter {
-  grid-column: 2;
-  grid-row: 1;
-}
-:where(.robot-mode) > .assistant-workspace {
-  grid-column: 3;
-  grid-row: 1;
-}
 .mobile-tabs {
   display: none;
 }

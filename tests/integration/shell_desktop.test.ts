@@ -14,8 +14,6 @@ test("desktop shows the complete shell command and requires confirmation before 
   const shell = process.platform === "win32" ? "powershell" : "bash";
   const command = `node -e "require('fs').writeFileSync('marker.txt','approved')"`;
   const planner = await servePlanner((request) => {
-    const user = request.messages.filter((message) => message.role === "user").at(-1)?.content;
-    if (user?.includes("应用事件：用户已进入场景搭建")) return { text: "请问是什么场景？" };
     return turnResults(request).count === 0
       ? { id: "shell-call", name: shell, args: { command } }
       : { text: "命令已处理" };

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { openApplication } from "../../src/backend/application.ts";
 import type { ApplicationEvent, ExtensionUiRequest } from "../../src/contracts/application.ts";
+import { runPackageAction } from "../support/catalog_task.ts";
 
 test("真实 Pi package 的确认、选择、输入经桌面桥交互后继续工具", { timeout: 15_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "dai-extension-ui-"));
@@ -59,7 +60,12 @@ test("真实 Pi package 的确认、选择、输入经桌面桥交互后继续�
       mode: "coding",
       path: root,
     });
-    await app.request("package.install", { projectId: project.id, scope: "project", source });
+    await runPackageAction(app, {
+      action: "install",
+      moduleId: "coding",
+      scope: "module",
+      source,
+    });
     await app.request("provider.save", {
       config: {
         id: "local",

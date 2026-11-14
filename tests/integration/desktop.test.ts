@@ -43,6 +43,7 @@ test("built desktop starts with an isolated renderer and shuts down its backend"
     assert.deepEqual(state.bridgeKeys, [
       "application",
       "getAppInfo",
+      "getThemes",
       "onBeforeQuit",
       "preview",
       "setTheme",

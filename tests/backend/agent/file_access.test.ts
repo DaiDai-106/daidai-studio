@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { pathToFileURL } from "node:url";
 import { validateFileToolPath } from "../../../src/backend/agent/file_access.ts";
 
-test("Pi 文件工具只允许项目目录、技能目录和明确授权 STEP", async () => {
+test("Pi 文件工具只允许访问项目目录和读取技能目录", async () => {
   const root = await mkdtemp(join(tmpdir(), "dai-file-access-"));
   const cwd = join(root, "project");
   const skill = join(root, "skill");
@@ -14,16 +14,15 @@ test("Pi 文件工具只允许项目目录、技能目录和明确授权 STEP", 
   await Promise.all([mkdir(cwd), mkdir(skill), mkdir(outside)]);
   await writeFile(join(cwd, "ok.txt"), "ok");
   await writeFile(join(skill, "SKILL.md"), "skill");
-  await writeFile(join(outside, "model.step"), "step");
   await writeFile(join(outside, "secret.txt"), "secret");
-  const base = { cwd, skillRoots: [skill], approvedFiles: () => [join(outside, "model.step")] };
+  const base = { cwd, skillRoots: [skill] };
   try {
     await validateFileToolPath({ ...base, path: "@ok.txt", write: false });
     await validateFileToolPath({ ...base, path: "new/sub/file.txt", write: true });
     await validateFileToolPath({ ...base, path: join(skill, "SKILL.md"), write: false });
     await validateFileToolPath({
       ...base,
-      path: pathToFileURL(join(outside, "model.step")).href,
+      path: pathToFileURL(join(skill, "SKILL.md")).href,
       write: false,
     });
     await assert.rejects(

@@ -12,7 +12,7 @@ export function createPiHistory(store: ReturnType<typeof openProjectStore>, data
     if (!conversation) throw new Error("会话不存在。");
     const project = store.getProject(conversation.projectId);
     if (!project) throw new Error("项目不存在。");
-    const directory = join(dataRoot, "sessions", project.id);
+    const directory = join(dataRoot, "agent", "sessions", project.id);
     if (conversation.sessionFile) {
       const rel = relative(directory, conversation.sessionFile);
       if (!rel || rel.startsWith("..") || isAbsolute(rel) || !rel.endsWith(".jsonl"))

@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { _electron as electron } from "playwright";
 import { openTestProject } from "./support.ts";
 
-test("conversation deletion confirms inline, preserves the shared scene and blocks access after restart", {
+test("conversation deletion confirms inline and blocks access after restart", {
   timeout: 60_000,
 }, async () => {
   const profile = await mkdtemp(join(tmpdir(), "dai-delete-chat-"));
@@ -29,7 +29,7 @@ test("conversation deletion confirms inline, preserves the shared scene and bloc
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]?.setContentSize(1500, 940),
     );
-    const directory = await openTestProject(app, page, profile, "scene");
+    const directory = await openTestProject(app, page, profile, "coding");
     const first = await page.evaluate(async () => {
       const item = (await window.desktop.application.getWorkspace()).conversations[0];
       if (!item) throw new Error("Missing first conversation");
@@ -39,12 +39,6 @@ test("conversation deletion confirms inline, preserves the shared scene and bloc
     const projectId = (await page.evaluate(() => window.desktop.application.getWorkspace()))
       .projects[0]?.id;
     assert.ok(projectId);
-    const originalScene = await page.evaluate(
-      (id) => window.desktop.application.getProjectScene(id),
-      projectId,
-    );
-    const canvas = await page.getByLabel("三维场景视图", { exact: true }).elementHandle();
-    assert.ok(canvas);
     await page.getByRole("button", { name: "在当前项目新建对话", exact: true }).click();
     await page.waitForFunction(() => document.querySelectorAll(".conversation-row").length === 2);
     await page.getByRole("button", { name: "A 对话操作", exact: true }).click();
@@ -64,11 +58,6 @@ test("conversation deletion confirms inline, preserves the shared scene and bloc
     await menu.getByRole("menuitem", { name: "删除", exact: true }).click();
     await menu.getByRole("menuitem", { name: "确认删除", exact: true }).press("Enter");
     await page.waitForFunction(() => document.querySelectorAll(".conversation-row").length === 1);
-    assert.equal(await canvas.evaluate((node) => node.isConnected), true);
-    assert.deepEqual(
-      await page.evaluate((id) => window.desktop.application.getProjectScene(id), projectId),
-      originalScene,
-    );
     const second = await page.evaluate(
       async () => (await window.desktop.application.getWorkspace()).conversations[0]?.id,
     );
@@ -98,8 +87,8 @@ test("conversation deletion confirms inline, preserves the shared scene and bloc
     await page.getByRole("button", { name: "新建对话", exact: true }).first().click();
     await page.getByRole("textbox", { name: "消息内容" }).waitFor();
     assert.equal(
-      await readFile(join(directory, "bracket.stp"), "utf8"),
-      "STEP test placeholder; deliberately not parsed.",
+      await readFile(join(directory, "example.ts"), "utf8"),
+      "export const example = 1;\n",
     );
     await app.close();
     app = await launch();

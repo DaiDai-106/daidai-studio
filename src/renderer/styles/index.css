@@ -2,10 +2,10 @@
 @import "../app/styles/workbench.css";
 @import "../features/chat/styles/chat.css";
 @import "../features/chat/styles/welcome.css";
-@import "../features/scene/styles/scene.css";
 @import "../features/settings/styles/settings.css";
 @import "../shared/styles/dialog.css";
 @import "../shared/styles/controls.css";
 @import "./theme.css";
 @import "./base.css";
+@import "./desktop_theme.css";
 @import "../app/styles/responsive.css";

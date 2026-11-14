@@ -14,7 +14,7 @@ test("Pi 恢复 1.3 生成的文本和图片会话，并继续追加及分叉", 
   try {
     const project = store.createProject({ name: "兼容测试", mode: "coding", path: root });
     const conversation = store.createConversation(project.id);
-    const directory = join(data, "sessions", project.id);
+    const directory = join(data, "agent", "sessions", project.id);
     mkdirSync(directory, { recursive: true });
     const path = join(directory, "pi13.jsonl");
     // 这个样本由 Pi 1.3.0 的 SessionManager 生成，不包含真实用户数据。
@@ -48,7 +48,7 @@ test("Pi 原生会话重启恢复，分叉复制上下文后互不影响", () =>
   const data = join(root, "data");
   try {
     let store = openProjectStore(data);
-    const project = store.createProject({ name: "场景", mode: "scene", path: root });
+    const project = store.createProject({ name: "场景", mode: "coding", path: root });
     const a = store.createConversation(project.id);
     const b = store.createConversation(project.id);
     let history = createPiHistory(store, data);

@@ -45,21 +45,10 @@ export function ProjectHome({
                     onClick={() => onSelect(item.id)}
                   >
                     <span className="project-home-project-icon">
-                      <Icon
-                        name={
-                          item.mode === "scene" ? "box" : item.mode === "robot" ? "model" : "folder"
-                        }
-                        size={18}
-                      />
+                      <Icon name="folder" size={18} />
                     </span>
                     <span className="project-home-project-name">{item.name}</span>
-                    <small>
-                      {item.mode === "coding"
-                        ? "Coding"
-                        : item.mode === "scene"
-                          ? "场景搭建"
-                          : "机器人平台"}
-                    </small>
+                    <small>Coding</small>
                     <Icon name="chevron" size={16} />
                   </button>
                 </li>

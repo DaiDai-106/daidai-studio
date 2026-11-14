@@ -1,8 +1,14 @@
 import { MODEL_THINKING_LEVELS } from "@earendil-works/pi-ai/providers/model-schema";
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
-
 import { ConversationModeSchema } from "./capabilities.ts";
+import {
+  CatalogTaskSchema,
+  catalogCommands,
+  catalogResults,
+  PluginModuleSchema,
+  PluginScopeSchema,
+} from "./catalog.ts";
 import { id, object } from "./schema.ts";
 
 const text = (maxLength = 200) => Type.String({ maxLength });
@@ -35,144 +41,16 @@ export const ChatImageSchema = object({
 });
 export type ChatImage = Static<typeof ChatImageSchema>;
 
-const SceneReferenceSchema = object({
-  importId: ImportIdSchema,
-  objectId: id,
-  revision: Type.Integer({ minimum: 0 }),
-});
-export type SceneReference = Static<typeof SceneReferenceSchema>;
-
-const SceneTransformSchema = object({
-  position: Type.Tuple([Type.Number(), Type.Number(), Type.Number()]),
-  rotation: Type.Tuple([Type.Number(), Type.Number(), Type.Number(), Type.Number()]),
-});
-
-const GeometryBoundsSchema = object({
-  min: Type.Tuple([Type.Number(), Type.Number(), Type.Number()]),
-  max: Type.Tuple([Type.Number(), Type.Number(), Type.Number()]),
-  size: Type.Tuple([Type.Number(), Type.Number(), Type.Number()]),
-  unit: Type.Literal("m"),
-  space: Type.Literal("object-local"),
-});
-
-const CylinderCandidateSchema = object({
-  faceIndex: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),
-  axisOrigin: Type.Tuple([Type.Number(), Type.Number(), Type.Number()]),
-  axisDirection: Type.Tuple([Type.Number(), Type.Number(), Type.Number()]),
-  radius: Type.Number({ exclusiveMinimum: 0 }),
-  unit: Type.Literal("m"),
-  space: Type.Literal("object-local"),
-  evidence: Type.Literal("analytic-cylinder"),
-  kinematics: Type.Literal("unknown"),
-});
-export type SceneTransform = Static<typeof SceneTransformSchema>;
-
-const JointRefSchema = object({ modelId: ImportIdSchema, objectId: id });
-
-const JointAxisSchema = object({
-  origin: Type.Tuple([Type.Number(), Type.Number(), Type.Number()]),
-  direction: Type.Tuple([Type.Number(), Type.Number(), Type.Number()]),
-  unit: Type.Literal("m"),
-  space: Type.Literal("parent-local"),
-});
-
-const JointTypeSchema = Type.Union([
-  Type.Literal("fixed"),
-  Type.Literal("revolute"),
-  Type.Literal("prismatic"),
-]);
-
-const JointCandidateSchema = object({
-  id,
-  parent: JointRefSchema,
-  child: JointRefSchema,
-  type: JointTypeSchema,
-  axis: Type.Optional(JointAxisSchema),
-  evidenceRevision: Type.Integer({ minimum: 0 }),
-  status: Type.Union([Type.Literal("draft"), Type.Literal("confirmed")]),
-  validity: Type.Union([
-    Type.Literal("current"),
-    Type.Literal("stale"),
-    Type.Literal("invalidated"),
-  ]),
-  limits: Type.Literal("unknown"),
-});
-
-const SceneViewSchema = object({
-  projectId: id,
-  revision: Type.Integer({ minimum: 0 }),
-  joints: Type.Array(JointCandidateSchema, { maxItems: 1000 }),
-  models: Type.Array(
-    object({
-      id: ImportIdSchema,
-      sourcePath: text(4096),
-      sourceHash: ImportIdSchema,
-      sourceStatus: Type.Union([
-        Type.Literal("available"),
-        Type.Literal("changed"),
-        Type.Literal("missing"),
-        Type.Literal("unknown"),
-      ]),
-      resource: object({
-        url: text(512),
-        sha256: ImportIdSchema,
-        byteLength: Type.Integer({ minimum: 0 }),
-      }),
-      objects: Type.Array(
-        object({
-          id,
-          name: text(2000),
-          parentId: Type.Union([id, Type.Null()]),
-          sourceKey: Type.Optional(text(4096)),
-          gltfNode: Type.Optional(Type.Integer({ minimum: 0, maximum: 100000 })),
-          baseTransform: Type.Optional(SceneTransformSchema),
-          transform: Type.Optional(SceneTransformSchema),
-          geometryBounds: Type.Optional(GeometryBoundsSchema),
-          rigidTransform: Type.Optional(Type.Boolean()),
-          deleted: Type.Optional(Type.Boolean()),
-          cylinderCandidates: Type.Optional(Type.Array(CylinderCandidateSchema, { maxItems: 64 })),
-          cylinderCandidatesTruncated: Type.Optional(Type.Boolean()),
-        }),
-      ),
-      warnings: Type.Array(text(2000)),
-      complete: Type.Boolean(),
-    }),
-  ),
-});
-export type SceneView = Static<typeof SceneViewSchema>;
-
-const PackageScopeSchema = Type.Union([Type.Literal("user"), Type.Literal("project")]);
-
-const PackageInfoSchema = object({
-  source: Type.String({ minLength: 1, maxLength: 4096 }),
-  scope: PackageScopeSchema,
-  enabled: Type.Boolean(),
-  filtered: Type.Boolean(),
-  installedPath: Type.Optional(text(4096)),
-});
-export type PackageInfo = Static<typeof PackageInfoSchema>;
-export type PackageScope = Static<typeof PackageScopeSchema>;
-
 const ManagedSkillSchema = object({
   id: ImportIdSchema,
   name: Type.String({ minLength: 1, maxLength: 200 }),
   description: text(4096),
-  source: Type.Union([Type.Literal("user"), Type.Literal("package"), Type.Literal("builtin")]),
+  source: Type.Enum(["user", "package"]),
   editable: Type.Boolean(),
+  ownerSource: Type.Optional(text(4096)),
+  ownerScope: Type.Optional(PluginScopeSchema),
 });
 export type ManagedSkill = Static<typeof ManagedSkillSchema>;
-
-const ScenePythonStatusSchema = object({
-  state: Type.Union([
-    Type.Literal("missing"),
-    Type.Literal("ready"),
-    Type.Literal("invalid"),
-    Type.Literal("installing"),
-  ]),
-  error: Type.Optional(text(2000)),
-  canInstall: Type.Optional(Type.Boolean()),
-});
-export type ScenePythonStatus = Static<typeof ScenePythonStatusSchema>;
 
 const ExtensionUiRequestSchema = object({
   requestId: id,
@@ -277,6 +155,7 @@ export type LoginInfo = Static<typeof LoginInfoSchema>;
 export type ApplicationEvent = Static<typeof EventSchema>;
 // 请求名和参数由前端、桌面进程与后端共同使用。
 export const commands = {
+  ...catalogCommands,
   "workspace.get": object({ cursor: Type.Optional(text(4000)) }),
   "provider.types": object({}),
   "provider.models": object({
@@ -287,6 +166,8 @@ export const commands = {
   "provider.save": object({ config: ProviderSchema, loginId: Type.Optional(id) }),
   "provider.remove": object({ id }),
   "settings.update": object({
+    desktopTheme: Type.Optional(text(300)),
+    expectedDesktopTheme: Type.Optional(text(300)),
     showThinking: Type.Optional(Type.Boolean()),
     defaultModel: Type.Optional(text(500)),
     theme: Type.Optional(
@@ -324,78 +205,16 @@ export const commands = {
     path: text(4096),
     kind: Type.Union([Type.Literal("staged"), Type.Literal("unstaged"), Type.Literal("untracked")]),
   }),
-  "scene.get": object({ projectId: id }),
-  "scene.pythonStatus": object({}),
-  "scene.installPython": object({}),
-  "scene.cancelImport": object({ projectId: id }),
-  "scene.import": object({
-    projectId: id,
-    path: Type.String({ minLength: 1, maxLength: 4096 }),
-    operation: Type.Union([Type.Literal("replace"), Type.Literal("append")]),
-    revision: Type.Integer({ minimum: 0 }),
-  }),
-  "scene.relocateSource": object({
-    projectId: id,
-    modelId: ImportIdSchema,
-    revision: Type.Integer({ minimum: 0 }),
-    path: Type.String({ minLength: 1, maxLength: 4096 }),
-  }),
-  "scene.setTransform": object({
-    projectId: id,
-    modelId: ImportIdSchema,
-    objectId: id,
-    revision: Type.Integer({ minimum: 0 }),
-    transform: SceneTransformSchema,
-  }),
-  "scene.deleteObject": object({
-    projectId: id,
-    modelId: ImportIdSchema,
-    objectId: id,
-    revision: Type.Integer({ minimum: 0 }),
-  }),
-  "scene.confirmJoint": object({
-    projectId: id,
-    candidateId: id,
-    revision: Type.Integer({ minimum: 0 }),
-  }),
-  "scene.discardJointDraft": object({
-    projectId: id,
-    candidateId: id,
-    revision: Type.Integer({ minimum: 0 }),
-  }),
-  "scene.removeConfirmedJoint": object({
-    projectId: id,
-    candidateId: id,
-    revision: Type.Integer({ minimum: 0 }),
-  }),
-  "package.list": object({ projectId: Type.Optional(id) }),
   "extension.ui.respond": object({
     requestId: id,
     cancelled: Type.Boolean(),
     value: Type.Optional(text(100000)),
   }),
-  "package.update": object({
-    projectId: Type.Optional(id),
-    source: Type.Optional(Type.String({ minLength: 1, maxLength: 4096 })),
+  "skill.library.list": object({
+    moduleId: Type.Optional(PluginModuleSchema),
+    userOnly: Type.Optional(Type.Boolean()),
   }),
-  "package.install": object({
-    source: Type.String({ minLength: 1, maxLength: 4096 }),
-    scope: PackageScopeSchema,
-    projectId: Type.Optional(id),
-  }),
-  "package.remove": object({
-    source: Type.String({ minLength: 1, maxLength: 4096 }),
-    scope: PackageScopeSchema,
-    projectId: Type.Optional(id),
-  }),
-  "package.setEnabled": object({
-    source: Type.String({ minLength: 1, maxLength: 4096 }),
-    scope: PackageScopeSchema,
-    projectId: Type.Optional(id),
-    enabled: Type.Boolean(),
-  }),
-  "skill.library.list": object({ projectId: Type.Optional(id) }),
-  "skill.library.read": object({ id: ImportIdSchema, projectId: Type.Optional(id) }),
+  "skill.library.read": object({ id: ImportIdSchema, moduleId: Type.Optional(PluginModuleSchema) }),
   "skill.library.create": object({
     name: Type.String({ minLength: 1, maxLength: 64 }),
     text: Type.String({ maxLength: 1_000_000 }),
@@ -423,7 +242,6 @@ export const commands = {
     requestId: id,
     text: Type.String({ maxLength: 100000 }),
     images: Type.Optional(Type.Array(ChatImageSchema, { maxItems: 3 })),
-    sceneReference: Type.Optional(SceneReferenceSchema),
   }),
   "conversation.stop": object({ id }),
   "shell.respond": object({ id, approved: Type.Boolean() }),
@@ -469,6 +287,7 @@ const ConversationInfoSchema = object({
 });
 
 const SettingsInfoSchema = object({
+  desktopTheme: Type.Optional(text(300)),
   providers: Type.Array(ProviderInfoSchema, { maxItems: 100 }),
   defaultModel: text(500),
   theme: Type.Union([Type.Literal("light"), Type.Literal("dark"), Type.Literal("system")]),
@@ -553,6 +372,7 @@ const LoginInfoSchema = object({
 });
 // 返回值也按请求名校验，防止不符合契约的数据传到界面。
 const resultSchemas = {
+  ...catalogResults,
   "workspace.get": object({
     settings: SettingsInfoSchema,
     projects: Type.Array(ProjectInfoSchema, { maxItems: 100 }),
@@ -608,23 +428,7 @@ const resultSchemas = {
     truncated: Type.Boolean(),
   }),
   "coding.diff": object({ patch: text(4_194_304), untracked: Type.Boolean() }),
-  "scene.get": SceneViewSchema,
-  "scene.pythonStatus": ScenePythonStatusSchema,
-  "scene.installPython": ScenePythonStatusSchema,
-  "scene.cancelImport": Type.Null(),
-  "scene.import": SceneViewSchema,
-  "scene.relocateSource": SceneViewSchema,
-  "scene.setTransform": SceneViewSchema,
-  "scene.deleteObject": SceneViewSchema,
-  "scene.confirmJoint": SceneViewSchema,
-  "scene.discardJointDraft": SceneViewSchema,
-  "scene.removeConfirmedJoint": SceneViewSchema,
-  "package.list": Type.Array(PackageInfoSchema),
   "extension.ui.respond": Type.Null(),
-  "package.update": Type.Null(),
-  "package.install": Type.Null(),
-  "package.remove": Type.Null(),
-  "package.setEnabled": Type.Null(),
   "skill.library.list": Type.Array(ManagedSkillSchema),
   "skill.library.read": Type.String({ maxLength: 1_000_000 }),
   "skill.library.create": ManagedSkillSchema,
@@ -649,14 +453,15 @@ export function validateResult<K extends Method>(
 }
 
 const EventSchema = Type.Union([
+  object({ type: Type.Literal("catalog.task"), task: CatalogTaskSchema }),
+  object({
+    type: Type.Literal("extension.ui.notification"),
+    conversationId: id,
+    message: text(4000),
+    level: Type.Enum(["info", "warning", "error"]),
+  }),
   object({ type: Type.Literal("extension.ui.request"), request: ExtensionUiRequestSchema }),
   object({ type: Type.Literal("extension.ui.dismissed"), requestId: id, conversationId: id }),
-  object({ type: Type.Literal("scene.pythonStatus"), status: ScenePythonStatusSchema }),
-  object({
-    type: Type.Literal("scene.changed"),
-    projectId: id,
-    revision: Type.Integer({ minimum: 0 }),
-  }),
   object({ type: Type.Literal("workspace") }),
   object({ type: Type.Literal("conversationDeleted"), id }),
   object({ type: Type.Literal("conversation"), view: ConversationViewSchema }),

@@ -121,12 +121,12 @@ test("desktop configures a real local service, streams chat and restores Pi hist
     const beforeRemoval = await page.evaluate(() => window.desktop.application.getWorkspace());
     const project = beforeRemoval.projects[0];
     assert.ok(project);
-    const source = await readFile(join(project.path, "bracket.stp"));
+    const source = await readFile(join(project.path, "example.ts"));
     await page.getByRole("button", { name: `${project.name} 项目操作`, exact: true }).click();
     await page.getByRole("menuitem", { name: /^移除项目/ }).click();
     await page.locator(".project-group").waitFor({ state: "hidden" });
     await page.getByRole("heading", { name: "项目", exact: true }).waitFor();
-    assert.ok((await readFile(join(project.path, "bracket.stp"))).equals(source));
+    assert.ok((await readFile(join(project.path, "example.ts"))).equals(source));
     await application.close();
     application = await launch();
     child = application.process();
@@ -164,7 +164,7 @@ test("desktop configures a real local service, streams chat and restores Pi hist
       ),
       false,
     );
-    const credentials = await readFile(join(profile, "data", "auth.json"), "utf8");
+    const credentials = await readFile(join(profile, "data", "agent", "auth.json"), "utf8");
     assert.ok(credentials.includes("isolated-ui-test-key"));
     assert.deepEqual(errors, []);
     await page.screenshot({ path: join(tmpdir(), "dai-real-chat.png") });

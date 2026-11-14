@@ -14,7 +14,7 @@ test("Pi history restores images, thinking, tool results and real usage after re
   const data = join(root, "data");
   try {
     let store = openProjectStore(data);
-    const project = store.createProject({ name: "Scene", mode: "scene", path: root });
+    const project = store.createProject({ name: "Scene", mode: "coding", path: root });
     const chat = store.createConversation(project.id);
     let history = createPiHistory(store, data);
     const session = history.open(chat.id);

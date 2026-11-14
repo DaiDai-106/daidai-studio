@@ -86,7 +86,7 @@ export function Sidebar(props: Props) {
                   {
                     label: "移除项目",
                     icon: "close",
-                    description: "保留文件、聊天和场景，可从已隐藏项目恢复",
+                    description: "保留文件和聊天，可从已隐藏项目恢复",
                     onSelect: () => props.onRemove(project.id),
                   },
                 ]}
@@ -161,7 +161,7 @@ export function Sidebar(props: Props) {
             shortcut={shortcutLabel("settings")}
             onClick={() => props.onSettings("general")}
           />
-          <IconButton icon="tool" label="工具与技能" onClick={() => props.onSettings("tools")} />
+          <IconButton icon="tool" label="插件与技能" onClick={() => props.onSettings("tools")} />
           <IconButton icon="folder" label="已隐藏项目" onClick={props.onHiddenProjects} />
           <IconButton icon="archive" label="已归档对话" onClick={() => props.onArchives(null)} />
         </div>

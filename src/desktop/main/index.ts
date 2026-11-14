@@ -4,7 +4,6 @@ import {
   type BrowserWindow,
   Menu,
   nativeTheme,
-  protocol,
   type Tray,
   type UtilityProcess,
 } from "electron";
@@ -16,22 +15,7 @@ import { registerWebPreviewIpc } from "./browser/ipc.ts";
 import { registerDesktopIpc } from "./ipc.ts";
 import { configureDataPaths } from "./paths.ts";
 import { registerQuitLifecycle } from "./quit.ts";
-import { installResourceProtocol } from "./resources.ts";
 import { createWindowController } from "./window.ts";
-
-// 资源协议必须在 Electron 准备就绪之前注册。
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: "dai-resource",
-    privileges: {
-      standard: true,
-      secure: true,
-      supportFetchAPI: true,
-      corsEnabled: true,
-      stream: true,
-    },
-  },
-]);
 
 let mainWindow: BrowserWindow | undefined;
 let backend: UtilityProcess | undefined;
@@ -59,6 +43,7 @@ registerDesktopIpc({
   getClient: () => client,
   isQuitting: () => quitting,
   dataRoot: paths.root,
+  setTheme: (theme, palette) => windows.setTheme(theme, palette),
 });
 
 const quit = registerQuitLifecycle({
@@ -94,7 +79,7 @@ const windows = createWindowController({
   resetFlushRegistration: quit.resetFlushRegistration,
 });
 
-// 单实例启动依次完成后端、受控资源协议和窗口的初始化。
+// 单实例启动依次完成后端和窗口的初始化。
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -102,19 +87,18 @@ if (!app.requestSingleInstanceLock()) {
   void app
     .whenReady()
     .then(async () => {
-      const resourceReader = paths.resourceReader;
-      if (resourceReader.identity) {
+      if (paths.rootIdentity) {
         const info = statSync(paths.root, { bigint: true });
         if (
-          info.dev.toString() !== resourceReader.identity.dev ||
-          info.ino.toString() !== resourceReader.identity.ino
+          info.dev.toString() !== paths.rootIdentity.dev ||
+          info.ino.toString() !== paths.rootIdentity.ino
         ) {
-          resourceReader.close();
+          paths.close();
           throw new Error("启动时应用数据根目录发生变化，请重试。");
         }
       }
 
-      app.once("will-quit", () => resourceReader.close());
+      app.once("will-quit", () => paths.close());
       if (process.platform === "darwin") {
         Menu.setApplicationMenu(
           Menu.buildFromTemplate([
@@ -128,7 +112,7 @@ if (!app.requestSingleInstanceLock()) {
 
       await startBackend({
         root: paths.configuredRoot,
-        ...(resourceReader.identity ? { rootIdentity: resourceReader.identity } : {}),
+        ...(paths.rootIdentity ? { rootIdentity: paths.rootIdentity } : {}),
         isQuitting: () => quitting,
         setBackend: (value) => {
           backend = value;
@@ -142,17 +126,6 @@ if (!app.requestSingleInstanceLock()) {
         },
       });
 
-      const closeResourceProtocol = installResourceProtocol(
-        async (importId, resourceId) => {
-          if (!client || quitting) throw new Error("应用后端不可用。");
-          return client.resolveResource(importId, resourceId);
-        },
-        process.env.ELECTRON_RENDERER_URL
-          ? new URL(process.env.ELECTRON_RENDERER_URL).origin
-          : "null",
-        resourceReader,
-      );
-      app.once("will-quit", closeResourceProtocol);
       await windows.create();
 
       app.on("activate", () => {

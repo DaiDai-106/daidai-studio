@@ -17,6 +17,29 @@ const local: ProviderConfig = {
   models: [{ id: "example", name: "Example", context: 4096, output: 1024, reasoning: "标准" }],
 };
 
+test("旧主题回退在写入队列内比较当前选择，不覆盖新主题且不保存比较条件", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dai-theme-compare-"));
+  const service = await createSettingsService({ dataRoot: root, publish() {} });
+  try {
+    const update = service.handlers["settings.update"];
+    await update({ desktopTheme: "theme:a" });
+    const [selected, fallback] = await Promise.all([
+      update({ desktopTheme: "theme:b" }),
+      update({ desktopTheme: "", expectedDesktopTheme: "theme:a" }),
+    ]);
+    assert.equal(selected.desktopTheme, "theme:b");
+    assert.equal(fallback.desktopTheme, "theme:b");
+    await update({ desktopTheme: "", expectedDesktopTheme: "theme:b" });
+    assert.equal((await service.info()).desktopTheme, "");
+    const saved = JSON.parse(await readFile(join(root, "desktop/settings.json"), "utf8"));
+    assert.equal(saved.desktopTheme, "");
+    assert.equal(Object.hasOwn(saved, "expectedDesktopTheme"), false);
+  } finally {
+    await service.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("启动不会读取旧设置文件", async () => {
   const root = await mkdtemp(join(tmpdir(), "dai-settings-legacy-"));
   try {
@@ -68,7 +91,10 @@ test("model configuration survives restart and is registered with the Pi runtime
     assert.equal((await second.info()).defaultModel, "");
     assert.equal(second.model("local-test:example"), undefined);
     assert.ok(events.includes("workspace"));
-    assert.equal((await readFile(join(root, "settings.json"), "utf8")).includes("apiKey"), false);
+    assert.equal(
+      (await readFile(join(root, "agent", "settings.json"), "utf8")).includes("apiKey"),
+      false,
+    );
     await second.close();
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -99,9 +125,9 @@ test("本地凭据和设置可在重启后恢复", async () => {
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal((await first.handlers["auth.status"]({ id: login.id })).status, "success");
     await first.handlers["provider.save"]({ config, loginId: login.id });
-    assert.ok((await readFile(join(root, "auth.json"), "utf8")).includes("secret-value"));
+    assert.ok((await readFile(join(root, "agent", "auth.json"), "utf8")).includes("secret-value"));
     assert.equal(
-      (await readFile(join(root, "settings.json"), "utf8")).includes("secret-value"),
+      (await readFile(join(root, "agent", "settings.json"), "utf8")).includes("secret-value"),
       false,
     );
     assert.equal((await first.modelRuntime.getAuth(config.id))?.auth.apiKey, "secret-value");
