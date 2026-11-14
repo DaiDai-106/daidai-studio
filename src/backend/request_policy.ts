@@ -43,6 +43,8 @@ export const requestPolicy = {
   "conversation.delete": "mutation",
   "conversation.update": "mutation",
   "conversation.watch": "read",
+  "conversation.trace": "read",
+  "conversation.traceDetail": "read",
   "conversation.send": "mutation",
   "conversation.stop": "interrupt",
   "shell.respond": "interrupt",

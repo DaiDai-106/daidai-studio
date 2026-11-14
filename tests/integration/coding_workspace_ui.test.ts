@@ -194,7 +194,10 @@ test("Coding 工作区显示语法高亮与区分基准的 Git 差异", { timeou
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]?.setContentSize(900, 800),
     );
-    await page.getByRole("tab", { name: "聊天", exact: true }).click();
+    await page
+      .getByRole("tablist", { name: "工作区视图" })
+      .getByRole("tab", { name: "聊天", exact: true })
+      .click();
     assert.equal(await code.isVisible(), false);
     assert.equal(await page.getByRole("textbox", { name: "消息内容" }).isVisible(), true);
     await page.getByRole("tab", { name: "代码", exact: true }).click();

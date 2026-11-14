@@ -23,6 +23,7 @@ import { FileReferenceTags } from "../../coding/components/file_reference_tags.t
 import { fileMention } from "../../coding/logic/file_mention.ts";
 import type { Conversation } from "../logic/types.ts";
 import { useImageDrafts } from "../logic/use_image_drafts.ts";
+import { ConversationTrace } from "./conversation_trace.tsx";
 import { ConversationTranscript } from "./conversation_transcript.tsx";
 import { ConversationUsage } from "./usage_details.tsx";
 
@@ -47,6 +48,7 @@ interface Props {
 }
 
 export function ChatPanel(props: Props) {
+  const [view, setView] = useState<"chat" | "trace">("chat");
   const [mention, setMention] = useState<ReturnType<typeof fileMention>>(null);
   const referenceOpen = mention !== null;
   const [activeOption, setActiveOption] = useState<string | undefined>(undefined);
@@ -86,7 +88,7 @@ export function ChatPanel(props: Props) {
       const selection = window.getSelection();
       if (
         !following.current ||
-        document.activeElement?.closest(".turn-process") ||
+        document.activeElement?.closest(".turn-process, .trace-record") ||
         (selection && !selection.isCollapsed)
       )
         return;
@@ -97,6 +99,24 @@ export function ChatPanel(props: Props) {
   }, [hasMessages, props.stream?.busy, hasApproval]);
   return (
     <section className={`chat-panel ${props.compact ? "compact" : ""}`} aria-label="聊天">
+      <div className="conversation-view-tabs" role="tablist" aria-label="对话视图">
+        {(
+          [
+            ["chat", "聊天"],
+            ["trace", "轨迹"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            type="button"
+            role="tab"
+            key={id}
+            aria-selected={view === id}
+            onClick={() => setView(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <div
         className="messages"
         ref={messages}
@@ -111,14 +131,22 @@ export function ChatPanel(props: Props) {
             上次请求被中断。已保留聊天记录，请确认后重新发送。
           </p>
         )}
-        {hasMessages || props.stream?.busy || approval ? (
-          <div className="message-column" ref={column}>
-            <ConversationTranscript
-              messages={props.conversation.messages}
-              stream={props.stream}
-              showThinking={props.showThinking ?? true}
-              model={activeModel?.name}
-            />
+        {view === "trace" || hasMessages || props.stream?.busy || approval ? (
+          <div className={`message-column${view === "trace" ? " trace-column" : ""}`} ref={column}>
+            {view === "trace" ? (
+              <ConversationTrace
+                key={props.conversation.id}
+                conversationId={props.conversation.id}
+                stream={props.stream}
+              />
+            ) : (
+              <ConversationTranscript
+                messages={props.conversation.messages}
+                stream={props.stream}
+                showThinking={props.showThinking ?? true}
+                model={activeModel?.name}
+              />
+            )}
             {approval && (
               <section className="shell-approval" aria-label="确认执行命令">
                 <strong>确认执行命令</strong>

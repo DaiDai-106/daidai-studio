@@ -17,6 +17,7 @@ import type { createExtensionUi } from "./extension_ui.ts";
 import { createHistoryProjection } from "./history_projection.ts";
 import { createPiAgent } from "./pi_agent.ts";
 import { createPiHistory } from "./pi_history.ts";
+import { projectTrace, traceDetail } from "./pi_trace.ts";
 import type { createShellApproval } from "./shell_approval.ts";
 
 type Settings = Awaited<ReturnType<typeof createSettingsService>>;
@@ -89,9 +90,12 @@ export function createConversations(options: {
       .join("");
   }
 
+  // 聊天和轨迹始终读取同一个运行时分支；空闲历史通过现有 SessionManager 缓存恢复。
+  const managerFor = (id: string) => live.get(id)?.session.sessionManager ?? history.open(id);
+
   function view(id: string): ConversationView {
     const stored = requireConversation(id);
-    const manager = live.get(id)?.session.sessionManager ?? history.open(id);
+    const manager = managerFor(id);
     const session = live.get(id)?.session;
     const projected = projectHistory.get(
       manager,
@@ -282,6 +286,16 @@ export function createConversations(options: {
       const result = metadata(history.fork(id));
       publish({ type: "workspace" });
       return result;
+    },
+
+    trace(id: string) {
+      requireConversation(id);
+      return projectTrace(managerFor(id).getBranch());
+    },
+
+    traceDetail(id: string, entryId: string) {
+      requireConversation(id);
+      return traceDetail(managerFor(id).getBranch(), entryId);
     },
 
     async update(input: {

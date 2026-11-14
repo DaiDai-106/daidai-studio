@@ -98,6 +98,8 @@ export interface ApplicationBridge {
   deleteConversation(id: string): Promise<null>;
   updateConversation(change: Arguments<"conversation.update">): Promise<ConversationInfo>;
   watchConversation(id: string): Promise<ConversationView>;
+  getConversationTrace(id: string): Promise<Results["conversation.trace"]>;
+  getTraceDetail(id: string, entryId: string): Promise<Results["conversation.traceDetail"]>;
   sendMessage(
     id: string,
     requestId: string,

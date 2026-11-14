@@ -57,33 +57,42 @@ export function ToolCall({ tool, onInteract }: { tool: ToolRowData; onInteract()
         <Icon name="chevron" size={12} />
       </button>
       <div className="tool-body" hidden={!open}>
-        <div className="tool-detail-heading">调用参数</div>
-        <section aria-label="工具调用参数">
-          <pre>{tool.args ? JSON.stringify(tool.args, null, 2) : "此历史记录没有可用参数。"}</pre>
-        </section>
-        {tool.argsTruncated && <p className="preview-note">参数预览已截断。</p>}
-        {!!tool.images?.length && (
-          <figure className="tool-capture">
-            <figcaption>工具返回的图片</figcaption>
-            <img
-              src={`data:${tool.images[0]?.mimeType};base64,${tool.images[0]?.data}`}
-              alt="工具返回的图片"
-            />
-          </figure>
-        )}
-        <div className="tool-detail-heading">
-          {tool.status === "failed" ? "错误结果" : "返回内容"}
-        </div>
-        <section aria-label="工具返回内容">
-          <pre>
-            {tool.output ||
-              (tool.status === "running" || tool.status === "pending"
-                ? "等待工具返回…"
-                : "无文本返回。")}
-          </pre>
-        </section>
-        {tool.outputTruncated && <p className="preview-note">返回预览已截断。</p>}
+        <ToolDetails tool={tool} />
       </div>
     </section>
+  );
+}
+
+// 聊天卡片和轨迹详情共用参数、返回值及截断提示的展示。
+export function ToolDetails({ tool }: { tool: ToolRowData }) {
+  return (
+    <>
+      <div className="tool-detail-heading">调用参数</div>
+      <section aria-label="工具调用参数">
+        <pre>{tool.args ? JSON.stringify(tool.args, null, 2) : "此历史记录没有可用参数。"}</pre>
+      </section>
+      {tool.argsTruncated && <p className="preview-note">参数预览已截断。</p>}
+      {!!tool.images?.length && (
+        <figure className="tool-capture">
+          <figcaption>工具返回的图片</figcaption>
+          <img
+            src={`data:${tool.images[0]?.mimeType};base64,${tool.images[0]?.data}`}
+            alt="工具返回的图片"
+          />
+        </figure>
+      )}
+      <div className="tool-detail-heading">
+        {tool.status === "failed" ? "错误结果" : "返回内容"}
+      </div>
+      <section aria-label="工具返回内容">
+        <pre>
+          {tool.output ||
+            (tool.status === "running" || tool.status === "pending"
+              ? "等待工具返回…"
+              : "无文本返回。")}
+        </pre>
+      </section>
+      {tool.outputTruncated && <p className="preview-note">返回预览已截断。</p>}
+    </>
   );
 }

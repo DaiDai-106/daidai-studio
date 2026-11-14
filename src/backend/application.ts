@@ -16,7 +16,7 @@ import { createCodingGitService } from "./coding/git_service.ts";
 import { openOrCreateDataRoot } from "./data_root.ts";
 import { createCatalogService } from "./extensions/catalog_service.ts";
 import { relocateCatalog } from "./extensions/catalog_storage.ts";
-import { createPackageService } from "./extensions/package_service.ts";
+import { createPackageService, relocateModulePackages } from "./extensions/package_service.ts";
 import { createSkillHandlers } from "./extensions/skill_handlers.ts";
 import { openProjectStore } from "./projects/store.ts";
 import { requestPolicy } from "./request_policy.ts";
@@ -46,6 +46,7 @@ export async function openApplication(options: {
     dataRoot = await realpath(configuredRoot);
   }
   await relocateCatalog(dataRoot);
+  relocateModulePackages(dataRoot);
   const store = openProjectStore(dataRoot);
   const coding = createCodingFileService(store);
   const codingGit = createCodingGitService(store, coding);
@@ -215,6 +216,9 @@ export async function openApplication(options: {
     async "conversation.watch"({ id }) {
       return conversations.watch(id);
     },
+
+    "conversation.trace": async ({ id }) => conversations.trace(id),
+    "conversation.traceDetail": async ({ id, entryId }) => conversations.traceDetail(id, entryId),
 
     async "conversation.send"(input) {
       return conversations.send(input);

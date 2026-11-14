@@ -16,6 +16,12 @@ async function extensionText(service: typeof a) {
   return readFile(extension.path, "utf8");
 }
 await a.install(source, "module");
+assert.ok(
+  (await a.inspect())[0]?.installedPath.startsWith(
+    join(dataRoot, "agent/packages/modules/coding/.pi/npm"),
+  ),
+  "模块安装直接使用 coding/.pi/npm，不再创建 workspace",
+);
 assert.equal((await a.inspect()).length, 1);
 assert.deepEqual(await b.inspect(), []);
 assert.match(await extensionText(a), /version-1/);

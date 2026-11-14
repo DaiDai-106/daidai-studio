@@ -203,7 +203,9 @@ test("Electron renders public thinking and real tool details, preserves disclosu
       await api.saveProvider({ ...provider, models: [{ ...model, output: 4096 }] }, login.id);
     }, planner.endpoint);
     await page.locator(".conversation-row").first().click();
-    const chatTab = page.getByRole("tab", { name: "聊天", exact: true });
+    const chatTab = page
+      .getByRole("tablist", { name: "工作区视图" })
+      .getByRole("tab", { name: "聊天", exact: true });
     if (await chatTab.isVisible()) await chatTab.click();
     await page.getByText("流程测试完成，读取失败已明确保留。", { exact: true }).waitFor();
     assert.equal(

@@ -28,7 +28,7 @@
 │       ├── npm/、git/       SDK 管理的全局安装内容
 │       └── modules/<模块>/
 │           ├── settings.json
-│           └── workspace/.pi/   SDK 管理的模块安装内容
+│           └── .pi/               SDK 管理的模块安装内容
 └── desktop/packages/
     ├── settings.json        Desktop 全局配置
     ├── disabled.json        有停用变更时保存
@@ -36,6 +36,8 @@
 ```
 
 本地目录来源由 SDK 引用原目录，不承诺复制到上述安装空间。用户项目中不创建 `.dai/`，包服务的托管 cwd 不使用用户项目路径。Pi 全局和模块分别映射 SDK 的 user/project 作用域；Desktop 的 project 视图固定为空，不读取遗留模块配置。
+
+应用启动时将模块旧的 `workspace/.pi/` 整体迁移到模块根下的 `.pi/`，本地相对来源先转为原位置的绝对路径。新旧安装目录同时存在时拒绝覆盖；旧 `workspace/` 只在为空时删除。
 
 `catalog_storage.ts` 是市场目录路径的唯一所有者。应用启动时，若新 `catalog/` 不存在，将旧 `agent/catalog/` 整体搬迁；已有新目录时不覆盖、不合并。旧混放 Desktop 包需移除旧安装记录后重新安装，目录迁移不承担包配置迁移。
 

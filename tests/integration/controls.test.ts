@@ -149,7 +149,10 @@ test("menus and shortcuts preserve drafts, respect dialogs and fit narrow window
     await application.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]?.setContentSize(840, 640),
     );
-    await page.getByRole("tab", { name: "聊天", exact: true }).click();
+    await page
+      .getByRole("tablist", { name: "工作区视图" })
+      .getByRole("tab", { name: "聊天", exact: true })
+      .click();
     await model.click();
     const conversationsBefore = await page.locator(".conversation-row").count();
     await page.keyboard.press("ControlOrMeta+KeyN");

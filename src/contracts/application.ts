@@ -237,6 +237,8 @@ export const commands = {
     archived: Type.Optional(Type.Boolean()),
   }),
   "conversation.watch": object({ id }),
+  "conversation.trace": object({ id }),
+  "conversation.traceDetail": object({ id, entryId: id }),
   "conversation.send": object({
     id,
     requestId: id,
@@ -314,6 +316,45 @@ const MessageInfoSchema = object({
   outcome: Type.Optional(OutcomeSchema),
   tool: Type.Optional(ToolResultSchema),
 });
+
+// 轨迹只投影原生历史；列表使用摘要，系统提示和工具定义在展开时按需读取。
+const TraceRecordSchema = object({
+  id,
+  role: Type.Enum(["system", "user", "assistant", "tool", "event"]),
+  turn: Type.Integer({ minimum: 0 }),
+  label: text(200),
+  preview: text(500),
+  timestamp: Type.Number(),
+  failed: Type.Boolean(),
+});
+const TraceCallSchema = object({
+  callId: text(1000),
+  ...Type.Pick(ToolResultSchema, ["name", "args", "argsTruncated"]).properties,
+});
+const TraceDetailSchema = object({
+  text: text(4_000_000),
+  calls: Type.Array(TraceCallSchema),
+  tool: Type.Optional(ToolResultSchema),
+  context: Type.Optional(
+    object({
+      recorded: Type.Boolean(),
+      injections: Type.Array(object({ id, name: text(1000), text: text(4_000_000) })),
+      content: text(4_000_000),
+      sections: Type.Array(object({ name: text(1000), text: text(4_000_000) })),
+      tools: Type.Array(
+        object({
+          name: text(500),
+          description: text(4_000_000),
+          parameters: text(100000),
+          truncated: Type.Boolean(),
+        }),
+      ),
+    }),
+  ),
+  truncated: Type.Boolean(),
+});
+export type TraceRecord = Static<typeof TraceRecordSchema>;
+export type TraceDetail = Static<typeof TraceDetailSchema>;
 
 const ConversationViewSchema = object({
   conversationId: id,
@@ -439,6 +480,8 @@ const resultSchemas = {
   "conversation.delete": Type.Null(),
   "conversation.update": ConversationInfoSchema,
   "conversation.watch": ConversationViewSchema,
+  "conversation.trace": Type.Array(TraceRecordSchema),
+  "conversation.traceDetail": TraceDetailSchema,
   "conversation.send": object({ submissionId: id }),
   "conversation.stop": Type.Null(),
   "shell.respond": Type.Null(),
