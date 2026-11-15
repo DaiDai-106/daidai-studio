@@ -1,16 +1,18 @@
 import { randomUUID } from "node:crypto";
+import { contentText } from "@earendil-works/pi-ai";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type {
   ApplicationEvent,
   ConversationInfo,
   ConversationView,
+  DeliveryMode,
 } from "../../contracts/application.ts";
 import type { PackageLoad, PluginModule } from "../../contracts/catalog.ts";
 import { createCodingFileService } from "../coding/file_service.ts";
 import { resolveFileReferences } from "../coding/references.ts";
 import { createPackageService } from "../extensions/package_service.ts";
 import { createSkillService } from "../extensions/skill_service.ts";
-import type { openProjectStore, StoredConversation } from "../projects/store.ts";
+import type { openProjectStore, QueuedMessage, StoredConversation } from "../projects/store.ts";
 import type { createSettingsService } from "../settings/service.ts";
 import { conversationTitle } from "./conversation_title.ts";
 import type { createExtensionUi } from "./extension_ui.ts";
@@ -40,6 +42,70 @@ export function createConversations(options: {
   const live = new Map<string, Live>();
   const busy = new Map<string, Promise<void>>();
   const stopped = new Set<string>();
+  const queues = new Map<string, QueuedMessage[]>();
+  const eligible = new Map<string, Set<string>>();
+  const delivering = new Map<
+    string,
+    { id: string; text?: string | undefined; consumed?: boolean }
+  >();
+  const queued = (id: string) => {
+    let items = queues.get(id);
+    if (!items) {
+      items = store.queuedMessages(id);
+      queues.set(id, items);
+    }
+    return items;
+  };
+  function removeQueued(id: string, messageId: string) {
+    store.removeQueuedMessage(id, messageId);
+    queues.set(
+      id,
+      queued(id).filter((item) => item.id !== messageId),
+    );
+    eligible.get(id)?.delete(messageId);
+    if (delivering.get(id)?.id === messageId) delivering.delete(id);
+  }
+  function nextQueued(id: string, allowFollowUp = true) {
+    const available = queued(id).filter((item) => eligible.get(id)?.has(item.id));
+    return (
+      available.find((item) => item.delivery === "steer") ??
+      (allowFollowUp ? available[0] : undefined)
+    );
+  }
+
+  const imagesFor = (images: QueuedMessage["images"]) =>
+    images?.map((image) => ({
+      type: "image" as const,
+      ...image,
+    }));
+
+  // 只在 Pi 等待下一次模型请求的边界投递，尚未投递的消息仍可独立取消。
+  async function deliverQueued(id: string, session: AgentSession, final: boolean) {
+    if (stopped.has(id) || delivering.has(id)) return;
+    const item = nextQueued(id, final);
+    if (!item) return;
+    delivering.set(id, { id: item.id });
+    emit(id);
+    try {
+      const text = await resolveFileReferences(
+        codingFiles,
+        requireConversation(id).projectId,
+        item.text,
+      );
+      if (stopped.has(id)) return;
+      const disposition = await session[item.delivery](text, imagesFor(item.images));
+      const texts =
+        item.delivery === "steer" ? session.getSteeringMessages() : session.getFollowUpMessages();
+      if (disposition === "handled") removeQueued(id, item.id);
+      else delivering.set(id, { id: item.id, text: texts.at(-1) });
+      if (stopped.has(id)) session.clearQueue();
+    } catch (error) {
+      delivering.delete(id);
+      eligible.delete(id);
+      failures.set(id, (error instanceof Error ? error.message : "消息投递失败。").slice(0, 10000));
+    }
+    emit(id);
+  }
   const streamId = randomUUID();
   const sequences = new Map<string, number>();
   const partial = new Map<string, string>();
@@ -78,18 +144,6 @@ export function createConversations(options: {
     return record;
   }
 
-  function textContent(value: unknown): string {
-    if (typeof value === "string") return value;
-    if (!Array.isArray(value)) return "";
-    return value
-      .map((item: unknown) => {
-        if (!item || typeof item !== "object") return "";
-        const block = item as { type?: string; text?: string };
-        return block.type === "text" && typeof block.text === "string" ? block.text : "";
-      })
-      .join("");
-  }
-
   // 聊天和轨迹始终读取同一个运行时分支；空闲历史通过现有 SessionManager 缓存恢复。
   const managerFor = (id: string) => live.get(id)?.session.sessionManager ?? history.open(id);
 
@@ -116,6 +170,14 @@ export function createConversations(options: {
       messages: projected.messages,
       historyKey: projected.historyKey,
       partial: partial.get(id) ?? "",
+      queuedMessages: queued(id).map((item) => ({
+        id: item.id,
+        text: item.text.slice(0, 1000),
+        delivery: item.delivery,
+        imageCount: item.images?.length ?? 0,
+        delivering: delivering.get(id)?.id === item.id,
+        paused: !eligible.get(id)?.has(item.id),
+      })),
       busy: busy.has(id),
       error: failures.get(id) ?? "",
       ...(blocks ? { partialBlocks: blocks } : {}),
@@ -199,7 +261,7 @@ export function createConversations(options: {
     session.setThinkingLevel(conversation.thinkingLevel);
     session.subscribe((event) => {
       if (event.type === "message_update" && event.message.role === "assistant") {
-        partial.set(id, textContent(event.message.content).slice(0, 4_000_000));
+        partial.set(id, contentText(event.message.content, "").slice(0, 4_000_000));
         partialBlocks.set(
           id,
           event.message.content.flatMap<NonNullable<ConversationView["partialBlocks"]>[number]>(
@@ -245,6 +307,41 @@ export function createConversations(options: {
       if (event.type === "tool_execution_end") activeTools.get(id)?.delete(event.toolCallId);
       emit(id);
     });
+    session.subscribe((event) => {
+      // 图片归一化可能补充正文；以 SDK 出队事件确认投递，不比较归一化后的文本。
+      if (event.type !== "queue_update") return;
+      const pending = delivering.get(id);
+      if (
+        pending?.text !== undefined &&
+        ![...event.steering, ...event.followUp].includes(pending.text)
+      ) {
+        pending.consumed = true;
+      }
+    });
+    session.setSteeringMode("one-at-a-time");
+    session.setFollowUpMode("one-at-a-time");
+    session.agent.subscribe(async (event) => {
+      if (event.type === "message_end" && event.message.role === "user") {
+        const pending = delivering.get(id);
+        if (pending && (pending.text === undefined || pending.consumed)) {
+          // Core 的异步监听器运行时，SDK 已将用户消息追加到原生历史。
+          removeQueued(id, pending.id);
+          emit(id);
+        }
+      }
+      if (
+        event.type === "turn_end" &&
+        event.message.role === "assistant" &&
+        event.message.stopReason !== "error" &&
+        event.message.stopReason !== "aborted"
+      ) {
+        await deliverQueued(
+          id,
+          session,
+          !event.message.content.some((block) => block.type === "toolCall"),
+        );
+      }
+    });
     live.set(id, { session, projectId: project.id });
     return session;
   }
@@ -255,6 +352,8 @@ export function createConversations(options: {
     options.extensionUi?.cancelConversation(id);
     try {
       if (busy.has(id)) {
+        stopped.add(id);
+        item.session.clearQueue();
         await item.session.abort();
         await busy.get(id);
       }
@@ -271,10 +370,6 @@ export function createConversations(options: {
 
   return {
     metadata,
-    list(projectId: string) {
-      return store.listConversations(projectId).map(metadata);
-    },
-
     async create(projectId: string) {
       const item = store.createConversation(projectId, (await settings.info()).defaultModel);
       publish({ type: "workspace" });
@@ -336,10 +431,30 @@ export function createConversations(options: {
       id: string;
       requestId: string;
       text: string;
-      images?: { mimeType: string; data: string }[];
+      images?: import("../../contracts/application.ts").ChatImage[];
+      delivery?: DeliveryMode;
+      queuedId?: string;
     }) {
-      if (busy.has(input.id)) throw new Error("此会话正在运行。");
       if (!input.text.trim() && !input.images?.length) throw new Error("请输入消息。");
+      if (busy.has(input.id)) {
+        if (!input.delivery) throw new Error("此会话正在运行，请选择插话或完成后发送。");
+        if (stopped.has(input.id)) throw new Error("会话正在停止，请稍后再发送。");
+        if (queued(input.id).length >= 20) throw new Error("最多保留 20 条待处理消息。");
+        const item = {
+          id: input.requestId,
+          text: input.text,
+          delivery: input.delivery,
+          ...(input.images?.length ? { images: input.images } : {}),
+        };
+        store.queueMessage(input.id, item);
+        queued(input.id).push(item);
+        const ready = eligible.get(input.id) ?? new Set<string>();
+        ready.add(input.requestId);
+        eligible.set(input.id, ready);
+        store.updateConversation(input.id, { draft: "" });
+        emit(input.id);
+        return { submissionId: input.requestId };
+      }
       const conversation = requireConversation(input.id);
       let message = input.text;
       // 在第一次 await 之前占位，防止并发请求创建两个 Pi 会话并覆盖 JSONL。
@@ -349,6 +464,7 @@ export function createConversations(options: {
         releaseReservation = resolve;
       });
       busy.set(input.id, reservation);
+      if (input.queuedId) delivering.set(input.id, { id: input.queuedId });
       let session: AgentSession;
       try {
         message = await resolveFileReferences(codingFiles, conversation.projectId, message);
@@ -356,38 +472,60 @@ export function createConversations(options: {
       } catch (error) {
         busy.delete(input.id);
         stopped.delete(input.id);
+        eligible.delete(input.id);
+        delivering.delete(input.id);
         releaseReservation();
+        emit(input.id);
         throw error;
       }
       failures.delete(input.id);
       const current = requireConversation(input.id);
       store.updateConversation(input.id, {
         interrupted: true,
-        draft: "",
+        ...(!input.queuedId ? { draft: "" } : {}),
         ...(!current.hasMessages && current.title === "新会话"
           ? { title: conversationTitle(input.text) }
           : {}),
       });
       const work = Promise.resolve().then(async () => {
         try {
-          if (stopped.has(input.id)) return;
-          await session.prompt(message, {
-            ...(input.images?.length
-              ? {
-                  images: input.images.map((image) => ({
-                    type: "image" as const,
-                    mimeType: image.mimeType,
-                    data: image.data,
-                  })),
-                }
-              : {}),
-          });
+          let queuedId = input.queuedId;
+          let images = input.images;
+          while (!stopped.has(input.id) && !failures.has(input.id)) {
+            await session.prompt(message, {
+              ...(images ? { images: imagesFor(images) ?? [] } : {}),
+              preflightResult: (disposition) => {
+                if (queuedId && disposition === "handled") removeQueued(input.id, queuedId);
+              },
+            });
+            const outcome = session.messages.at(-1);
+            if (
+              outcome?.role === "assistant" &&
+              (outcome.stopReason === "error" || outcome.stopReason === "aborted")
+            )
+              break;
+            // 覆盖发送恰好落在最后一个 turn_end 之后的竞态，不启动并行运行。
+            const next = nextQueued(input.id);
+            if (!next || stopped.has(input.id) || failures.has(input.id)) break;
+            queuedId = next.id;
+            images = next.images;
+            delivering.set(input.id, { id: queuedId });
+            emit(input.id);
+            message = await resolveFileReferences(
+              codingFiles,
+              requireConversation(input.id).projectId,
+              next.text,
+            );
+          }
         } catch (error) {
           failures.set(
             input.id,
             (error instanceof Error ? error.message : "会话执行失败。").slice(0, 10_000),
           );
         } finally {
+          session.clearQueue();
+          eligible.delete(input.id);
+          delivering.delete(input.id);
           store.updateConversation(input.id, { interrupted: false });
           busy.delete(input.id);
           stopped.delete(input.id);
@@ -408,7 +546,53 @@ export function createConversations(options: {
       requireConversation(id);
       if (busy.has(id)) stopped.add(id);
       options.extensionUi?.cancelConversation(id);
+      live.get(id)?.session.clearQueue();
       await live.get(id)?.session.abort();
+      return null;
+    },
+
+    cancelQueued(id: string, messageId: string) {
+      requireConversation(id);
+      if (delivering.get(id)?.id === messageId) throw new Error("这条消息正在投递，无法取消。");
+      removeQueued(id, messageId);
+      emit(id);
+      return null;
+    },
+
+    promoteQueued(id: string, messageId: string) {
+      requireConversation(id);
+      if (!busy.has(id) || stopped.has(id)) throw new Error("当前会话未运行，请点击继续发送。");
+      if (delivering.get(id)?.id === messageId) throw new Error("这条消息正在投递，无法改为插话。");
+      const item = queued(id).find((message) => message.id === messageId);
+      if (!item) throw new Error("这条消息已投递或取消。");
+      if (!eligible.get(id)?.has(messageId)) throw new Error("这条消息已暂停，请稍后继续发送。");
+      store.promoteQueuedMessage(id, messageId);
+      item.delivery = "steer";
+      emit(id);
+      return null;
+    },
+
+    async resumeQueue(id: string) {
+      requireConversation(id);
+      if (busy.has(id)) throw new Error("请先等待当前运行结束。");
+      eligible.set(id, new Set(queued(id).map((item) => item.id)));
+      const first = nextQueued(id);
+      if (!first) {
+        eligible.delete(id);
+        return null;
+      }
+      try {
+        await this.send({
+          id,
+          requestId: first.id,
+          text: first.text,
+          ...(first.images ? { images: first.images } : {}),
+          queuedId: first.id,
+        });
+      } catch (error) {
+        eligible.delete(id);
+        throw error;
+      }
       return null;
     },
 
@@ -417,6 +601,9 @@ export function createConversations(options: {
       await release(id);
       history.forget(id);
       store.deleteConversation(id);
+      queues.delete(id);
+      eligible.delete(id);
+      delivering.delete(id);
       publish({ type: "conversationDeleted", id });
       publish({ type: "workspace" });
       return null;

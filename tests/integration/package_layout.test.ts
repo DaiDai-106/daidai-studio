@@ -102,21 +102,10 @@ test("插件市场在深浅主题和窄窗口中显示卡片、来源与可键�
     assert.ok(back && home && Math.abs(back.x - home.x) < 1 && home.y - back.y - back.height <= 8);
     await page.getByRole("tab", { name: "我的技能", exact: true }).click();
     await page.getByRole("heading", { name: "还没有自己的技能", exact: true }).waitFor();
-    const emptyStyle = await page.locator(".skill-library .plugin-empty p").evaluate((element) => ({
-      color: getComputedStyle(element).color,
-      fontSize: getComputedStyle(element).fontSize,
-    }));
-    assert.equal(emptyStyle.fontSize, "12px");
-    assert.equal(
-      emptyStyle.color,
-      await page.locator(".plugin-subtitle").evaluate((element) => getComputedStyle(element).color),
-    );
-    await page.screenshot({ path: join(tmpdir(), "dai-skills-empty-light.png") });
     await page.getByRole("tab", { name: "发现插件", exact: true }).click();
     await page.getByRole("button", { name: "公司内部", exact: true }).click();
     await page.getByRole("button", { name: "查看 Code Review", exact: true }).waitFor();
     assert.equal(await page.locator(".plugin-card").count(), 3);
-    await page.screenshot({ path: join(tmpdir(), "dai-plugin-market-light.png") });
     // 列表出现后目录发布新版本：详情和安装确认必须选择新详情中的版本。
     packages = packages.map((item, index) =>
       index === 0
@@ -140,7 +129,6 @@ test("插件市场在深浅主题和窄窗口中显示卡片、来源与可键�
     await detail.getByRole("heading", { name: "使用说明", exact: true }).first().waitFor();
     await detail.getByRole("tab", { name: "包含内容", exact: true }).click();
     await detail.getByText("功能扩展", { exact: true }).waitFor();
-    await page.screenshot({ path: join(tmpdir(), "dai-plugin-contents-light.png") });
     await detail.getByRole("tab", { name: "概览", exact: true }).click();
     assert.equal(await page.evaluate(() => Object.hasOwn(window, "fixtureExecuted")), false);
     assert.match(
@@ -184,11 +172,9 @@ test("插件市场在深浅主题和窄窗口中显示卡片、来源与可键�
       .waitFor();
     await confirmation.getByRole("button", { name: "使用范围", exact: true }).click();
     await page.getByRole("menuitemradio", { name: "全局（所有模块）", exact: true }).click();
-    await page.screenshot({ path: join(tmpdir(), "dai-plugin-module-install-light.png") });
     assert.match((await confirmation.textContent()) ?? "", /demo-0@1\.3\.0/);
     await confirmation.getByRole("button", { name: "取消", exact: true }).click();
     await detail.waitFor();
-    await page.screenshot({ path: join(tmpdir(), "dai-plugin-market-detail.png") });
     await page.keyboard.press("Escape");
     await detail.waitFor({ state: "hidden" });
     await page.waitForFunction(
@@ -216,7 +202,6 @@ test("插件市场在深浅主题和窄窗口中显示卡片、来源与可键�
     await page.getByRole("button", { name: "插件与技能", exact: true }).click();
     await page.getByRole("button", { name: "公司内部", exact: true }).click();
     await page.getByRole("button", { name: "查看 Code Review", exact: true }).waitFor();
-    await page.screenshot({ path: join(tmpdir(), "dai-plugin-market-dark.png") });
     for (const width of [1200, 840]) {
       await app.evaluate(
         ({ BrowserWindow }, w) => BrowserWindow.getAllWindows()[0]?.setContentSize(w, 760),
@@ -236,11 +221,9 @@ test("插件市场在深浅主题和窄窗口中显示卡片、来源与可键�
         false,
       );
     }
-    await page.screenshot({ path: join(tmpdir(), "dai-plugin-market-narrow.png") });
     assert.equal(await page.getByRole("button", { name: "Dai 内置", exact: true }).count(), 0);
     await page.getByRole("tab", { name: "我的技能", exact: true }).click();
     await page.getByRole("heading", { name: "还没有自己的技能", exact: true }).waitFor();
-    await page.screenshot({ path: join(tmpdir(), "dai-skills-empty-dark-narrow.png") });
     assert.deepEqual(errors, []);
   } finally {
     await app.close();

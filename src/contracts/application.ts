@@ -19,6 +19,8 @@ const ImportIdSchema = Type.String({ pattern: "^[0-9a-f]{64}$" });
 export type ThinkingLevel = Static<typeof ModelThinkingLevelSchema>;
 const AccessModeSchema = Type.Union([Type.Literal("ask"), Type.Literal("full")]);
 export type AccessMode = Static<typeof AccessModeSchema>;
+const DeliveryModeSchema = Type.Enum(["steer", "followUp"]);
+export type DeliveryMode = Static<typeof DeliveryModeSchema>;
 
 const ModelSchema = object({
   id,
@@ -242,10 +244,14 @@ export const commands = {
   "conversation.send": object({
     id,
     requestId: id,
+    delivery: Type.Optional(DeliveryModeSchema),
     text: Type.String({ maxLength: 100000 }),
     images: Type.Optional(Type.Array(ChatImageSchema, { maxItems: 3 })),
   }),
   "conversation.stop": object({ id }),
+  "conversation.cancelQueued": object({ id, messageId: id }),
+  "conversation.promoteQueued": object({ id, messageId: id }),
+  "conversation.resumeQueue": object({ id }),
   "shell.respond": object({ id, approved: Type.Boolean() }),
 } as const;
 export type Method = keyof typeof commands;
@@ -370,6 +376,19 @@ const ConversationViewSchema = object({
       type: "string",
     }),
   ),
+  queuedMessages: Type.Optional(
+    Type.Array(
+      object({
+        id,
+        text: text(1000),
+        delivery: DeliveryModeSchema,
+        imageCount: Type.Integer({ minimum: 0, maximum: 3 }),
+        delivering: Type.Boolean(),
+        paused: Type.Boolean(),
+      }),
+      { maxItems: 20 },
+    ),
+  ),
   busy: Type.Boolean(),
   error: text(10000),
   usage: UsageSchema,
@@ -484,6 +503,9 @@ const resultSchemas = {
   "conversation.traceDetail": TraceDetailSchema,
   "conversation.send": object({ submissionId: id }),
   "conversation.stop": Type.Null(),
+  "conversation.cancelQueued": Type.Null(),
+  "conversation.promoteQueued": Type.Null(),
+  "conversation.resumeQueue": Type.Null(),
   "shell.respond": Type.Null(),
 } satisfies Record<Method, import("typebox").TSchema>;
 

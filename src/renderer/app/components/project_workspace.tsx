@@ -149,6 +149,19 @@ export function ProjectWorkspace({
                 }
                 return workbench.send(images);
               }}
+              onCancelQueued={(messageId) =>
+                void application.run(() =>
+                  application.api.cancelQueuedMessage(active.id, messageId),
+                )
+              }
+              onPromoteQueued={(messageId) =>
+                void application.run(() =>
+                  application.api.promoteQueuedMessage(active.id, messageId),
+                )
+              }
+              onResumeQueue={() =>
+                void application.run(() => application.api.resumeConversationQueue(active.id))
+              }
               onConfigure={onConfigure}
               stream={application.view}
               shellApproval={application.workspace?.shellApproval ?? null}

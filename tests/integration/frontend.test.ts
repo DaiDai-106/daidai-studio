@@ -79,7 +79,6 @@ test("desktop configures a real local service, streams chat and restores Pi hist
     await page.getByRole("checkbox", { name: /^ui-test-model/ }).check();
     await page.getByRole("button", { name: "保存服务", exact: true }).click();
     await page.getByRole("heading", { name: "UI 本地服务", exact: true }).waitFor();
-    await page.screenshot({ path: join(tmpdir(), "dai-real-ai-settings.png") });
     await page.getByRole("button", { name: "返回工作台", exact: true }).click();
     // Existing conversations retain their model, including an empty selection.
     await page.getByRole("button", { name: "选择模型", exact: true }).click();
@@ -167,7 +166,6 @@ test("desktop configures a real local service, streams chat and restores Pi hist
     const credentials = await readFile(join(profile, "data", "agent", "auth.json"), "utf8");
     assert.ok(credentials.includes("isolated-ui-test-key"));
     assert.deepEqual(errors, []);
-    await page.screenshot({ path: join(tmpdir(), "dai-real-chat.png") });
   } finally {
     if (child.exitCode === null) await application.close();
     server.closeAllConnections();

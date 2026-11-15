@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -190,6 +190,105 @@ test("configured Pi model sends a real chat request using the selected provider"
     await service.close();
   } finally {
     globalThis.fetch = originalFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("仅保存桌面偏好时不写 Agent 配置，重启仍可恢复", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dai-desktop-settings-"));
+  let service = await createSettingsService({ dataRoot: root, publish() {} });
+  try {
+    await service.handlers["settings.update"]({ theme: "dark", showThinking: false });
+    assert.deepEqual(await readdir(join(root, "agent")), []);
+    await service.close();
+    service = await createSettingsService({ dataRoot: root, publish() {} });
+    assert.equal((await service.info()).theme, "dark");
+    assert.equal((await service.info()).showThinking, false);
+  } finally {
+    await service.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("桌面配置不可写不影响服务商凭据；Agent 保存失败保留旧认证且可重试", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dai-settings-write-failure-"));
+  let service = await createSettingsService({ dataRoot: root, publish() {} });
+  const config: ProviderConfig = { ...local, providerType: "compatible", authMethod: "api_key" };
+  const agentPath = join(root, "agent/settings.json");
+  const desktopPath = join(root, "desktop/settings.json");
+  try {
+    await mkdir(desktopPath);
+    const login = await service.handlers["auth.start"]({
+      providerType: "compatible",
+      method: "api_key",
+    });
+    const prompt = (await service.handlers["auth.status"]({ id: login.id })).prompt;
+    assert.ok(prompt);
+    await service.handlers["auth.answer"]({ id: login.id, promptId: prompt.id, value: "test-key" });
+    await new Promise((resolve) => setImmediate(resolve));
+    await service.handlers["provider.save"]({ config, loginId: login.id });
+    assert.equal((await service.modelRuntime.getAuth(config.id))?.auth.apiKey, "test-key");
+    const previous = await readFile(agentPath, "utf8");
+    const auth = await readFile(join(root, "agent/auth.json"), "utf8");
+    await rm(agentPath);
+    await mkdir(agentPath);
+    await assert.rejects(
+      service.handlers["provider.save"]({ config: { ...config, name: "changed" } }),
+    );
+    assert.equal((await service.info()).providers[0]?.name, config.name);
+    assert.equal(await readFile(join(root, "agent/auth.json"), "utf8"), auth);
+    assert.equal((await service.modelRuntime.getAuth(config.id))?.auth.apiKey, "test-key");
+    await rm(agentPath, { recursive: true });
+    await writeFile(agentPath, previous);
+    await rm(desktopPath, { recursive: true });
+    await service.close();
+    service = await createSettingsService({ dataRoot: root, publish() {} });
+    assert.equal((await service.modelRuntime.getAuth(config.id))?.auth.apiKey, "test-key");
+    // 相同认证可复用，但更换服务地址后不能沿用旧凭据。
+    await assert.rejects(
+      service.handlers["provider.save"]({
+        config: { ...config, endpoint: "http://127.0.0.1:9999/v1" },
+      }),
+      /认证/,
+    );
+    await service.handlers["provider.save"]({ config: { ...config, name: "changed" } });
+    assert.equal((await service.info()).providers[0]?.name, "changed");
+    assert.ok((await readdir(join(root, "agent"))).every((name) => !name.endsWith(".tmp")));
+  } finally {
+    await service.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("混合更新按归属提交，桌面失败后内存与磁盘保持一致并明确提示部分成功", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dai-mixed-settings-"));
+  let service = await createSettingsService({ dataRoot: root, publish() {} });
+  const desktopPath = join(root, "desktop/settings.json");
+  try {
+    await service.handlers["provider.save"]({ config: local });
+    await service.handlers["provider.save"]({ config: { ...local, id: "second" } });
+    await mkdir(desktopPath);
+    await assert.rejects(
+      service.handlers["settings.update"]({ defaultModel: "second:example", theme: "dark" }),
+      /默认模型已保存，但桌面设置保存失败/,
+    );
+    assert.equal((await service.info()).defaultModel, "second:example");
+    assert.equal((await service.info()).theme, "light");
+    await rm(desktopPath, { recursive: true });
+    await service.close();
+    service = await createSettingsService({ dataRoot: root, publish() {} });
+    assert.equal((await service.info()).defaultModel, "second:example");
+    assert.equal((await service.info()).theme, "light");
+    await service.handlers["settings.update"]({
+      defaultModel: "local-test:example",
+      theme: "dark",
+    });
+    await service.close();
+    service = await createSettingsService({ dataRoot: root, publish() {} });
+    assert.equal((await service.info()).defaultModel, "local-test:example");
+    assert.equal((await service.info()).theme, "dark");
+  } finally {
+    await service.close();
     await rm(root, { recursive: true, force: true });
   }
 });

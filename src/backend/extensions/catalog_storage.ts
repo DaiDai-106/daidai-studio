@@ -1,6 +1,7 @@
-import { randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rename } from "node:fs/promises";
 import { join } from "node:path";
+
+import { writeJson } from "../../shared/node/write_json.ts";
 
 type Cached<T> = { data: T; at: number };
 
@@ -39,9 +40,7 @@ export function createCatalogStorage(dataRoot: string) {
 
   async function write(name: string, value: unknown) {
     await mkdir(root, { recursive: true, mode: 0o700 });
-    const temp = join(root, `${name}.${randomUUID()}.tmp`);
-    await writeFile(temp, JSON.stringify(value), { mode: 0o600 });
-    await rename(temp, join(root, name));
+    await writeJson(join(root, name), value);
   }
 
   async function cached<T>(key: string, refresh: boolean, load: () => Promise<T>) {

@@ -56,7 +56,7 @@ export function useWorkbench(application: ApplicationState) {
     const version = writer.version(id);
     const result = await application.run(async () => {
       await writer.flush();
-      await api.sendMessage(id, crypto.randomUUID(), text, images);
+      await api.sendMessage(id, crypto.randomUUID(), text, images, "followUp");
       if (writer.version(id) === version) {
         writer.clear(id);
         setDrafts((items) => ({ ...items, [id]: "" }));

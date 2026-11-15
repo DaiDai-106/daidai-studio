@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createModels, InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -11,6 +11,7 @@ import type {
   SettingsInfo,
 } from "../../contracts/application.ts";
 import type { Theme } from "../../contracts/desktop.ts";
+import { writeJson } from "../../shared/node/write_json.ts";
 import { createCredentials, type StoredProvider } from "./credentials.ts";
 import { discoverModels } from "./discovery.ts";
 import { createLogins } from "./login.ts";
@@ -39,32 +40,6 @@ export async function createSettingsService(options: {
   ]);
   const path = join(agentRoot, "settings.json");
   const desktopPath = join(desktopRoot, "settings.json");
-  async function writeJson(path: string, value: unknown) {
-    const temporary = `${path}.${randomUUID()}.tmp`;
-    try {
-      await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, {
-        mode: 0o600,
-        flag: "wx",
-      });
-      await rename(temporary, path);
-    } finally {
-      await rm(temporary, { force: true });
-    }
-  }
-  async function writeSettings(value: Settings) {
-    await writeJson(path, {
-      version: 1,
-      providers: value.providers,
-      defaultModel: value.defaultModel,
-      deviceId: value.deviceId,
-    });
-    await writeJson(desktopPath, {
-      version: 1,
-      theme: value.theme,
-      desktopTheme: value.desktopTheme,
-      showThinking: value.showThinking,
-    });
-  }
   let settings: Settings;
   try {
     const text = await readFile(path, "utf8");
@@ -75,18 +50,7 @@ export async function createSettingsService(options: {
       typeof value.deviceId !== "string"
     )
       throw new Error("应用配置格式无效。");
-    let desktop: Partial<Settings> = {};
-    try {
-      desktop = JSON.parse(await readFile(desktopPath, "utf8"));
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-    settings = {
-      ...value,
-      theme: desktop.theme ?? "light",
-      desktopTheme: desktop.desktopTheme ?? "",
-      showThinking: desktop.showThinking ?? true,
-    };
+    settings = { ...value, theme: "light", desktopTheme: "", showThinking: true };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     settings = {
@@ -98,6 +62,15 @@ export async function createSettingsService(options: {
       showThinking: true,
       deviceId: randomUUID(),
     };
+  }
+
+  try {
+    const desktop = JSON.parse(await readFile(desktopPath, "utf8"));
+    settings.theme = desktop.theme ?? "light";
+    settings.desktopTheme = desktop.desktopTheme ?? "";
+    settings.showThinking = desktop.showThinking ?? true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 
   const credentials = await createCredentials(agentRoot, () => settings.providers);
@@ -134,9 +107,25 @@ export async function createSettingsService(options: {
     return result;
   }
 
-  async function commit(next: Settings, reconfigure = true) {
-    await writeSettings(next);
+  async function commit(next: Settings, scope: "agent" | "desktop") {
+    await writeJson(
+      scope === "agent" ? path : desktopPath,
+      scope === "agent"
+        ? {
+            version: 1,
+            providers: next.providers,
+            defaultModel: next.defaultModel,
+            deviceId: next.deviceId,
+          }
+        : {
+            version: 1,
+            theme: next.theme,
+            desktopTheme: next.desktopTheme,
+            showThinking: next.showThinking,
+          },
+    );
 
+    const reconfigure = next.providers !== settings.providers;
     settings = next;
     if (reconfigure) configure();
     options.publish({ type: "workspace" });
@@ -176,18 +165,22 @@ export async function createSettingsService(options: {
     return models;
   }
 
-  async function listModels({ config, loginId, discover }: Arguments<"provider.models">) {
-    const temporary = new InMemoryCredentialStore();
+  async function credentialFor(config: ProviderConfig, loginId?: string) {
     const previous = settings.providers.find((item) => item.id === config.id);
     const sameAuth =
       previous?.providerType === config.providerType &&
       previous.authMethod === config.authMethod &&
       previous.endpoint === config.endpoint;
-    const credential = loginId
+    return loginId
       ? logins.credential(loginId, config)
       : sameAuth
         ? await credentials.store.read(config.id)
         : undefined;
+  }
+
+  async function listModels({ config, loginId, discover }: Arguments<"provider.models">) {
+    const temporary = new InMemoryCredentialStore();
+    const credential = await credentialFor(config, loginId);
     if (credential) await temporary.modify(config.id, async () => credential);
     const models = modelsFor(config, temporary);
     await models.refresh({ allowNetwork: false });
@@ -243,26 +236,21 @@ export async function createSettingsService(options: {
         });
         if (config.models.some((item) => !catalogue.some((known) => known.id === item.id)))
           throw new Error("请选择提供方目录中的模型。");
-        const sameAuth =
-          previous?.providerType === config.providerType &&
-          previous.authMethod === config.authMethod &&
-          previous.endpoint === config.endpoint;
-        const credential = loginId
-          ? logins.credential(loginId, config)
-          : sameAuth
-            ? await credentials.store.read(config.id)
-            : undefined;
+        const credential = await credentialFor(config, loginId);
         if (["oauth", "api_key"].includes(config.authMethod) && !credential)
           throw new Error("请先完成认证。");
         const secretRef = credential ? await credentials.stage(credential) : "";
         const stored = { ...config, secretRef };
         const configs = [...settings.providers.filter((item) => item.id !== config.id), stored];
         try {
-          await commit({
-            ...settings,
-            providers: configs,
-            defaultModel: defaultModel(configs, settings.defaultModel),
-          });
+          await commit(
+            {
+              ...settings,
+              providers: configs,
+              defaultModel: defaultModel(configs, settings.defaultModel),
+            },
+            "agent",
+          );
         } catch (error) {
           if (secretRef) await credentials.remove(secretRef);
           throw error;
@@ -275,17 +263,20 @@ export async function createSettingsService(options: {
       serialize(async () => {
         const previous = settings.providers.find((item) => item.id === id);
         const configs = settings.providers.filter((item) => item.id !== id);
-        await commit({
-          ...settings,
-          providers: configs,
-          defaultModel: defaultModel(configs, settings.defaultModel),
-        });
+        await commit(
+          {
+            ...settings,
+            providers: configs,
+            defaultModel: defaultModel(configs, settings.defaultModel),
+          },
+          "agent",
+        );
         if (previous?.secretRef) await credentials.remove(previous.secretRef);
         return null;
       }),
     "settings.update": (change: Arguments<"settings.update">) =>
       serialize(async () => {
-        const { expectedDesktopTheme, ...next } = change;
+        const { expectedDesktopTheme, defaultModel: selectedModel, ...desktop } = change;
         // 回退请求可能晚于用户的新选择；在写入队列内比较，不能由前端快照决定。
         if (expectedDesktopTheme !== undefined && settings.desktopTheme !== expectedDesktopTheme)
           return info();
@@ -294,7 +285,17 @@ export async function createSettingsService(options: {
           defaultModel(settings.providers, change.defaultModel) !== change.defaultModel
         )
           throw new Error("请选择有效模型。");
-        await commit({ ...settings, ...next }, false);
+        if (selectedModel !== undefined)
+          await commit({ ...settings, defaultModel: selectedModel }, "agent");
+        if (Object.keys(desktop).length) {
+          try {
+            await commit({ ...settings, ...desktop }, "desktop");
+          } catch (error) {
+            if (selectedModel !== undefined)
+              throw new Error("默认模型已保存，但桌面设置保存失败。", { cause: error });
+            throw error;
+          }
+        }
         return info();
       }),
     async "auth.start"({ providerType, method }: Arguments<"auth.start">) {

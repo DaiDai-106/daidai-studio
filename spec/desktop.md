@@ -33,4 +33,4 @@ renderer 只能通过 preload 暴露的 `DesktopBridge` 调用：普通应用请
 
 ## 验收
 
-`tests/integration/desktop.test.ts`、`project_directory.test.ts`、`shell_desktop.test.ts` 覆盖桌面流程。网页预览和 TLS 测试入口见 [Coding 工作区](design/coding_workspace.md#验收)；Electron 测试需要图形环境，其他平台需实际验证。
+`tests/integration/desktop.test.ts`、`tests/desktop/project_directory.test.ts`、`tests/integration/shell_desktop.test.ts` 覆盖桌面流程。网页预览和 TLS 测试入口见 [Coding 工作区](design/coding_workspace.md#验收)；Electron 测试需要图形环境，其他平台需实际验证。

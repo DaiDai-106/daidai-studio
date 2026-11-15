@@ -105,8 +105,12 @@ export interface ApplicationBridge {
     requestId: string,
     text: string,
     images?: import("./application.ts").ChatImage[],
+    delivery?: import("./application.ts").DeliveryMode,
   ): Promise<{ submissionId: string }>;
   stopConversation(id: string): Promise<null>;
+  cancelQueuedMessage(id: string, messageId: string): Promise<null>;
+  promoteQueuedMessage(id: string, messageId: string): Promise<null>;
+  resumeConversationQueue(id: string): Promise<null>;
   // 工具确认和后端主动推送的状态。
   respondShell(id: string, approved: boolean): Promise<null>;
   subscribe(listener: (event: ApplicationEvent) => void): () => void;

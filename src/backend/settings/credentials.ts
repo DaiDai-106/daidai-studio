@@ -1,11 +1,12 @@
-import { randomUUID } from "node:crypto";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   type Credential,
   type CredentialStore,
   InMemoryCredentialStore,
 } from "@earendil-works/pi-ai";
+
+import { writeJson } from "../../shared/node/write_json.ts";
 
 export type StoredProvider = import("../../contracts/application.ts").ProviderConfig & {
   secretRef: string;
@@ -40,16 +41,7 @@ export async function createCredentials(
       const next = { ...persisted };
       if (credential) next[key] = credential;
       else delete next[key];
-      const temporary = `${path}.${randomUUID()}.tmp`;
-      try {
-        await writeFile(temporary, `${JSON.stringify(next, null, 2)}\n`, {
-          mode: 0o600,
-          flag: "wx",
-        });
-        await rename(temporary, path);
-      } finally {
-        await rm(temporary, { force: true });
-      }
+      await writeJson(path, next);
       persisted = next;
     });
     writes = write.catch(() => {});

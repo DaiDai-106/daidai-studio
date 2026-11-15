@@ -25,7 +25,10 @@ test("同一目录的不同项目和会话相互独立并在重启后恢复", ()
     store.updateConversation(a.id, { draft: "只属于 A" });
     assert.equal(store.getConversation(b.id)?.draft, "");
     assert.deepEqual(
-      store.listConversations(second.id).map((item) => item.id),
+      store
+        .listConversationPage()
+        .items.filter((item) => item.projectId === second.id)
+        .map((item) => item.id),
       [c.id],
     );
     store.hideProject(first.id);
@@ -42,8 +45,9 @@ test("同一目录的不同项目和会话相互独立并在重启后恢复", ()
     store.restoreProject(first.id);
     assert.equal(store.getProject(first.id)?.mode, "coding");
     assert.equal(store.getConversation(a.id)?.draft, "只属于 A");
-    store.deleteProject(first.id);
-    assert.equal(store.getConversation(a.id), undefined);
+    store.hideProject(first.id);
+    assert.equal(store.getProject(first.id), undefined);
+    assert.equal(store.getConversation(a.id)?.draft, "只属于 A");
     assert.equal(store.getProject(second.id)?.path, directory);
     assert.equal(readFileSync(join(directory, "user.txt"), "utf8"), "用户文件");
     store.close();
@@ -92,7 +96,6 @@ test("旧场景项目及会话不出现在 Coding 版本，原数据保留", asy
 
     store = openProjectStore(data);
     assert.equal(store.getProject(old.id), undefined);
-    assert.equal(store.getAnyProject(old.id), undefined);
     assert.equal(store.getConversation(oldChat.id), undefined);
     assert.deepEqual(
       store.listProjects().map((project) => project.id),

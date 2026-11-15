@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { _electron as electron } from "playwright";
 import { createPiHistory } from "../../src/backend/agent/pi_history.ts";
 import { openProjectStore } from "../../src/backend/projects/store.ts";
+import { EVENT_CHANNEL, REQUEST_CHANNEL } from "../../src/contracts/desktop.ts";
 
 const usage = {
   input: 1,
@@ -252,6 +253,66 @@ test("统一轨迹入口展示角色、历史系统注入、工具定义和完�
       false,
       "聊天仍使用原来的投影",
     );
+    // 控制历史增长及错误事件，列表更新、分页和错误展示仍使用真实组件。
+    async function growTrace(count: number) {
+      const view = await page.evaluate(
+        (id) => window.desktop.application.watchConversation(id),
+        conversationId,
+      );
+      await app.evaluate(
+        ({ ipcMain, BrowserWindow }, { count, view, requestChannel, eventChannel }) => {
+          const handlers = (
+            ipcMain as unknown as {
+              _invokeHandlers: Map<string, Parameters<typeof ipcMain.handle>[1]>;
+            }
+          )._invokeHandlers;
+          const original = handlers.get(requestChannel);
+          if (!original) throw new Error("Desktop IPC 未注册。");
+          ipcMain.removeHandler(requestChannel);
+          ipcMain.handle(requestChannel, (event, method, args) => {
+            if (method === "conversation.trace" && args.id === view.conversationId)
+              return Array.from({ length: count }, (_, index) => ({
+                id: `entry-${index}`,
+                role: "event",
+                turn: 1,
+                label: "分页测试",
+                preview: `记录 ${index}`,
+                timestamp: index,
+                failed: false,
+              }));
+            return original(event, method, args);
+          });
+          BrowserWindow.getAllWindows()[0]?.webContents.send(eventChannel, {
+            type: "conversation",
+            view: {
+              ...view,
+              sequence: view.sequence + count,
+              historyKey: `snapshot-${count}`,
+              error: "测试会话运行错误",
+            },
+          });
+        },
+        { count, view, requestChannel: REQUEST_CHANNEL, eventChannel: EVENT_CHANNEL },
+      );
+      await trace.locator(`[data-entry-id="entry-${count - 1}"]`).waitFor();
+    }
+    await growTrace(230);
+    assert.equal(
+      await trace.locator(".trace-record").count(),
+      100,
+      "历史增长后仍只显示最近 100 条",
+    );
+    assert.equal(await page.getByRole("alert").filter({ hasText: "测试会话运行错误" }).count(), 1);
+    await trace.getByRole("button", { name: "显示更早的轨迹" }).click();
+    await trace.locator('[data-entry-id="entry-30"]').waitFor();
+    assert.equal(await trace.locator(".trace-record").count(), 200);
+    await growTrace(250);
+    assert.equal(
+      await trace.locator(".trace-record").count(),
+      220,
+      "加载更早记录后新增历史保留阅读起点",
+    );
+    assert.equal(await trace.locator('[data-entry-id="entry-30"]').count(), 1);
     await page.getByRole("button", { name: "没有系统快照", exact: true }).click();
     await trace.getByText("另一条旧对话", { exact: true }).waitFor();
     const old = trace.locator(".role-user");

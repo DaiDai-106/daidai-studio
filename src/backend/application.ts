@@ -224,6 +224,12 @@ export async function openApplication(options: {
       return conversations.send(input);
     },
 
+    "conversation.cancelQueued": async ({ id, messageId }) =>
+      conversations.cancelQueued(id, messageId),
+    "conversation.promoteQueued": async ({ id, messageId }) =>
+      conversations.promoteQueued(id, messageId),
+    "conversation.resumeQueue": async ({ id }) => conversations.resumeQueue(id),
+
     async "conversation.stop"({ id }) {
       return conversations.stop(id);
     },

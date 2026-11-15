@@ -137,11 +137,9 @@ test("Electron renders public thinking and real tool details, preserves disclosu
     await processGroup.locator(".process-header").click();
     await processGroup.locator(".process-header").click();
     assert.equal(await read.locator(".process-row").getAttribute("aria-expanded"), "true");
-    await page.screenshot({ path: "out/transcript-wide.png" });
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]?.setContentSize(840, 700),
     );
-    await page.screenshot({ path: "out/transcript-narrow.png" });
     assert.equal(
       await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
       false,
@@ -181,27 +179,6 @@ test("Electron renders public thinking and real tool details, preserves disclosu
     page = await app.firstWindow();
     page.setDefaultTimeout(8000);
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.evaluate(async (endpoint) => {
-      const api = window.desktop.application;
-      const login = await api.startLogin("deepseek", "api_key");
-      if (!login.prompt) throw new Error("Missing test login prompt");
-      await api.answerLogin(login.id, login.prompt.id, "transcript-test-key");
-      const provider = {
-        id: "process",
-        providerType: "deepseek",
-        name: "Local process test",
-        authMethod: "api_key" as const,
-        endpoint,
-        enabled: true,
-
-        models: [],
-      };
-      const model = (await api.getModels(provider, login.id, false)).find((item) =>
-        item.thinkingLevels?.includes("low"),
-      );
-      if (!model) throw new Error("Missing reasoning model");
-      await api.saveProvider({ ...provider, models: [{ ...model, output: 4096 }] }, login.id);
-    }, planner.endpoint);
     await page.locator(".conversation-row").first().click();
     const chatTab = page
       .getByRole("tablist", { name: "工作区视图" })

@@ -65,6 +65,22 @@ test("连续流式帧不重新计算已完成轮次和历史文件链接", { tim
     await input.fill("继续回答");
     await page.getByRole("button", { name: "发送消息", exact: true }).click();
     await page.getByText("新回答开始", { exact: true }).waitFor();
+    const navigation = page.getByRole("navigation", { name: "跳转到用户消息" });
+    assert.equal(await navigation.getByRole("button").count(), 2);
+    await navigation.getByRole("button", { name: `跳转到第 1 条消息：${previousText}` }).click();
+    const firstTurn = page.locator(".conversation-turn").first();
+    assert.ok(
+      await firstTurn.evaluate((element) => {
+        const area = element.closest(".messages");
+        return (
+          area !== null &&
+          element.getBoundingClientRect().top >= area.getBoundingClientRect().top - 1
+        );
+      }),
+    );
+    await page.getByRole("tab", { name: "轨迹" }).click();
+    assert.equal(await navigation.count(), 0);
+    await page.getByRole("tab", { name: "聊天" }).click();
     // 在浏览器侧计数实际组件的文本处理，不依赖 React 私有 Fiber 或生产调试开关。
     await page.evaluate(
       ({ text, marker }) => {

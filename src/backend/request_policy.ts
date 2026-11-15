@@ -47,5 +47,8 @@ export const requestPolicy = {
   "conversation.traceDetail": "read",
   "conversation.send": "mutation",
   "conversation.stop": "interrupt",
+  "conversation.cancelQueued": "mutation",
+  "conversation.promoteQueued": "mutation",
+  "conversation.resumeQueue": "mutation",
   "shell.respond": "interrupt",
 } as const satisfies Record<Method, "read" | "interrupt" | "mutation">;

@@ -1,5 +1,6 @@
 /* 聊天消息、输入区和执行过程的样式。 */
 .chat-panel {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -13,6 +14,39 @@
   flex-direction: column;
   padding: 28px 32px;
   scrollbar-gutter: stable;
+}
+.conversation-navigation {
+  position: absolute;
+  z-index: 1;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  max-height: 50%;
+  overflow-y: auto;
+}
+.conversation-navigation button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  min-height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.conversation-navigation button::after {
+  content: "";
+  width: 16px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--text);
+  opacity: 0.5;
+}
+.conversation-navigation button:hover::after,
+.conversation-navigation button:focus-visible::after {
+  opacity: 1;
 }
 .welcome-symbol {
   color: var(--text);
@@ -415,6 +449,10 @@
 .compact .welcome h1 {
   font-size: 18px;
 }
+.queued-messages p {
+  color: var(--muted);
+  margin: 6px 0;
+}
 .compact .welcome p {
   font-size: 12px;
 }
@@ -503,4 +541,43 @@
 }
 .extension-notification.level-error {
   color: var(--danger);
+}
+
+.queued-messages {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--subtle);
+  font-size: 12px;
+}
+.queued-messages-header,
+.queued-messages li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.queued-messages-header {
+  justify-content: space-between;
+}
+.queued-messages ul {
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 0;
+  margin: 6px 0 0;
+  list-style: none;
+}
+.queued-messages li {
+  padding: 4px 0;
+}
+.queued-messages li > span:first-child {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.queued-message-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

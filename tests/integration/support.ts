@@ -1,6 +1,32 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import type { ElectronApplication, Page } from "playwright";
+import type { TestContext } from "node:test";
+import { type ElectronApplication, _electron as electron, type Page } from "playwright";
+
+export async function launchTestApp(context: TestContext) {
+  const profile = await mkdtemp(join(tmpdir(), "dai-ui-"));
+  let application: ElectronApplication | undefined;
+  context.after(async () => {
+    try {
+      if (application?.process().exitCode === null) await application.close();
+    } finally {
+      await rm(profile, { recursive: true, force: true });
+    }
+  });
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] =>
+        entry[0] !== "ELECTRON_RUN_AS_NODE" && entry[1] !== undefined,
+    ),
+  );
+  application = await electron.launch({
+    args: [process.cwd(), `--user-data-dir=${profile}`],
+    env,
+    chromiumSandbox: true,
+  });
+  return { application, page: await application.firstWindow(), profile };
+}
 
 export async function openTestProject(
   application: ElectronApplication,

@@ -118,14 +118,18 @@ const desktop: DesktopBridge = {
     watchConversation: (id) => call("conversation.watch", { id }),
     getConversationTrace: (id) => call("conversation.trace", { id }),
     getTraceDetail: (id, entryId) => call("conversation.traceDetail", { id, entryId }),
-    sendMessage: (id, requestId, text, images) =>
+    sendMessage: (id, requestId, text, images, delivery) =>
       call("conversation.send", {
         id,
         requestId,
         text,
         ...(images?.length ? { images } : {}),
+        ...(delivery ? { delivery } : {}),
       }),
     stopConversation: (id) => call("conversation.stop", { id }),
+    cancelQueuedMessage: (id, messageId) => call("conversation.cancelQueued", { id, messageId }),
+    promoteQueuedMessage: (id, messageId) => call("conversation.promoteQueued", { id, messageId }),
+    resumeConversationQueue: (id) => call("conversation.resumeQueue", { id }),
 
     // 回复工具确认请求，并订阅后端状态变化。
     respondShell: (id, approved) => call("shell.respond", { id, approved }),

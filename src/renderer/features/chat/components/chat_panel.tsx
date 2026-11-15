@@ -39,6 +39,9 @@ interface Props {
   onAccessMode: (mode: AccessMode) => void;
   accessPending: boolean;
   onSend: (images: ChatImage[]) => Promise<boolean>;
+  onCancelQueued: (messageId: string) => void;
+  onPromoteQueued: (messageId: string) => void;
+  onResumeQueue: () => void;
   onConfigure: () => void;
   stream: ConversationView | null;
   shellApproval: ShellApproval | null;
@@ -117,6 +120,33 @@ export function ChatPanel(props: Props) {
           </button>
         ))}
       </div>
+      {view === "chat" &&
+        props.conversation.messages.some((message) => message.role === "user") && (
+          <nav className="conversation-navigation" aria-label="跳转到用户消息">
+            {props.conversation.messages
+              .filter((message) => message.role === "user")
+              .map((message, index) => {
+                const label = message.text.trim().replace(/\s+/g, " ").slice(0, 80) || "图片消息";
+                return (
+                  <button
+                    key={message.id}
+                    type="button"
+                    aria-label={`跳转到第 ${index + 1} 条消息：${label}`}
+                    title={label}
+                    onClick={() => {
+                      const target = Array.from(
+                        messages.current?.querySelectorAll<HTMLElement>("[data-turn-id]") ?? [],
+                      ).find((element) => element.dataset.turnId === message.id);
+                      if (target) {
+                        following.current = false;
+                        target.scrollIntoView({ block: "start" });
+                      }
+                    }}
+                  />
+                );
+              })}
+          </nav>
+        )}
       <div
         className="messages"
         ref={messages}
@@ -192,6 +222,56 @@ export function ChatPanel(props: Props) {
         )}
       </div>
       <div className="composer-wrap">
+        {!!props.stream?.queuedMessages?.length && (
+          <section className="queued-messages" aria-label="待处理消息">
+            <div className="queued-messages-header">
+              <strong>待处理消息 · {props.stream.queuedMessages.length}</strong>
+              {!props.stream.busy && (
+                <button type="button" onClick={props.onResumeQueue}>
+                  继续发送
+                </button>
+              )}
+            </div>
+            {!props.stream.busy && <p>未处理的消息已保存，不会自动重发。</p>}
+            <ul>
+              {props.stream.queuedMessages.map((message) => (
+                <li key={message.id}>
+                  <span>
+                    {message.delivering
+                      ? "正在投递"
+                      : message.paused
+                        ? "已暂停"
+                        : message.delivery === "steer"
+                          ? "等待插话"
+                          : "完成后发送"}
+                  </span>
+                  <span className="queued-message-text" title={message.text}>
+                    {message.text || "图片消息"}
+                    {message.imageCount > 0 && `（${message.imageCount} 张图片）`}
+                  </span>
+                  {props.stream?.busy &&
+                    !message.delivering &&
+                    !message.paused &&
+                    message.delivery === "followUp" && (
+                      <IconButton
+                        icon="arrow"
+                        label={`改为插话：${message.text || "图片消息"}`}
+                        onClick={() => props.onPromoteQueued(message.id)}
+                      />
+                    )}
+                  <button
+                    type="button"
+                    disabled={message.delivering}
+                    aria-label={`取消待处理消息：${message.text || "图片消息"}`}
+                    onClick={() => props.onCancelQueued(message.id)}
+                  >
+                    取消
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         {referenceOpen && props.codingProjectId && (
           <FileReferencePicker
             ref={referencePicker}
@@ -323,12 +403,7 @@ export function ChatPanel(props: Props) {
                 event.preventDefault();
                 return;
               }
-              if (
-                event.key === "Enter" &&
-                !event.shiftKey &&
-                !event.nativeEvent.isComposing &&
-                !props.stream?.busy
-              ) {
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 void send();
               }
@@ -416,17 +491,17 @@ export function ChatPanel(props: Props) {
                 onValueChange={props.onThinking}
               />
             </div>
+            {props.stream?.busy && (
+              <IconButton icon="stop" label="停止回复" onClick={props.onStop} />
+            )}
             <button
               type="button"
               className="send-button"
-              aria-label={props.stream?.busy ? "停止回复" : "发送消息"}
-              disabled={
-                !props.stream?.busy &&
-                (props.accessPending || (!props.conversation.draft.trim() && !images.length))
-              }
-              onClick={props.stream?.busy ? props.onStop : () => void send()}
+              aria-label="发送消息"
+              disabled={props.accessPending || (!props.conversation.draft.trim() && !images.length)}
+              onClick={() => void send()}
             >
-              <Icon name={props.stream?.busy ? "stop" : "arrow"} size={20} />
+              <Icon name="arrow" size={20} />
             </button>
           </div>
         </fieldset>

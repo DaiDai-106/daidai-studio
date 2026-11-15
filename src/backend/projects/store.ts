@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { AccessMode, ThinkingLevel } from "../../contracts/application.ts";
+import type {
+  AccessMode,
+  ChatImage,
+  DeliveryMode,
+  ThinkingLevel,
+} from "../../contracts/application.ts";
 import type { ConversationMode } from "../../contracts/capabilities.ts";
 
 export interface StoredProject {
@@ -27,6 +32,13 @@ export interface StoredConversation {
   hasMessages: boolean;
 }
 
+export interface QueuedMessage {
+  id: string;
+  text: string;
+  delivery: DeliveryMode;
+  images?: ChatImage[];
+}
+
 /** Dai 自身的数据位于数据根目录；项目路径只是工具的工作目录。 */
 export function openProjectStore(dataRoot: string) {
   mkdirSync(dataRoot, { recursive: true, mode: 0o700 });
@@ -46,6 +58,10 @@ export function openProjectStore(dataRoot: string) {
       has_messages INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS conversations_project ON conversations(project_id);
+    CREATE TABLE IF NOT EXISTS conversation_queue (
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      id TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY (conversation_id, id)
+    );
   `);
   // 兼容新版开发期间创建的数据表，不改变已有会话内容。
   const columns = db.prepare("PRAGMA table_info(conversations)").all() as { name: string }[];
@@ -126,7 +142,6 @@ export function openProjectStore(dataRoot: string) {
       return result;
     },
     getProject: project,
-    getAnyProject: anyProject,
     listProjects(): StoredProject[] {
       return db
         .prepare(
@@ -154,11 +169,6 @@ export function openProjectStore(dataRoot: string) {
       return requireProject(id);
     },
 
-    deleteProject(id: string) {
-      requireProject(id);
-      db.prepare("DELETE FROM projects WHERE id = ?").run(id);
-    },
-
     createConversation(projectId: string, modelId = "", sessionFile: string | null = null) {
       requireProject(projectId);
       const id = randomUUID();
@@ -167,16 +177,35 @@ export function openProjectStore(dataRoot: string) {
       return requireConversation(id);
     },
     getConversation: conversation,
-    listConversations(projectId: string): StoredConversation[] {
-      requireProject(projectId);
-      const rows = db
-        .prepare(
-          "SELECT id FROM conversations WHERE project_id = ? ORDER BY created_at DESC, rowid DESC",
-        )
-        .all(projectId) as { id: string }[];
-      return rows.map((row) => requireConversation(row.id));
+    queuedMessages(id: string): QueuedMessage[] {
+      requireConversation(id);
+      return (
+        db
+          .prepare("SELECT body FROM conversation_queue WHERE conversation_id = ? ORDER BY rowid")
+          .all(id) as { body: string }[]
+      ).map((row) => JSON.parse(row.body) as QueuedMessage);
     },
-
+    queueMessage(id: string, message: QueuedMessage) {
+      requireConversation(id);
+      db.prepare("INSERT INTO conversation_queue (conversation_id, id, body) VALUES (?, ?, ?)").run(
+        id,
+        message.id,
+        JSON.stringify(message),
+      );
+    },
+    promoteQueuedMessage(id: string, messageId: string) {
+      requireConversation(id);
+      db.prepare(
+        "UPDATE conversation_queue SET body = json_set(body, '$.delivery', 'steer') WHERE conversation_id = ? AND id = ?",
+      ).run(id, messageId);
+    },
+    removeQueuedMessage(id: string, messageId: string) {
+      requireConversation(id);
+      db.prepare("DELETE FROM conversation_queue WHERE conversation_id = ? AND id = ?").run(
+        id,
+        messageId,
+      );
+    },
     listConversationPage(cursor?: { createdAt: number; id: string }, limit = 100) {
       const rows = (
         cursor

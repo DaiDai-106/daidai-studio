@@ -159,10 +159,12 @@ export function ConversationTrace({
   stream: ConversationView | null;
 }) {
   const stream = incoming?.conversationId === conversationId ? incoming : null;
-  const [records, setRecords] = useState<TraceRecord[] | null>(null);
+  const [{ records, visibleCount }, setSnapshot] = useState<{
+    records: TraceRecord[] | null;
+    visibleCount: number;
+  }>({ records: null, visibleCount: 100 });
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
-  const [start, setStart] = useState<number | null>(null);
   const historyKey = stream?.historyKey;
   // biome-ignore lint/correctness/useExhaustiveDependencies: 叶节点变化或重试会使同一会话的轨迹快照失效。
   useEffect(() => {
@@ -171,8 +173,15 @@ export function ConversationTrace({
     void window.desktop.application.getConversationTrace(conversationId).then(
       (value) => {
         if (active) {
-          setRecords(value);
-          setStart((previous) => previous ?? Math.max(0, value.length - 100));
+          setSnapshot((previous) => ({
+            records: value,
+            // 已加载更早记录时保留起点，否则始终只显示最近 100 条。
+            visibleCount:
+              previous.visibleCount > 100
+                ? previous.visibleCount +
+                  Math.max(0, value.length - (previous.records?.length ?? 0))
+                : 100,
+          }));
         }
       },
       (cause) => {
@@ -184,7 +193,6 @@ export function ConversationTrace({
     };
   }, [conversationId, historyKey, attempt]);
   const turn = records?.at(-1)?.turn;
-  const offset = Math.min(start ?? 0, Math.max(0, (records?.length ?? 0) - 100));
   return (
     <section className="conversation-trace" aria-label="对话轨迹">
       <p className="trace-note">
@@ -200,12 +208,17 @@ export function ConversationTrace({
       )}
       {!records && !error && <p role="status">正在读取轨迹…</p>}
       {records?.length === 0 && <p>还没有轨迹记录，发送消息后会在这里显示。</p>}
-      {records && offset > 0 && (
-        <button type="button" onClick={() => setStart(Math.max(0, offset - 100))}>
+      {records && records.length > visibleCount && (
+        <button
+          type="button"
+          onClick={() =>
+            setSnapshot((previous) => ({ ...previous, visibleCount: previous.visibleCount + 100 }))
+          }
+        >
           显示更早的轨迹
         </button>
       )}
-      {records?.slice(offset).map((record) => (
+      {records?.slice(-visibleCount).map((record) => (
         <Record
           key={record.id}
           record={record}
@@ -224,11 +237,6 @@ export function ConversationTrace({
             <span className="trace-kind">助手</span> {stream.partial || "正在处理…"}
           </p>
         </div>
-      )}
-      {stream?.error && (
-        <p className="error" role="alert">
-          {stream.error}
-        </p>
       )}
     </section>
   );
