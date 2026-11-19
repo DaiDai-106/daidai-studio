@@ -71,6 +71,7 @@ const desktop: DesktopBridge = {
     packageAction: (input) => call("catalog.packageAction", input),
     // 工作区、模型提供方、设置与认证。
     getWorkspace: (cursor) => call("workspace.get", cursor ? { cursor } : {}),
+    getUsageDashboard: () => call("usage.dashboard", {}),
     getProviderTypes: () => call("provider.types", {}),
     getModels: (config, loginId, discover) =>
       call("provider.models", { config, discover, ...(loginId ? { loginId } : {}) }),

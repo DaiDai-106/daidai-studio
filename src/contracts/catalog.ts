@@ -110,7 +110,14 @@ export const catalogCommands = {
   "catalog.configure": object({ url: text(2000) }),
   "catalog.installed": object({ moduleId }),
   "catalog.tasks": object({}),
-  "catalog.install": object({ sourceId, id: text(500), version: text(100), scope, moduleId }),
+  "catalog.install": object({
+    sourceId,
+    id: text(500),
+    version: text(100),
+    scope,
+    moduleId,
+    replaceSource: Type.Optional(text()),
+  }),
   "catalog.packageAction": object({
     host: Type.Optional(PluginHostSchema),
     action: Type.Enum(["install", "update", "remove", "enable", "disable"]),

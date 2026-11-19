@@ -97,6 +97,7 @@
   line-height: 1.5;
 }
 .tooltip {
+  white-space: pre-line;
   display: flex;
   align-items: center;
   gap: 16px;

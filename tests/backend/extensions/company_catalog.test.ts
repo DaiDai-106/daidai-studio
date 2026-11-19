@@ -134,11 +134,12 @@ test("Git 公司目录可刷新，主题可经现有 Pi Git 安装、更新并�
       refresh: true,
     });
     assert.equal(detail.entry.version, "1.1.0");
-    const update = await app.request("catalog.packageAction", {
-      action: "update",
-      host: "desktop",
-      source: installSource,
+    const update = await app.request("catalog.install", {
+      sourceId: "company",
+      id: entry.id,
+      version: entry.version,
       scope: "global",
+      replaceSource: installSource,
     });
     const updated = await waitForCatalogTask(() => app.request("catalog.tasks", {}), update.id);
     assert.equal(updated.state, "completed", updated.message);

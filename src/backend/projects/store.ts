@@ -177,6 +177,20 @@ export function openProjectStore(dataRoot: string) {
       return requireConversation(id);
     },
     getConversation: conversation,
+    usageHistories(): {
+      projectId: string;
+      sessionFile: string | null;
+      hasMessages: number;
+    }[] {
+      return db
+        .prepare(`SELECT c.project_id AS projectId, c.session_file AS sessionFile, c.has_messages AS hasMessages
+        FROM conversations c JOIN projects p ON p.id = c.project_id WHERE p.mode = 'coding'`)
+        .all() as {
+        projectId: string;
+        sessionFile: string | null;
+        hasMessages: number;
+      }[];
+    },
     queuedMessages(id: string): QueuedMessage[] {
       requireConversation(id);
       return (

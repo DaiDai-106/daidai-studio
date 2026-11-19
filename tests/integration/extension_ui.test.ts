@@ -114,7 +114,7 @@ test("real Pi package dialogs support background recovery, confirm, select, inpu
     await stopped.waitFor({ state: "hidden" });
     await page.waitForFunction(async () => {
       const state = await window.desktop.application.getWorkspace();
-      return !state.busyConversationId && !state.extensionUiRequests?.length;
+      return !state.busyConversationIds.length && !state.extensionUiRequests?.length;
     });
   } finally {
     await app.close();

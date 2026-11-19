@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isAbsolute } from "node:path";
 import type { ApplicationEvent, Arguments } from "../../contracts/application.ts";
 import type {
   CatalogInstalled,
@@ -68,6 +69,7 @@ export function createCatalogService(options: {
   function start(
     input: Arguments<"catalog.packageAction">,
     association?: Omit<Association, "source" | "host" | "scope" | "moduleId">,
+    replacement?: { source: string; version: string; previousVersion: string },
   ): CatalogTask {
     const host = input.host ?? "pi";
     if (host === "desktop" && input.scope !== "global") throw new Error("桌面插件需要全局安装。");
@@ -92,14 +94,45 @@ export function createCatalogService(options: {
     pending = pending.then(async () => {
       try {
         const service = manager(task);
+        let updateMessage = "";
         if (input.action === "install") {
-          await service.install(source, input.scope);
-        } else if (input.action === "update") await service.update(source);
-        else if (input.action === "remove") await service.remove(source, input.scope);
+          await service.install(source, input.scope, replacement);
+        } else if (input.action === "update") {
+          const before = (await service.inspect()).find(
+            (p) => p.source === source && p.scope === input.scope,
+          );
+          const local = isAbsolute(source);
+          const pinned = /^npm:(?:@[^/]+\/)?[^@]+@v?\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(source);
+          const offline = ["1", "true", "yes"].includes(
+            (process.env.PI_OFFLINE ?? "").toLowerCase(),
+          );
+          if (!before || local || pinned || offline) {
+            await service.checkChange();
+            if (!before) throw new Error("找不到指定作用域的包。");
+            updateMessage = local
+              ? "本地目录不会自动下载更新，请直接更新目录内容。"
+              : pinned
+                ? "来源固定在指定版本，请通过市场详情选择其他版本。"
+                : "当前处于离线模式，未执行更新。";
+          } else {
+            await service.update(source);
+            const after = (await service.inspect()).find(
+              (p) => p.source === source && p.scope === input.scope,
+            );
+            updateMessage =
+              before?.version && after?.version && before.version !== after.version
+                ? `版本已变化：${before.version} → ${after.version}。`
+                : "未观察到版本变化；内容可能已更新，也可能没有更新。";
+          }
+        } else if (input.action === "remove") await service.remove(source, input.scope);
         else await service.setEnabled(source, input.scope, input.action === "enable");
         if (association || input.action === "remove") {
           const links = await read<Association[]>("origins.json", []);
-          const next = links.filter((a) => !samePackage(a, task));
+          const next = links.filter(
+            (a) =>
+              !samePackage(a, task) &&
+              !(replacement && samePackage(a, { ...task, source: replacement.source })),
+          );
           if (association)
             next.push({
               ...association,
@@ -111,7 +144,13 @@ export function createCatalogService(options: {
           await write("origins.json", next);
         }
         task.state = "completed";
-        task.message = input.action === "install" ? "已安装并启用。" : "操作已完成。";
+        task.message = replacement
+          ? replacement.previousVersion === replacement.version
+            ? `版本未变化：${replacement.version}。`
+            : `已更新：${replacement.previousVersion || "未知版本"} → ${replacement.version}。`
+          : input.action === "install"
+            ? "已安装并启用。"
+            : updateMessage || "操作已完成。";
       } catch (error) {
         task.state = "failed";
         task.message = (error instanceof Error ? error.message : "操作失败。").slice(0, 2000);
@@ -179,6 +218,17 @@ export function createCatalogService(options: {
     start,
     async install(input: Arguments<"catalog.install">) {
       const { entry, catalogUrl } = await sources.resolveInstall(input);
+      const old =
+        input.replaceSource &&
+        (await installed(input.moduleId)).find(
+          (p) =>
+            p.source === normalizePackageSource(input.replaceSource ?? "") &&
+            p.scope === input.scope &&
+            p.sourceId === input.sourceId &&
+            p.entryId === input.id &&
+            p.host === entry.host,
+        );
+      if (input.replaceSource && !old) throw new Error("原插件或市场来源已变化，请刷新后重试。");
       return start(
         {
           action: "install",
@@ -192,6 +242,9 @@ export function createCatalogService(options: {
           entryId: input.id,
           ...(input.sourceId === "company" ? { catalogUrl } : {}),
         },
+        old
+          ? { source: old.source, version: input.version, previousVersion: old.version }
+          : undefined,
       );
     },
     async close() {

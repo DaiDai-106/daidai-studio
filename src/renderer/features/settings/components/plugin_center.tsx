@@ -63,6 +63,9 @@ export function PluginCenter({
     (item) => `${item.host}:${item.scope}:${item.source}` === localSelection,
   );
   const focusReturn = useRef<HTMLElement | null>(null);
+  const [dismissedTask, setDismissedTask] = useState(
+    () => sessionStorage.getItem("dismissedPluginTask") ?? "",
+  );
   const latestTask = center.tasks[0];
   const installed = installedPlugins.filter(
     (i) =>
@@ -127,7 +130,7 @@ export function PluginCenter({
           {center.error}
         </p>
       )}
-      {latestTask && (
+      {latestTask && (latestTask.state === "running" || latestTask.id !== dismissedTask) && (
         <div className={`plugin-task ${latestTask.state}`} role="status">
           <Icon
             name={
@@ -149,6 +152,19 @@ export function PluginCenter({
             </strong>
             <p>{latestTask.message}</p>
           </div>
+          {latestTask.state !== "running" && (
+            <button
+              type="button"
+              className="plugin-task-close"
+              aria-label="关闭操作提示"
+              onClick={() => {
+                sessionStorage.setItem("dismissedPluginTask", latestTask.id);
+                setDismissedTask(latestTask.id);
+              }}
+            >
+              <Icon name="close" size={16} />
+            </button>
+          )}
         </div>
       )}
       {center.tab === "discover" && (
@@ -574,22 +590,24 @@ export function PluginCenter({
           busy={center.busy}
           error={center.error}
           onClose={() => setConfirmation(null)}
-          onConfirm={(scope, source, host) =>
-            confirmation.kind === "catalog"
-              ? center.install({
-                  sourceId: confirmation.entry.sourceId,
-                  id: confirmation.entry.id,
-                  version: confirmation.version,
-                  scope,
-                  moduleId,
-                })
-              : center.operation({
-                  action: confirmation.kind === "manual" ? "install" : confirmation.kind,
-                  source,
-                  host,
-                  scope,
-                  moduleId,
-                })
+          onConfirm={(scope, source, host, update) =>
+            update
+              ? center.install({ ...update, scope, moduleId })
+              : confirmation.kind === "catalog"
+                ? center.install({
+                    sourceId: confirmation.entry.sourceId,
+                    id: confirmation.entry.id,
+                    version: confirmation.version,
+                    scope,
+                    moduleId,
+                  })
+                : center.operation({
+                    action: confirmation.kind === "manual" ? "install" : confirmation.kind,
+                    source,
+                    host,
+                    scope,
+                    moduleId,
+                  })
           }
         />
       )}

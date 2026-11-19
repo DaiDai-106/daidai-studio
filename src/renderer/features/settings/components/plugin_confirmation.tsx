@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   type CatalogEntry,
   type CatalogInstalled,
+  type CatalogSourceId,
   type PluginHost,
   type PluginModule,
   pluginModules,
@@ -9,6 +10,7 @@ import {
 import { Dialog, Field } from "../../../shared/components/dialog.tsx";
 import { Icon } from "../../../shared/components/icon.tsx";
 import { Select } from "../../../shared/components/select.tsx";
+import { errorMessage } from "../../../shared/logic/error_message.ts";
 import { scopeLabel, sources } from "./plugin_presentation.tsx";
 
 type PluginScope = CatalogInstalled["scope"];
@@ -30,7 +32,12 @@ export function PluginConfirmation({
   moduleId?: PluginModule;
   busy: boolean;
   error: string;
-  onConfirm(scope: PluginScope, source: string, host: PluginHost): Promise<boolean>;
+  onConfirm(
+    scope: PluginScope,
+    source: string,
+    host: PluginHost,
+    update?: { sourceId: CatalogSourceId; id: string; version: string; replaceSource: string },
+  ): Promise<boolean>;
   onClose(): void;
 }) {
   const [scope, setScope] = useState<PluginScope>(
@@ -41,6 +48,36 @@ export function PluginConfirmation({
   const [reviewed, setReviewed] = useState(request.kind !== "manual");
   const [pending, setPending] = useState(false);
   const [attempted, setAttempted] = useState(false);
+  const [latest, setLatest] = useState<CatalogEntry | null>(null);
+  const [lookupError, setLookupError] = useState("");
+  const marketItem =
+    request.kind === "update" && request.item.sourceId !== "manual" ? request.item : null;
+  const updateSourceId = marketItem?.sourceId;
+  const updateEntryId = marketItem?.entryId;
+  const updateHost = marketItem?.host;
+  useEffect(() => {
+    if (!updateSourceId || updateSourceId === "manual") return;
+    if (!updateEntryId) {
+      setLookupError("市场来源已变化，请检查插件详情。");
+      return;
+    }
+    let active = true;
+    void window.desktop.application
+      .catalogDetail({ sourceId: updateSourceId, id: updateEntryId, refresh: true })
+      .then((detail) => {
+        if (!active) return;
+        if (detail.notice) throw new Error("无法获取最新版本，请检查网络后重试。");
+        if (detail.entry.host !== updateHost)
+          throw new Error("市场插件的宿主已变化，请在详情中检查。");
+        setLatest(detail.entry);
+      })
+      .catch((error) => {
+        if (active) setLookupError(errorMessage(error));
+      });
+    return () => {
+      active = false;
+    };
+  }, [updateSourceId, updateEntryId, updateHost]);
   const installing = request.kind === "catalog" || request.kind === "manual";
   const item = request.kind === "catalog" ? request.entry : "item" in request ? request.item : null;
   const host = item?.host ?? manualHost;
@@ -70,10 +107,27 @@ export function PluginConfirmation({
             setReviewed(true);
             return;
           }
+          if (marketItem && (!latest || lookupError || latest.version === marketItem.version))
+            return;
           setPending(true);
           setAttempted(true);
           try {
-            if (await onConfirm(desktop ? "global" : scope, source, host)) onClose();
+            if (
+              await onConfirm(
+                desktop ? "global" : scope,
+                source,
+                host,
+                marketItem && latest && marketItem.sourceId !== "manual"
+                  ? {
+                      sourceId: marketItem.sourceId,
+                      id: marketItem.entryId,
+                      version: latest.version,
+                      replaceSource: marketItem.source,
+                    }
+                  : undefined,
+              )
+            )
+              onClose();
           } finally {
             setPending(false);
           }
@@ -156,11 +210,23 @@ export function PluginConfirmation({
             </Field>
           </>
         )}
+        {marketItem && (
+          <p role={lookupError ? "alert" : "status"}>
+            {lookupError ||
+              (!latest
+                ? "正在查询最新版本…"
+                : latest.version === marketItem.version
+                  ? `当前已是市场版本 ${latest.version}。`
+                  : `当前 ${marketItem.version || "未知版本"} → 市场最新 ${latest.version}`)}
+          </p>
+        )}
         <p className="plugin-note">
           {request.kind === "remove"
             ? "移除包配置及对应安装内容，不删除用户项目文件。本地路径来源保留原目录。"
             : request.kind === "update"
-              ? "相同来源的全局和当前模块配置可能一并更新。固定版本不会自动移动；更换版本请到市场详情中选择。更新失败可能部分完成。"
+              ? marketItem
+                ? "将更新原作用域并保留启用状态。安装可能运行依赖脚本；更新失败可能部分完成。"
+                : "按原来源检查更新。固定版本和本地目录不会自动移动；更新失败可能部分完成。"
               : desktop
                 ? "桌面插件对整个应用生效，主题可在外观设置中选择。Git/npm 安装可能运行依赖脚本，请确认来源可信。"
                 : "Extension 会在 Agent 宿主进程执行代码，安装也可能运行依赖脚本。仅安装你信任的来源。相关会话需先停止；安装完成后下次发送消息时加载。"}
@@ -174,7 +240,16 @@ export function PluginConfirmation({
           <button type="button" disabled={pending} onClick={onClose}>
             取消
           </button>
-          <button type="submit" className="primary" disabled={pending || busy || !source}>
+          <button
+            type="submit"
+            className="primary"
+            disabled={
+              pending ||
+              busy ||
+              !source ||
+              (!!marketItem && (!latest || !!lookupError || latest.version === marketItem.version))
+            }
+          >
             {!reviewed
               ? "继续安装"
               : pending

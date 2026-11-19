@@ -76,6 +76,15 @@ test("Pi package and standard skills can be managed and restored in the settings
     await page.waitForFunction(async () =>
       (await window.desktop.application.catalogTasks()).every((task) => task.state !== "running"),
     );
+    const taskNotice = page.locator(".plugin-task");
+    await taskNotice.getByText("已安装并启用。", { exact: true }).waitFor();
+    await taskNotice.getByRole("button", { name: "关闭操作提示" }).click();
+    assert.equal(await taskNotice.count(), 0);
+    await page.getByRole("button", { name: "本地数据", exact: true }).click();
+    await page.getByRole("button", { name: "插件与技能", exact: true }).click();
+    await page.getByRole("tab", { name: /已安装/ }).click();
+    await packageRow.waitFor();
+    assert.equal(await taskNotice.count(), 0);
     await page.getByRole("textbox", { name: "搜索已安装插件", exact: true }).fill("no-such-plugin");
     await page.getByRole("heading", { name: "没有匹配的已安装插件", exact: true }).waitFor();
     await page.getByRole("button", { name: "清除筛选", exact: true }).click();

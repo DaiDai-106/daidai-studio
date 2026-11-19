@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { createCatalogService } from "../../../../src/backend/extensions/catalog_service.ts";
 import { createPackageService } from "../../../../src/backend/extensions/package_service.ts";
+import { waitForCatalogTask } from "../../../support/catalog_task.ts";
 
 const root = process.argv[2];
 const registry = process.argv[3];
@@ -28,8 +30,92 @@ assert.match(await extensionText(a), /version-1/);
 await b.install(source, "global");
 assert.equal((await b.inspect())[0]?.scope, "global");
 assert.match(await extensionText(b), /version-1/);
+const upgradeRoot = join(root, "upgrade");
+const fixed = createPackageService({ dataRoot: upgradeRoot, moduleId: "coding" });
+const oldSource = "npm:dai-offline-fixture@1.0.0";
+await fixed.install(oldSource, "module");
+await fixed.install(oldSource, "global");
+await fixed.setEnabled(oldSource, "module", false);
+await mkdir(join(upgradeRoot, "catalog"), { recursive: true });
+await writeFile(
+  join(upgradeRoot, "catalog", "origins.json"),
+  JSON.stringify([
+    {
+      source: oldSource,
+      host: "pi",
+      scope: "module",
+      moduleId: "coding",
+      sourceId: "pi",
+      entryId: "dai-offline-fixture",
+    },
+  ]),
+);
 const response = await fetch(`${registry}/switch-2`);
 assert.equal(response.status, 204);
+const originalFetch = globalThis.fetch;
+globalThis.fetch = async (input, init) =>
+  String(input).startsWith("https://registry.npmjs.org/")
+    ? Response.json({
+        name: "dai-offline-fixture",
+        version: "2.0.0",
+        keywords: ["pi-package"],
+        pi: { extensions: ["extensions/index.ts"] },
+      })
+    : originalFetch(input, init);
+const catalog = createCatalogService({ dataRoot: upgradeRoot, publish() {}, async changed() {} });
+try {
+  const pinned = catalog.start({
+    action: "update",
+    source: oldSource,
+    scope: "module",
+    moduleId: "coding",
+  });
+  assert.match(
+    (await waitForCatalogTask(async () => catalog.taskList(), pinned.id)).message,
+    /固定在指定版本/,
+  );
+  await assert.rejects(
+    catalog.install({
+      sourceId: "pi",
+      id: "dai-offline-fixture",
+      version: "2.0.0",
+      scope: "global",
+      replaceSource: oldSource,
+    }),
+    /原插件或市场来源已变化/,
+  );
+  await assert.rejects(
+    catalog.install({
+      sourceId: "pi",
+      id: "dai-offline-fixture",
+      version: "3.0.0",
+      scope: "module",
+      moduleId: "coding",
+      replaceSource: oldSource,
+    }),
+    /不可用/,
+  );
+  assert.equal((await fixed.inspect()).find((p) => p.scope === "module")?.version, "1.0.0");
+  const task = await catalog.install({
+    sourceId: "pi",
+    id: "dai-offline-fixture",
+    version: "2.0.0",
+    scope: "module",
+    moduleId: "coding",
+    replaceSource: oldSource,
+  });
+  const result = await waitForCatalogTask(async () => catalog.taskList(), task.id);
+  assert.equal(result.state, "completed", result.message);
+  assert.match(result.message, /1\.0\.0 → 2\.0\.0/);
+  const installed = await catalog.installed("coding");
+  assert.equal(installed.find((p) => p.scope === "module")?.version, "2.0.0");
+  assert.equal(installed.find((p) => p.scope === "module")?.enabled, false);
+  assert.equal(installed.find((p) => p.scope === "module")?.sourceId, "pi");
+  assert.equal(installed.find((p) => p.scope === "global")?.version, "1.0.0");
+} finally {
+  globalThis.fetch = originalFetch;
+  await catalog.close();
+}
 await b.update(source);
 assert.match(await extensionText(b), /version-2/, "global npm update must fetch the new version");
 assert.match(

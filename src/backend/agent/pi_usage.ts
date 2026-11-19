@@ -10,6 +10,15 @@ export type ModelContext = (
     }
   | undefined;
 
+export function entryUsage(entry: SessionEntry) {
+  const message = entry.type === "message" ? entry.message : undefined;
+  return entry.type === "usage" || entry.type === "compaction" || entry.type === "branch_summary"
+    ? entry.usage
+    : message?.role === "assistant" || message?.role === "toolResult"
+      ? message.usage
+      : undefined;
+}
+
 // 未创建 Agent 的历史也可查看；按 Pi getSessionStats 的条目范围恢复统计。
 export function projectUsage(
   entries: SessionEntry[],
@@ -29,12 +38,7 @@ export function projectUsage(
   let cost = 0;
   for (const entry of entries) {
     const message = entry.type === "message" ? entry.message : undefined;
-    const usage =
-      entry.type === "usage" || entry.type === "compaction" || entry.type === "branch_summary"
-        ? entry.usage
-        : message?.role === "assistant" || message?.role === "toolResult"
-          ? message.usage
-          : undefined;
+    const usage = entryUsage(entry);
     if (!usage) continue;
     seen = true;
     const provider =

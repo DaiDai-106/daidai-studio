@@ -11,6 +11,7 @@ import { AiSettings } from "./ai_settings.tsx";
 import { PluginCenter } from "./plugin_center.tsx";
 import { SettingRow, Toggle } from "./settings_controls.tsx";
 import { ShortcutsSettings } from "./shortcuts_settings.tsx";
+import { UsageDashboard } from "./usage_dashboard.tsx";
 
 const pages = [
   { id: "general", label: "常规", icon: "sliders", group: "偏好", keywords: "外观 主题 语言" },
@@ -24,6 +25,7 @@ const pages = [
     keywords: "插件 市场 扩展 Skills 命令 公司 Pi",
   },
   { id: "data", label: "本地数据", icon: "archive", group: "系统", keywords: "归档 记录 存储" },
+  { id: "dashboard", label: "Dashboard", icon: "axes", group: "系统", keywords: "用量 token 统计" },
   { id: "about", label: "信息", icon: "info", group: "系统", keywords: "版本 诊断" },
 ] as const;
 export type SettingsPage = (typeof pages)[number]["id"];
@@ -47,6 +49,9 @@ interface Props {
   onProviders: () => void;
   onDefault: (id: string) => void;
   onArchives: () => void;
+  loadUsage: () => Promise<
+    import("../../../../contracts/application.ts").Results["usage.dashboard"]
+  >;
 }
 
 export function SettingsView(props: Props) {
@@ -228,6 +233,9 @@ export function SettingsView(props: Props) {
                   </SettingRow>
                 </section>
               </>
+            )}
+            {props.page === "dashboard" && (
+              <UsageDashboard load={props.loadUsage} providers={props.providers} />
             )}
             {props.page === "about" && (
               <>

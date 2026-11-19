@@ -151,8 +151,8 @@ test("Coding 搜索、文件引用草稿恢复、真实模型上下文及聊天�
       .getByRole("button", { name: "src/main.ts", exact: true })
       .waitFor();
     await page.getByRole("button", { name: "发送消息" }).click();
-    await page.waitForFunction(async () =>
-      Boolean((await window.desktop.application.getWorkspace()).busyConversationId),
+    await page.waitForFunction(
+      async () => (await window.desktop.application.getWorkspace()).busyConversationIds.length > 0,
     );
     await page.getByRole("button", { name: "返回项目主页", exact: true }).click();
     await page.getByRole("heading", { name: "项目", exact: true }).waitFor();

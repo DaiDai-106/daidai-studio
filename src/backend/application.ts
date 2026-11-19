@@ -11,6 +11,7 @@ import { openDirectoryRoot } from "../shared/node/file_access.ts";
 import { createConversations } from "./agent/conversations.ts";
 import { createExtensionUi } from "./agent/extension_ui.ts";
 import { createShellApproval } from "./agent/shell_approval.ts";
+import { usageDashboard } from "./agent/usage_dashboard.ts";
 import { createCodingFileService } from "./coding/file_service.ts";
 import { createCodingGitService } from "./coding/git_service.ts";
 import { openOrCreateDataRoot } from "./data_root.ts";
@@ -144,7 +145,7 @@ export async function openApplication(options: {
         conversations: page.items.map(conversations.metadata),
         nextCursor: page.next ? JSON.stringify(page.next) : null,
         dataRoot,
-        busyConversationId: conversations.busyId(),
+        busyConversationIds: conversations.busyIds(),
         shellApproval: shellApproval.pending(),
         extensionUiRequests: extensionUi.pending(),
       };
@@ -161,6 +162,11 @@ export async function openApplication(options: {
     async "project.refresh"({ id }) {
       return projectInfo(id);
     },
+
+    "usage.dashboard": async () =>
+      usageDashboard(store, dataRoot, (provider, model) =>
+        settings.modelRuntime.getModel(provider, model),
+      ),
 
     async "project.remove"({ id }) {
       await conversations.invalidate(id);

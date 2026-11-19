@@ -36,7 +36,7 @@ const workspace = (): WorkspaceInfo => ({
   conversations: [conversation()],
   nextCursor: "older",
   dataRoot: "/tmp",
-  busyConversationId: null,
+  busyConversationIds: [],
   shellApproval: null,
   extensionUiRequests: [],
 });

@@ -288,18 +288,50 @@ export function createPackageService({
 
   return {
     inspect: () => run(() => Promise.all(configured().map(describe))),
+    checkChange: () => run(beforeChange),
 
-    install(source: string, scope: Scope): Promise<void> {
+    install(
+      source: string,
+      scope: Scope,
+      replacement?: { source: string; version: string },
+    ): Promise<void> {
       return run(async () => {
         const options = scopeOptions(scope);
         const normalized = normalizePackageSource(source);
+        const previous =
+          replacement &&
+          configured().find((item) => item.source === replacement.source && item.scope === scope);
+        if (replacement && !previous) throw new Error("原插件已变化，请刷新后重试。");
+        const targetPath = manager.getInstalledPath(
+          normalized,
+          scope === "global" ? "user" : "project",
+        );
+        if (
+          replacement &&
+          (!previous?.installedPath || !targetPath || previous.installedPath !== targetPath)
+        )
+          throw new Error("市场中的安装来源已变化，请在详情中检查后手动安装。");
         await beforeChange();
         await manager.install(normalized, options);
         await validateSource(normalized, scope);
+        if (
+          replacement &&
+          (
+            await describe({
+              source: normalized,
+              scope,
+              installedPath: targetPath ?? "",
+              enabled: previous?.enabled ?? true,
+            })
+          ).version !== replacement.version
+        )
+          throw new Error("安装后的版本与所选版本不一致，请检查已安装列表。");
         manager.addSourceToSettings(normalized, options);
         await flush();
         // 安装与启用共用同一次队列操作；新会话不能在两步之间读取旧的停用状态。
-        saveEnabled(normalized, scope, true);
+        if (replacement && replacement.source !== normalized)
+          saveEnabled(replacement.source, scope, true);
+        saveEnabled(normalized, scope, previous?.enabled ?? true);
       });
     },
 

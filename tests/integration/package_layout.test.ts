@@ -39,6 +39,7 @@ test("插件市场在深浅主题和窄窗口中显示卡片、来源与可键�
     versions: ["1.2.0"],
   }));
   let packages = entries.map(({ entry, readme }) => ({ ...entry, readme }));
+  let unavailable = false;
   const key = join(profile, "key.pem");
   const cert = join(profile, "cert.pem");
   execFileSync(
@@ -65,6 +66,11 @@ test("插件市场在深浅主题和窄窗口中显示卡片、来源与可键�
   const server = createServer(
     { key: await readFile(key), cert: await readFile(cert) },
     (_request, response) => {
+      if (unavailable) {
+        response.writeHead(503);
+        response.end();
+        return;
+      }
       response.setHeader("content-type", "application/json");
       response.end(JSON.stringify({ schemaVersion: 1, packages }));
     },
@@ -75,6 +81,30 @@ test("插件市场在深浅主题和窄窗口中显示卡片、来源与可键�
   assert.ok(address && typeof address !== "string");
   const url = `https://127.0.0.1:${address.port}/catalog.json`;
   await writeFile(join(root, "sources.json"), JSON.stringify({ companyUrl: url }));
+  const packageRoot = join(profile, "data", "agent", "packages");
+  const installedPath = join(packageRoot, "npm", "node_modules", "@company", "demo-0");
+  await mkdir(installedPath, { recursive: true });
+  await writeFile(
+    join(installedPath, "package.json"),
+    JSON.stringify({ name: "@company/demo-0", version: "1.2.0" }),
+  );
+  await writeFile(
+    join(packageRoot, "settings.json"),
+    JSON.stringify({ packages: ["npm:@company/demo-0@1.2.0"] }),
+  );
+  await writeFile(
+    join(root, "origins.json"),
+    JSON.stringify([
+      {
+        source: "npm:@company/demo-0@1.2.0",
+        host: "pi",
+        scope: "global",
+        sourceId: "company",
+        entryId: "demo-0",
+        catalogUrl: url,
+      },
+    ]),
+  );
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
       (e): e is [string, string] => e[0] !== "ELECTRON_RUN_AS_NODE" && e[1] !== undefined,
@@ -123,6 +153,44 @@ test("插件市场在深浅主题和窄窗口中显示卡片、来源与可键�
         refresh: true,
       }),
     );
+    await page.getByRole("tab", { name: /已安装/ }).click();
+    const row = page.locator(".plugin-installed-row").filter({ hasText: "@company/demo-0" });
+    await row.getByRole("button", { name: "更新", exact: true }).click();
+    let updateDialog = page.getByRole("dialog", { name: "更新插件" });
+    await updateDialog.getByText("当前 1.2.0 → 市场最新 1.3.0", { exact: true }).waitFor();
+    assert.equal(await updateDialog.getByRole("button", { name: "确认更新" }).isEnabled(), true);
+    await updateDialog.getByRole("button", { name: "取消" }).click();
+    packages = packages.map((item, index) =>
+      index === 0
+        ? { ...item, version: "1.2.0", installSource: "npm:@company/demo-0@1.2.0" }
+        : item,
+    );
+    await row.getByRole("button", { name: "更新", exact: true }).click();
+    updateDialog = page.getByRole("dialog", { name: "更新插件" });
+    await updateDialog.getByText("当前已是市场版本 1.2.0。", { exact: true }).waitFor();
+    assert.equal(await updateDialog.getByRole("button", { name: "确认更新" }).isDisabled(), true);
+    await updateDialog.getByRole("button", { name: "取消" }).click();
+    packages = packages.map((item, index) =>
+      index === 0
+        ? { ...item, version: "1.3.0", installSource: "npm:@company/demo-0@1.3.0" }
+        : item,
+    );
+    unavailable = true;
+    await row.getByRole("button", { name: "更新", exact: true }).click();
+    updateDialog = page.getByRole("dialog", { name: "更新插件" });
+    await updateDialog.getByText("无法获取最新版本，请检查网络后重试。", { exact: true }).waitFor();
+    assert.equal(await updateDialog.getByRole("button", { name: "确认更新" }).isDisabled(), true);
+    await updateDialog.getByRole("button", { name: "取消" }).click();
+    unavailable = false;
+    await page.evaluate(() =>
+      window.desktop.application.catalogDetail({
+        sourceId: "company",
+        id: "demo-0",
+        refresh: true,
+      }),
+    );
+    await page.getByRole("tab", { name: "发现插件" }).click();
+    await page.getByRole("button", { name: "公司内部", exact: true }).click();
     await page.getByRole("button", { name: "查看 Code Review", exact: true }).click();
     const detail = page.getByRole("dialog", { name: "插件详情", exact: true });
     await detail.waitFor();

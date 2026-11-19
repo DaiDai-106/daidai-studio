@@ -12,7 +12,7 @@ interface Props {
   pendingProjectIds: string[];
   conversations: Conversation[];
   activeConversationId: string;
-  busyConversationId: string;
+  busyConversationIds: string[];
   onSelectConversation: (id: string) => void;
   onCreateConversation: (projectId: string) => void;
   onRename: (id: string) => void;
@@ -111,7 +111,7 @@ export function Sidebar(props: Props) {
                       title={conversation.title}
                       onClick={() => props.onSelectConversation(conversation.id)}
                     >
-                      {conversation.id === props.busyConversationId ? (
+                      {props.busyConversationIds.includes(conversation.id) ? (
                         <span role="status" aria-label="正在回复" className="conversation-loading">
                           <Icon name="loading" size={14} />
                         </span>

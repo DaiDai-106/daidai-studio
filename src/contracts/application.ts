@@ -159,6 +159,7 @@ export type ApplicationEvent = Static<typeof EventSchema>;
 export const commands = {
   ...catalogCommands,
   "workspace.get": object({ cursor: Type.Optional(text(4000)) }),
+  "usage.dashboard": object({}),
   "provider.types": object({}),
   "provider.models": object({
     config: ProviderSchema,
@@ -439,9 +440,21 @@ const resultSchemas = {
     conversations: Type.Array(ConversationInfoSchema, { maxItems: 100 }),
     nextCursor: Type.Union([text(4000), Type.Null()]),
     dataRoot: text(4096),
-    busyConversationId: Type.Union([id, Type.Null()]),
+    busyConversationIds: Type.Array(id),
     shellApproval: Type.Optional(Type.Union([ShellApprovalSchema, Type.Null()])),
     extensionUiRequests: Type.Optional(Type.Array(ExtensionUiRequestSchema, { maxItems: 100 })),
+  }),
+  "usage.dashboard": object({
+    events: Type.Array(
+      object({
+        id: text(100),
+        timestamp: text(100),
+        provider: text(200),
+        model: text(500),
+        ...UsageSchema.properties,
+      }),
+    ),
+    incomplete: Type.Number({ minimum: 0 }),
   }),
   "provider.types": Type.Array(
     object({

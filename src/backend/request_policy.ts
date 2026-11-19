@@ -12,6 +12,7 @@ export const requestPolicy = {
   "catalog.install": "mutation",
   "catalog.packageAction": "mutation",
   "workspace.get": "read",
+  "usage.dashboard": "read",
   "provider.types": "mutation",
   "provider.models": "mutation",
   "provider.save": "mutation",

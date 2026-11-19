@@ -38,6 +38,7 @@ export interface ApplicationBridge {
   ): Promise<Results["catalog.packageAction"]>;
   // 工作区、模型提供方和配置。
   getWorkspace(cursor?: string): Promise<WorkspaceInfo>;
+  getUsageDashboard(): Promise<Results["usage.dashboard"]>;
   getProviderTypes(): Promise<ProviderTypeInfo[]>;
   getModels(
     config: ProviderConfig,

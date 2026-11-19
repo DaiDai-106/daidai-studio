@@ -87,10 +87,6 @@ export function useWorkbenchNavigation(
         return;
       }
       case "selectProject":
-        if (application.workspace?.busyConversationId) {
-          await select(application.workspace.busyConversationId);
-          return;
-        }
         {
           const checked = await api.refreshProject(action.id);
           setAvailability({ id: checked.id, available: checked.available });
@@ -136,8 +132,6 @@ export function useWorkbenchNavigation(
     return (
       (await application.run(async () => {
         try {
-          if (application.workspace?.busyConversationId)
-            throw new Error("请先停止当前模型请求，再创建项目。");
           await writer.flush();
           const project = await api.createProject(draft);
           if (!project) return false;
@@ -157,19 +151,6 @@ export function useWorkbenchNavigation(
     return application
       .run(async () => {
         try {
-          const busyId = application.workspace?.busyConversationId;
-          const selectingBusyProject =
-            action.type === "selectProject" &&
-            workspace?.conversations.some(
-              (item) => item.id === busyId && item.projectId === action.id,
-            );
-          if (
-            busyId &&
-            action.type !== "home" &&
-            !(action.type === "select" && action.id === busyId) &&
-            !selectingBusyProject
-          )
-            throw new Error("请先停止当前模型请求，再切换项目或会话。");
           await writer.flush();
           await apply(action);
           return true;

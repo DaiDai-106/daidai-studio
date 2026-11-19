@@ -41,3 +41,9 @@ Dai 在 Pi 当前输出和工具批次结束的边界逐条投递，插话优先
 ## 验收
 
 `tests/contracts/application.test.ts` 覆盖请求、响应和事件契约；桌面桥接及预览另见 [桌面进程](desktop.md#验收)和 [Coding 工作区](design/coding_workspace.md#验收)。增删字段时同时核对发送、接收及运行时校验；测试存在不代表当前运行已通过。
+
+`workspace.get.busyConversationIds` 返回所有运行中（含初始化）的会话 ID，与当前选中会话无关；启动、初始化失败及结束时推送工作区变更。会话视图仍按 ID 获取，客户端只接收当前选中会话的历史和进度，不混合后台会话的内容。
+
+## 本地用量概览
+
+`usage.dashboard` 读取仍由应用管理的 Coding 会话 JSONL（含隐藏项目和归档），不读取已删除会话的孤儿文件；返回时间、原始 Provider 和模型、输入、输出、缓存读写 Token 和估算费用。Pi 的 assistant/toolResult、usage、compaction、branch_summary 中可用的 usage 都计入；同一分叉谱系复制的完全相同条目只算一次。费用未知返回 null，不当作零；损坏或缺失的历史、无法追溯的分叉祖先及无效用量计入 incomplete，提示统计可能不完整。统计不是服务商账单，不包含其他客户端的调用。

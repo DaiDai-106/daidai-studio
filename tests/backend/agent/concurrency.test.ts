@@ -75,6 +75,8 @@ test("并发发送先占位；执行中拒绝变更包和技能，避免半成�
     await first;
     assert.equal(store.getConversation(conversation.id)?.title, "初始化期间手动命名");
     assert.equal(store.getConversation(conversation.id)?.sessionFile, initialSessionFile);
+    await assert.rejects(conversations.update({ id: conversation.id, archived: true }), /先停止/);
+    await assert.rejects(conversations.remove(conversation.id), /先停止/);
     const catalog = createCatalogService({
       dataRoot,
       changed: (moduleId) => conversations.invalidate(undefined, moduleId),
@@ -103,11 +105,16 @@ test("并发发送先占位；执行中拒绝变更包和技能，避免半成�
       requestId: "pending",
       text: "立刻停止",
     });
+    assert.deepEqual(
+      new Set(conversations.busyIds()),
+      new Set([conversation.id, pendingConversation.id]),
+    );
     await conversations.stop(pendingConversation.id);
     await pending;
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(conversations.watch(pendingConversation.id).busy, false);
     assert.deepEqual(conversations.watch(pendingConversation.id).messages, []);
+    assert.deepEqual(conversations.busyIds(), [conversation.id]);
   } finally {
     release();
     await conversations.close();

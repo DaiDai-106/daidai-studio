@@ -414,6 +414,13 @@
   color: var(--muted);
   overflow-wrap: anywhere;
 }
+.plugin-task-close {
+  margin-left: auto;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
 .plugin-task.failed {
   color: var(--danger);
 }

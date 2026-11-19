@@ -409,7 +409,8 @@ export function createConversations(options: {
         busy.has(input.id) &&
         (input.modelId !== undefined ||
           input.thinkingLevel !== undefined ||
-          input.accessMode !== undefined)
+          input.accessMode !== undefined ||
+          input.archived === true)
       )
         throw new Error("请先停止当前会话。");
       const { id, ...update } = input;
@@ -423,8 +424,8 @@ export function createConversations(options: {
       return result;
     },
     watch: view,
-    busyId() {
-      return busy.keys().next().value ?? null;
+    busyIds() {
+      return [...busy.keys()];
     },
 
     async send(input: {
@@ -464,6 +465,7 @@ export function createConversations(options: {
         releaseReservation = resolve;
       });
       busy.set(input.id, reservation);
+      publish({ type: "workspace" });
       if (input.queuedId) delivering.set(input.id, { id: input.queuedId });
       let session: AgentSession;
       try {
@@ -476,6 +478,7 @@ export function createConversations(options: {
         delivering.delete(input.id);
         releaseReservation();
         emit(input.id);
+        publish({ type: "workspace" });
         throw error;
       }
       failures.delete(input.id);
@@ -539,6 +542,7 @@ export function createConversations(options: {
       busy.set(input.id, work);
       releaseReservation();
       emit(input.id);
+      publish({ type: "workspace" });
       return { submissionId: input.requestId };
     },
 
@@ -598,6 +602,7 @@ export function createConversations(options: {
 
     async remove(id: string) {
       requireConversation(id);
+      if (busy.has(id)) throw new Error("请先停止当前会话再删除。");
       await release(id);
       history.forget(id);
       store.deleteConversation(id);

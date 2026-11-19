@@ -85,7 +85,7 @@ export function App() {
             activeProjectId={project?.id ?? ""}
             conversations={workbench.conversations}
             activeConversationId={active?.id ?? ""}
-            busyConversationId={application.workspace?.busyConversationId ?? ""}
+            busyConversationIds={application.workspace?.busyConversationIds ?? []}
             onSelectConversation={workbench.select}
             onCreateConversation={(id) => workbench.create(id)}
             onRename={(id) => setDialog({ type: "rename", id })}
@@ -191,6 +191,7 @@ export function App() {
           defaultModel={configuration.defaultModel}
           onProviders={configuration.updateProviders}
           onDefault={configuration.setDefaultModel}
+          loadUsage={application.api.getUsageDashboard}
           onArchives={() => setDialog({ type: "archives", projectId: null })}
         />
       )}
