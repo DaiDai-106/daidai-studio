@@ -3,9 +3,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { _electron as electron } from "playwright";
+import packageInfo from "../../package.json" with { type: "json" };
 
 const executable = process.argv[2];
-if (!executable) throw new Error("请提供已打包 Dai 可执行文件的路径。");
+if (!executable) throw new Error("请提供已打包应用的可执行文件路径。");
 const program = resolve(executable);
 const root = await mkdtemp(join(tmpdir(), "dai-package-smoke-"));
 const profile = join(root, "profile");
@@ -24,6 +25,8 @@ try {
   const page = await application.firstWindow();
   page.setDefaultTimeout(30_000);
   await page.getByRole("button", { name: "打开设置", exact: true }).waitFor();
+  const info = await page.evaluate(() => window.desktop.getAppInfo());
+  assert.equal(info.name, packageInfo.productName);
   const workspace = await page.evaluate(() => window.desktop.application.getWorkspace());
   assert.equal(workspace.dataRoot, join(profile, "data"));
   assert.deepEqual(workspace.projects, []);

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ManagedSkill } from "../../../../contracts/application.ts";
 import type { PluginModule, PluginScope } from "../../../../contracts/catalog.ts";
+import { productName } from "../../../../shared/app_metadata.ts";
 import { Dialog, Field } from "../../../shared/components/dialog.tsx";
 import { errorMessage } from "../../../shared/logic/error_message.ts";
 import { Empty } from "./plugin_presentation.tsx";
@@ -105,7 +106,7 @@ export function SkillLibrary({
           <p>
             {packageSource
               ? "插件附带的技能，随插件一起管理。"
-              : "把常用的方法和步骤保存为技能，让 Dai 按你的方式工作。"}
+              : `把常用的方法和步骤保存为技能，让 ${productName} 按你的方式工作。`}
           </p>
         </div>
         {!packageSource && (

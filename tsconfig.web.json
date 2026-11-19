@@ -8,6 +8,7 @@
     "jsx": "react-jsx"
   },
   "include": [
+    "package.json",
     "src/renderer/**/*.ts",
     "src/renderer/**/*.tsx",
     "src/contracts/**/*.ts",

@@ -1,11 +1,15 @@
 import { useState } from "react";
+import changelog from "../../../../../CHANGELOG.md?raw";
 import licenseText from "../../../../../LICENSE?raw";
 import type { ProviderInfo } from "../../../../contracts/application.ts";
 import type { AppInfo, Theme } from "../../../../contracts/desktop.ts";
 import type { DesktopTheme } from "../../../../contracts/desktop_theme.ts";
+import { productName } from "../../../../shared/app_metadata.ts";
+import { getReleaseNotes } from "../../../../shared/changelog.ts";
 import { BrandIcon } from "../../../shared/components/brand_icon.tsx";
 import { Dialog } from "../../../shared/components/dialog.tsx";
 import { Icon } from "../../../shared/components/icon.tsx";
+import { MarkdownText } from "../../../shared/components/markdown_text.tsx";
 import { Select } from "../../../shared/components/select.tsx";
 import { AiSettings } from "./ai_settings.tsx";
 import { PluginCenter } from "./plugin_center.tsx";
@@ -26,7 +30,13 @@ const pages = [
   },
   { id: "data", label: "本地数据", icon: "archive", group: "系统", keywords: "归档 记录 存储" },
   { id: "dashboard", label: "Dashboard", icon: "axes", group: "系统", keywords: "用量 token 统计" },
-  { id: "about", label: "信息", icon: "info", group: "系统", keywords: "版本 诊断" },
+  {
+    id: "about",
+    label: "信息",
+    icon: "info",
+    group: "系统",
+    keywords: "版本 本版更新 更新日志 诊断",
+  },
 ] as const;
 export type SettingsPage = (typeof pages)[number]["id"];
 interface Props {
@@ -58,6 +68,8 @@ export function SettingsView(props: Props) {
   const [search, setSearch] = useState("");
   const [diagnostics, setDiagnostics] = useState(false);
   const [licenseOpen, setLicenseOpen] = useState(false);
+  const version = props.info?.version;
+  const releaseNotes = version ? getReleaseNotes(changelog, version) : undefined;
   const filtered = pages.filter((page) =>
     `${page.label} ${page.keywords}`.toLowerCase().includes(search.toLowerCase()),
   );
@@ -65,7 +77,7 @@ export function SettingsView(props: Props) {
     <div className="settings-layout">
       <aside className="settings-sidebar">
         <div className="settings-brand">
-          设置<span>Dai</span>
+          设置<span>{productName}</span>
         </div>
         <label className="settings-search">
           <Icon name="search" size={17} />
@@ -126,7 +138,7 @@ export function SettingsView(props: Props) {
                       value={props.desktopTheme}
                       onValueChange={props.onDesktopTheme}
                       options={[
-                        { value: "", label: "Dai 默认" },
+                        { value: "", label: `${productName} 默认` },
                         ...(props.desktopTheme &&
                         !props.desktopThemes.some((theme) => theme.id === props.desktopTheme)
                           ? [
@@ -241,10 +253,23 @@ export function SettingsView(props: Props) {
               <>
                 <div className="about-brand">
                   <BrandIcon size={76} />
-                  <h2>Dai</h2>
+                  <h2>{productName}</h2>
                   <p>面向本地项目的 AI 工作台</p>
                 </div>
-                <SettingRow title="版本" description={props.info?.version ?? "应用信息读取中"} />
+                <SettingRow title="版本" description={version ?? "应用信息读取中"} />
+                {version && (
+                  <section
+                    className="setting-row about-release-notes"
+                    aria-labelledby="release-notes-title"
+                  >
+                    <h2 id="release-notes-title">本版更新</h2>
+                    {releaseNotes ? (
+                      <MarkdownText text={releaseNotes} />
+                    ) : (
+                      <p>本版暂无更新说明。</p>
+                    )}
+                  </section>
+                )}
                 <SettingRow
                   title="许可证"
                   description="项目代码未声明开源许可证，第三方组件许可详见说明。"
@@ -267,8 +292,8 @@ export function SettingsView(props: Props) {
         </div>
       </main>
       {diagnostics && (
-        <Dialog title="诊断信息预览" onClose={() => setDiagnostics(false)}>
-          <p>仅显示应用名称、版本和运行时版本，不读取密钥、配置、聊天或文件。</p>
+        <Dialog title={`${productName} 诊断信息预览`} onClose={() => setDiagnostics(false)}>
+          <p>显示应用名称、版本、运行时版本和应用数据目录路径，不读取密钥、配置、聊天或文件。</p>
           <pre className="diagnostic-output">
             {JSON.stringify(props.info ?? { status: "应用信息不可用" }, null, 2)}
           </pre>

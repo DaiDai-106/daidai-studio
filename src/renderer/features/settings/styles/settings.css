@@ -272,6 +272,14 @@
   color: var(--muted);
   font-size: 12px;
 }
+.about-release-notes {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.about-release-notes h2 {
+  font-size: inherit;
+  margin: 0 0 10px;
+}
 .shortcut-row {
   display: flex;
   justify-content: space-between;

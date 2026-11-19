@@ -125,7 +125,7 @@ test("插件市场在深浅主题和窄窗口中显示卡片、来源与可键�
     );
     await page.getByRole("button", { name: "打开设置", exact: true }).click();
     await page.getByRole("button", { name: "插件与技能", exact: true }).click();
-    await page.getByText("为你的 Dai 增加新能力。", { exact: true }).waitFor();
+    await page.getByText("为你的 Dai Studio 增加新能力。", { exact: true }).waitFor();
     const footer = page.locator(".settings-footer");
     const footerButtons = await footer.getByRole("button").all();
     const [back, home] = await Promise.all(footerButtons.map((button) => button.boundingBox()));
@@ -289,7 +289,7 @@ test("插件市场在深浅主题和窄窗口中显示卡片、来源与可键�
         false,
       );
     }
-    assert.equal(await page.getByRole("button", { name: "Dai 内置", exact: true }).count(), 0);
+    assert.equal(await page.getByRole("button", { name: /^Dai(?: Studio)? 内置$/ }).count(), 0);
     await page.getByRole("tab", { name: "我的技能", exact: true }).click();
     await page.getByRole("heading", { name: "还没有自己的技能", exact: true }).waitFor();
     assert.deepEqual(errors, []);

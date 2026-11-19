@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ExtensionNotifications } from "../../features/chat/components/extension_notifications.tsx";
 import { CreateProjectDialog } from "../../features/projects/components/create_project_dialog.tsx";
 import { HiddenProjectsDialog } from "../../features/projects/components/hidden_projects_dialog.tsx";
@@ -15,6 +15,7 @@ import { useApplication } from "../logic/use_application.ts";
 import { useDesktop } from "../logic/use_desktop.ts";
 import { useWorkbench } from "../logic/use_workbench.ts";
 import { ProjectWorkspace, type ProjectWorkspaceHandle } from "./project_workspace.tsx";
+import { StartupIntro } from "./startup_intro.tsx";
 import { ArchivesDialog, RenameDialog } from "./workbench_dialogs.tsx";
 
 type WorkbenchDialog =
@@ -25,6 +26,10 @@ type WorkbenchDialog =
 
 // 应用入口负责组合工作台与设置页面，并连接应用级交互。
 export function App() {
+  const [showStartup, setShowStartup] = useState(
+    () => !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
+  const finishStartup = useCallback(() => setShowStartup(false), []);
   const application = useApplication();
   const configuration = useSettings(application);
   const { theme } = configuration;
@@ -39,6 +44,7 @@ export function App() {
   const { active, project } = workbench;
   const extensionRequests = application.workspace?.extensionUiRequests ?? [];
   const extensionRequest = extensionRequests.find((item) => item.conversationId === active?.id);
+
   async function goHome() {
     if (await workbench.home()) {
       setSettings(null);
@@ -72,13 +78,13 @@ export function App() {
       },
       shortcuts: () => setSettings("shortcuts"),
     },
-    dialog === null && !extensionRequest,
+    !showStartup && dialog === null && !extensionRequest,
   );
 
   return (
     <>
       <ExtensionNotifications />
-      <div className="app-layout" hidden={settings !== null}>
+      <div className="app-layout" hidden={settings !== null} inert={showStartup}>
         {sidebar && (
           <Sidebar
             projects={workbench.projects}
@@ -228,6 +234,7 @@ export function App() {
           onClose={() => setDialog(null)}
         />
       )}
+      {showStartup && <StartupIntro onComplete={finishStartup} />}
     </>
   );
 }

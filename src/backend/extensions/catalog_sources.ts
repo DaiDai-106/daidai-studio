@@ -8,6 +8,7 @@ import {
   type CatalogResource,
   type CatalogSourceId,
 } from "../../contracts/catalog.ts";
+import { productName } from "../../shared/app_metadata.ts";
 import type { createCatalogStorage } from "./catalog_storage.ts";
 import { allowedCompanyPackage, companyCatalogUrl, readGitCatalog } from "./company_catalog.ts";
 import { packageManifest, resourceHost } from "./package_manifest.ts";
@@ -50,7 +51,7 @@ function npmSummary(p: Record<string, unknown>, id: string): CatalogEntry {
     installSource: `npm:${id}@${version}`,
     resources: [],
     compatibility: "unknown",
-    compatibilityNote: "尚未验证此版本在 Dai 中的桌面兼容性。",
+    compatibilityNote: `尚未验证此版本在 ${productName} 中的桌面兼容性。`,
     homepage: safeUrl(p.homepage) || `https://www.npmjs.com/package/${id}`,
   };
 }
@@ -163,7 +164,7 @@ export function createCatalogSources({
             Array.isArray(value.resources) ? (value.resources as CatalogResource[]) : [],
           ),
         compatibility: "unknown",
-        compatibilityNote: "公司提供的插件；Dai 兼容性尚未验证。",
+        compatibilityNote: `公司提供的插件，${productName} 兼容性尚未验证。`,
       };
       const detail = { entry, readme: str(readme, 100_000), versions: [value.version] };
       if (

@@ -1,8 +1,8 @@
-<p align="center"><img src="resources/icons/app.svg" width="80" alt="Dai" /></p>
+<p align="center"><img src="resources/icons/app.svg" width="80" alt="Dai Studio" /></p>
 
-<h1 align="center">Dai</h1>
+<h1 align="center">Dai Studio</h1>
 
-Dai 是基于 Pi Coding Agent SDK 的本地 AI 编程桌面工作台。当前版本聚焦 Coding；场景和机器人模块留待后续重新设计。
+Dai Studio 是基于 Pi Coding Agent SDK 的本地 AI 编程桌面工作台。当前版本聚焦 Coding；场景和机器人模块留待后续重新设计。
 
 ## 快速开始
 
@@ -43,6 +43,8 @@ npm run package:dir
 
 测试使用临时数据与本地模型对端；具体环境与未覆盖范围见 [测试与验收](spec/design/testing.md)。`package:dir` 只生成本地目录，不发布应用。
 
-Linux 打包后可运行 `node tests/integration/package_smoke.mjs release/linux-unpacked/daidai-pi` 检查打包版启动。
+Linux 打包后可运行 `node tests/integration/package_smoke.mjs release/linux-unpacked/dai-studio` 检查打包版启动。软件包管理器会分别识别 `dai-studio` 和旧包 `daidai-pi`，两版读取同一个应用数据目录。
+
+`master` 的 Linux x64 自动发版见 [发布说明](spec/release.md)。
 
 [设计文档与工程边界](spec/README.md) · [Package 与 Skill](spec/design/packages.md)

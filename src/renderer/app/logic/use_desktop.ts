@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AppInfo, Theme } from "../../../contracts/desktop.ts";
 import { type DesktopThemeState, desktopThemeVariables } from "../../../contracts/desktop_theme.ts";
+import { productName } from "../../../shared/app_metadata.ts";
 
 // 窗口主题与系统标题栏独立于项目和对话状态。
 export function useDesktop(theme: Theme, desktopThemeId: string) {
@@ -124,7 +125,7 @@ export function useDesktop(theme: Theme, desktopThemeId: string) {
     themeErrors: appearance.errors,
     themeNotice:
       appearance.selection === "missing"
-        ? "所选桌面主题已不可用，已恢复 Dai 默认外观。"
+        ? `所选桌面主题已不可用，已恢复 ${productName} 默认外观。`
         : appearance.selection === "error" && desktopThemeId
           ? "主题资源暂不可用，暂用默认外观并保留原选择。"
           : Object.values(appearance.errors).join("；"),

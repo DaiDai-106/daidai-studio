@@ -4,6 +4,7 @@ import type {
   MessageBlock,
   MessageInfo,
 } from "../../../../contracts/application.ts";
+import { productName } from "../../../../shared/app_metadata.ts";
 import { BrandIcon } from "../../../shared/components/brand_icon.tsx";
 import { Icon } from "../../../shared/components/icon.tsx";
 import { MarkdownText } from "../../../shared/components/markdown_text.tsx";
@@ -62,7 +63,8 @@ function Reply({ message }: { message: MessageInfo }) {
     <article className="message assistant">
       <div className="message-author">
         <BrandIcon size={22} />
-        Dai <span title={message.response?.provider}>{message.response?.model ?? ""}</span>
+        {productName}{" "}
+        <span title={message.response?.provider}>{message.response?.model ?? ""}</span>
       </div>
       <MarkdownText text={message.text || (message.failed ? "请求未完成。" : "")} />
       {message.response && <ResponseUsage response={message.response} />}
@@ -213,7 +215,7 @@ const Turn = memo(function Turn({
         <article className="message assistant">
           <div className="message-author">
             <BrandIcon size={22} />
-            Dai <span>{stream.respondingModel ?? model ?? "正在回复"}</span>
+            {productName} <span>{stream.respondingModel ?? model ?? "正在回复"}</span>
           </div>
           <MarkdownText text={stream.partial} />
         </article>

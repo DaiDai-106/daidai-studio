@@ -3,6 +3,7 @@ import { app, type UtilityProcess, utilityProcess } from "electron";
 import type { ApplicationEvent } from "../../contracts/application.ts";
 import { BACKEND_READY } from "../../contracts/desktop.ts";
 import type { DataRootIdentity } from "../../contracts/process.ts";
+import { packageName } from "../../shared/app_metadata.ts";
 import { connectBackend } from "./backend.ts";
 
 interface BackendContext {
@@ -19,7 +20,7 @@ export async function startBackend(context: BackendContext): Promise<void> {
   const child = utilityProcess.fork(
     fileURLToPath(new URL("./backend.js", import.meta.url)),
     [context.root, context.rootIdentity?.dev ?? "", context.rootIdentity?.ino ?? ""],
-    { serviceName: "daidai-pi-backend" },
+    { serviceName: `${packageName}-backend` },
   );
 
   // 启动等待期间也要记录进程，确保用户此时退出可以关闭它。

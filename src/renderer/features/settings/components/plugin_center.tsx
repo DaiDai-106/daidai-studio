@@ -7,6 +7,7 @@ import {
   pluginModules,
 } from "../../../../contracts/catalog.ts";
 import type { DesktopTheme } from "../../../../contracts/desktop_theme.ts";
+import { productName } from "../../../../shared/app_metadata.ts";
 import { Dialog } from "../../../shared/components/dialog.tsx";
 import { Icon } from "../../../shared/components/icon.tsx";
 import { Select } from "../../../shared/components/select.tsx";
@@ -95,7 +96,7 @@ export function PluginCenter({
   return (
     <div className="plugin-center">
       <div className="plugin-heading">
-        <p className="plugin-subtitle">为你的 Dai 增加新能力。</p>
+        <p className="plugin-subtitle">为你的 {productName} 增加新能力。</p>
         <button
           type="button"
           className="plugin-secondary"
@@ -445,7 +446,7 @@ export function PluginCenter({
                 </>
               ) : (
                 <>
-                  <p>安装插件，为 Dai 增加工具和技能。</p>
+                  <p>安装插件，为 {productName} 增加工具和技能。</p>
                   <button type="button" onClick={() => center.setTab("discover")}>
                     浏览插件
                   </button>

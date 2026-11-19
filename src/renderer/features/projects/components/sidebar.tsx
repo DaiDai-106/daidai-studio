@@ -1,4 +1,5 @@
 import type { ProjectInfo as Project } from "../../../../contracts/application.ts";
+import { productName } from "../../../../shared/app_metadata.ts";
 import { shortcutLabel } from "../../../app/logic/shortcuts.ts";
 import { ActionMenu } from "../../../shared/components/action_menu.tsx";
 import { BrandIcon } from "../../../shared/components/brand_icon.tsx";
@@ -35,7 +36,7 @@ export function Sidebar(props: Props) {
     <aside className="sidebar" aria-label="项目侧栏">
       <div className="brand">
         <BrandIcon />
-        <strong>Dai</strong>
+        <strong>{productName}</strong>
         <IconButton icon="panel" label="收起项目栏" onClick={props.onCollapse} />
       </div>
       <div className="sidebar-actions">

@@ -13,6 +13,7 @@ import {
 } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { loadSkillsFromDir, type Skill } from "@earendil-works/pi-coding-agent";
+import { productName } from "../../shared/app_metadata.ts";
 
 function checkName(name: string): void {
   if (name.length > 64 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {
@@ -131,7 +132,7 @@ export function createSkillService({ dataRoot }: { dataRoot: string }) {
         distance === "" ||
         (!isAbsolute(distance) && distance !== ".." && !distance.startsWith(`..${sep}`))
       ) {
-        throw new Error("Skill 来源不能包含 Dai 的 Skill 存储目录。");
+        throw new Error(`Skill 来源不能包含 ${productName} 的 Skill 存储目录。`);
       }
       await rejectLinks(source);
       const skill = inspectSkill(source);

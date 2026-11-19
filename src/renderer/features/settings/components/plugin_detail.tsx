@@ -1,6 +1,7 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import type { CatalogEntry, PluginModule } from "../../../../contracts/catalog.ts";
+import { productName } from "../../../../shared/app_metadata.ts";
 import { Dialog } from "../../../shared/components/dialog.tsx";
 import { Icon } from "../../../shared/components/icon.tsx";
 import { Select } from "../../../shared/components/select.tsx";
@@ -191,12 +192,12 @@ export function PluginDetail({
               <ResourceTags entry={detail.entry} />
               <p className="plugin-detail-description">
                 {detail.entry.resources.length
-                  ? "功能扩展可为 Dai 添加工具、命令等功能；技能提供完成特定任务的方法与步骤。"
+                  ? `功能扩展可为 ${productName} 添加工具、命令等功能；技能提供完成特定任务的方法与步骤。`
                   : "作者尚未标注包含内容，请查看插件说明了解它的功能。"}
               </p>
               <p className="plugin-note">
                 这些类型由作者声明，具体功能和使用方式请查看插件说明。面向终端界面的功能和 MCP
-                暂不支持在 Dai 中使用。
+                暂不支持在 {productName} 中使用。
               </p>
             </>
           )}

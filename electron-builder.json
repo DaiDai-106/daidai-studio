@@ -1,7 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  "appId": "local.daidai.pi",
-  "productName": "Dai",
+  "appId": "local.dai-studio",
   "directories": {
     "output": "release",
     "buildResources": "dist/icons"
@@ -9,7 +8,7 @@
   "files": ["dist/**", "package.json", "!dist/icons/*.icns"],
   "asar": true,
   "publish": null,
-  "artifactName": "Dai-${version}-${os}-${arch}.${ext}",
+  "artifactName": "${name}-${version}-${os}-${arch}.${ext}",
   "mac": {
     "target": ["dmg"],
     "icon": "dist/icons/app.icns",
@@ -18,7 +17,7 @@
     "notarize": false
   },
   "dmg": {
-    "title": "Dai ${version}",
+    "title": "${productName} ${version}",
     "icon": "dist/icons/app.icns",
     "backgroundColor": "#F4F1EA",
     "contents": [
@@ -41,29 +40,22 @@
     "signExecutable": false
   },
   "nsis": {
-    "artifactName": "Dai-Setup-${version}-${arch}.exe",
+    "artifactName": "${name}-setup-${version}-${arch}.exe",
     "oneClick": false,
     "perMachine": false,
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "shortcutName": "Dai",
     "deleteAppDataOnUninstall": false
   },
   "linux": {
     "target": ["deb"],
     "icon": "dist/icons",
-    "executableName": "daidai-pi",
     "category": "Utility",
-    "desktop": {
-      "entry": {
-        "Name": "Dai",
-        "StartupWMClass": "daidai-pi"
-      }
-    }
+    "syncDesktopName": true
   },
   "deb": {
-    "artifactName": "daidai-pi_${version}_${arch}.${ext}",
+    "artifactName": "${name}_${version}_${arch}.${ext}",
     "maintainer": "Dai contributors",
     "recommends": ["hicolor-icon-theme"],
     "depends": [

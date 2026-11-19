@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
+import { productName } from "./src/shared/app_metadata.ts";
 
 const projectRoot = import.meta.dirname;
 
@@ -46,7 +47,7 @@ export default defineConfig(({ command }) => {
       plugins: [
         react(),
         {
-          name: "desktop-content-security-policy",
+          name: "desktop-document-head",
           transformIndexHtml: () => [
             {
               tag: "meta",
@@ -56,6 +57,7 @@ export default defineConfig(({ command }) => {
               },
               injectTo: "head-prepend",
             },
+            { tag: "title", children: productName, injectTo: "head" },
           ],
         },
       ],

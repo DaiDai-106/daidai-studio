@@ -8,12 +8,67 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import packageInfo from "../../package.json" with { type: "json" };
-import { openTestProject } from "./support.ts";
+import { launchTestApp, openTestProject } from "./support.ts";
+
+test("startup writes the welcome message, draws the icon, and opens the workbench", async (context) => {
+  const { page } = await launchTestApp(context);
+  const workbench = page.getByRole("button", { name: "打开设置", exact: true });
+  await workbench.waitFor();
+  await page.waitForLoadState("load");
+  await page.addInitScript(() => {
+    const observer = new MutationObserver(() => {
+      const title = document.querySelector(".startup-intro-title");
+      if (!title) return;
+      document.documentElement.dataset.startupTitle = title.textContent ?? "";
+      const schedule = (selector: string) =>
+        Array.from(document.querySelectorAll(selector), (element) => {
+          const timing = element.getAnimations()[0]?.effect?.getTiming();
+          const start = timing?.delay ?? 0;
+          return timing && [start, start + Number(timing.duration)];
+        });
+      document.documentElement.dataset.startupSchedule = JSON.stringify({
+        text: schedule(".startup-writing path"),
+        icon: schedule(".startup-logo-outline :is(rect, path)"),
+        exit: schedule(".startup-intro"),
+      });
+      observer.disconnect();
+    });
+    observer.observe(document, { childList: true, subtree: true });
+  });
+
+  const root = page.locator("html");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.reload();
+  await page.locator("html[data-startup-schedule]").waitFor();
+  await page.locator(".startup-intro").waitFor({ state: "detached" });
+  await workbench.waitFor();
+  assert.equal(
+    await root.getAttribute("data-startup-title"),
+    `Welcome to ${packageInfo.productName}`,
+  );
+  const timing = await root.getAttribute("data-startup-schedule");
+  assert.ok(timing);
+  const { text, icon, exit } = JSON.parse(timing) as Record<string, [number, number][]>;
+  assert.ok(text && text.length > 20);
+  assert.ok(icon && icon.length > 1);
+  assert.ok(exit && exit.length === 1);
+  const strokes = [...text, ...icon, ...exit];
+  for (const [index, stroke] of strokes.entries()) {
+    assert.ok(stroke, "Each stroke should have its own animation");
+    const previous = strokes[index - 1];
+    if (previous) assert.ok(stroke[0] >= previous[1], "Each stroke starts after the preceding one");
+  }
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.reload();
+  await workbench.waitFor();
+  assert.equal(await root.getAttribute("data-startup-title"), null);
+});
 
 test("built desktop starts with an isolated renderer and shuts down its backend", {
   timeout: 30_000,
 }, async () => {
-  const userData = await mkdtemp(join(tmpdir(), "daidai-pi-smoke-"));
+  const userData = await mkdtemp(join(tmpdir(), "dai-studio-smoke-"));
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined && key !== "ELECTRON_RUN_AS_NODE") env[key] = value;
@@ -37,7 +92,9 @@ test("built desktop starts with an isolated renderer and shuts down its backend"
       bridgeKeys: Object.keys(window.desktop).sort(),
       previewKeys: Object.keys(window.desktop.preview).sort(),
     }));
-    assert.equal(state.info.name, "daidai_pi");
+    assert.equal(state.info.name, packageInfo.productName);
+    assert.equal(await page.title(), packageInfo.productName);
+    assert.equal(await page.locator(".brand strong").textContent(), packageInfo.productName);
     assert.equal(state.info.version, packageInfo.version);
     assert.equal(state.hasNode, false);
     assert.deepEqual(state.bridgeKeys, [
@@ -119,7 +176,7 @@ test("built desktop starts with an isolated renderer and shuts down its backend"
     );
     assert.equal(sandboxDisabled, false);
     const backendPid = await application.evaluate(
-      ({ app }) => app.getAppMetrics().find((metric) => metric.name === "daidai-pi-backend")?.pid,
+      ({ app }) => app.getAppMetrics().find((metric) => metric.name === "dai-studio-backend")?.pid,
     );
     assert.ok(backendPid, "The Node backend must run as a separate process.");
     await openTestProject(application, page, userData);
@@ -155,7 +212,7 @@ test("built desktop starts with an isolated renderer and shuts down its backend"
       windowIds: BrowserWindow.getAllWindows().map((window) => window.id),
       backendPids: app
         .getAppMetrics()
-        .filter((metric) => metric.name === "daidai-pi-backend")
+        .filter((metric) => metric.name === "dai-studio-backend")
         .map((metric) => metric.pid),
     }));
     assert.deepEqual(restored.windowIds, [windowId]);

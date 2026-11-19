@@ -135,7 +135,7 @@ process.parentPort.postMessage(${JSON.stringify(BACKEND_READY)});`,
     .waitFor();
   const backendPid = await fixture.application.evaluate(({ app, BrowserWindow }) => {
     BrowserWindow.getAllWindows()[0]?.hide();
-    const pid = app.getAppMetrics().find((metric) => metric.name === "daidai-pi-backend")?.pid;
+    const pid = app.getAppMetrics().find((metric) => metric.name === "dai-studio-backend")?.pid;
     app.quit();
     app.quit();
     return pid;
@@ -183,7 +183,7 @@ test("a backend crash while hidden exits the app instead of leaving a stale tray
     .waitFor();
   const backendPid = await fixture.application.evaluate(({ app, BrowserWindow }) => {
     BrowserWindow.getAllWindows()[0]?.hide();
-    return app.getAppMetrics().find((metric) => metric.name === "daidai-pi-backend")?.pid;
+    return app.getAppMetrics().find((metric) => metric.name === "dai-studio-backend")?.pid;
   });
   assert.ok(backendPid);
   process.kill(backendPid, "SIGKILL");
@@ -200,7 +200,7 @@ test("backend crash while the renderer is flushing a draft does not hang quittin
   await openTestProject(fixture.application, page, fixture.directory);
   await page.getByRole("textbox", { name: "消息内容" }).fill("待保存草稿");
   await fixture.application.evaluate(({ app }) => {
-    const pid = app.getAppMetrics().find((metric) => metric.name === "daidai-pi-backend")?.pid;
+    const pid = app.getAppMetrics().find((metric) => metric.name === "dai-studio-backend")?.pid;
     if (!pid) throw new Error("Missing backend");
     app.quit();
     process.kill(pid, "SIGKILL");

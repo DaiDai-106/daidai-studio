@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { app, Menu, nativeImage, Tray } from "electron";
+import { productName } from "../../shared/app_metadata.ts";
 
 // 托盘负责重新显示窗口和真正退出应用。
 export function createAppTray(showWindow: () => void): Tray {
@@ -15,12 +16,12 @@ export function createAppTray(showWindow: () => void): Tray {
   if (icon.isEmpty()) throw new Error("Tray icon could not be loaded.");
   if (process.platform === "darwin") icon.setTemplateImage(true);
   const tray = new Tray(icon);
-  tray.setToolTip("Dai");
+  tray.setToolTip(productName);
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: "打开 Dai", click: showWindow },
+      { label: `打开 ${productName}`, click: showWindow },
       { type: "separator" },
-      { label: "退出 Dai", click: () => app.quit() },
+      { label: `退出 ${productName}`, click: () => app.quit() },
     ]),
   );
   tray.on("click", showWindow);

@@ -8,6 +8,7 @@ import {
   type UtilityProcess,
 } from "electron";
 import { EVENT_CHANNEL } from "../../contracts/desktop.ts";
+import { desktopName, productName } from "../../shared/app_metadata.ts";
 import type { connectBackend } from "./backend.ts";
 import { startBackend } from "./backend_process.ts";
 import { createWebPreviewController } from "./browser/controller.ts";
@@ -23,11 +24,11 @@ let tray: Tray | undefined;
 let client: ReturnType<typeof connectBackend> | undefined;
 let quitting = false;
 
-app.setName("daidai_pi");
+app.setName(productName);
 const paths = configureDataPaths(app);
 
-if (process.platform === "linux") app.setDesktopName("daidai-pi.desktop");
-if (process.platform === "win32") app.setAppUserModelId("local.daidai.pi");
+if (process.platform === "linux") app.setDesktopName(desktopName);
+if (process.platform === "win32") app.setAppUserModelId("local.dai-studio");
 nativeTheme.themeSource = "light";
 
 const preview = createWebPreviewController(() => mainWindow);
@@ -102,7 +103,7 @@ if (!app.requestSingleInstanceLock()) {
       if (process.platform === "darwin") {
         Menu.setApplicationMenu(
           Menu.buildFromTemplate([
-            { role: "appMenu", label: "Dai" },
+            { role: "appMenu", label: productName },
             { role: "fileMenu" },
             { role: "editMenu" },
             { role: "windowMenu" },

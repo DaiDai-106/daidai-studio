@@ -1,5 +1,6 @@
 import type { AuthEvent, AuthInteraction, AuthPrompt, Credential } from "@earendil-works/pi-ai";
 import type { LoginInfo, ProviderConfig } from "../../contracts/application.ts";
+import { productName } from "../../shared/app_metadata.ts";
 import type { Providers } from "./providers.ts";
 
 type Attempt = {
@@ -130,7 +131,7 @@ export function createLogins(
 
     void login(
       { ...interaction, signal: attempt.controller.signal },
-      { getDeviceId: () => deviceId, agentName: "Dai" },
+      { getDeviceId: () => deviceId, agentName: productName },
     ).then(
       (credential) => {
         if (attempt.controller.signal.aborted) return;

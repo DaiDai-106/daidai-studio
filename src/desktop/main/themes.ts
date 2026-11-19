@@ -9,6 +9,7 @@ import {
   type DesktopThemeState,
 } from "../../contracts/desktop_theme.ts";
 import { object } from "../../contracts/schema.ts";
+import { productName } from "../../shared/app_metadata.ts";
 
 const name = Type.String({ minLength: 1, maxLength: 100, pattern: "^[a-z0-9][a-z0-9._-]*$" });
 const packageName = Type.String({
@@ -79,7 +80,7 @@ export async function readDesktopThemes(
       if (item.manifestError) throw new Error(item.manifestError);
       const root = await realpath(item.installedPath);
       if (!Value.Check(packageName, item.name) || !Value.Check(declaration, item.dai))
-        throw new Error("Dai 桌面主题声明无效。");
+        throw new Error(`${productName} 桌面主题声明无效。`);
       if (item.scope !== "global")
         throw new Error("桌面主题仅支持全局安装，请移除模块配置后重新安装。");
 

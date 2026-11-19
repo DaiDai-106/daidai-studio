@@ -1,8 +1,8 @@
 {
-  "name": "daidai-pi",
-  "productName": "Dai",
-  "desktopName": "daidai-pi.desktop",
-  "version": "0.1.14",
+  "name": "dai-studio",
+  "productName": "Dai Studio",
+  "desktopName": "dai-studio.desktop",
+  "version": "0.0.1",
   "private": true,
   "description": "Local AI desktop workbench",
   "author": "Dai contributors",

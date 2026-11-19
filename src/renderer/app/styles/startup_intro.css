@@ -1,0 +1,68 @@
+.startup-intro {
+  position: fixed;
+  z-index: 250;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: radial-gradient(
+    ellipse at 50% 42%,
+    color-mix(in srgb, #8b86db 8%, var(--surface)),
+    var(--surface) 69%
+  );
+}
+
+.startup-intro-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.startup-signature {
+  width: min(86vw, 560px, 105vh);
+}
+
+.startup-writing,
+.startup-logo {
+  display: block;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.startup-writing {
+  width: 100%;
+  stroke-width: 4.3;
+}
+
+.startup-writing path,
+.startup-logo-outline :is(rect, path) {
+  stroke-dasharray: 1.01 1.01;
+  stroke-dashoffset: 1.01;
+}
+
+.startup-greeting {
+  stroke: color-mix(in srgb, #626d99 65%, var(--text));
+}
+
+.startup-name [data-word="0"] {
+  stroke: color-mix(in srgb, #566be3 84%, var(--text));
+}
+
+.startup-name [data-word="1"] {
+  stroke: color-mix(in srgb, #885abb 75%, var(--text));
+}
+
+.startup-logo {
+  width: clamp(60px, 9vw, 96px);
+  margin: 14px auto 0;
+  stroke: color-mix(in srgb, #735ec7 72%, var(--text));
+  stroke-width: 34;
+}
+
+.startup-logo-fill {
+  opacity: 0;
+}

@@ -7,6 +7,7 @@ import {
   type PluginModule,
   pluginModules,
 } from "../../../../contracts/catalog.ts";
+import { productName } from "../../../../shared/app_metadata.ts";
 import { Dialog, Field } from "../../../shared/components/dialog.tsx";
 import { Icon } from "../../../shared/components/icon.tsx";
 import { Select } from "../../../shared/components/select.tsx";
@@ -164,7 +165,10 @@ export function PluginConfirmation({
         {installing && (
           <>
             {request.kind === "manual" && (
-              <Field label="插件类型" hint="Pi 插件为 AI 增加能力，桌面插件扩展 Dai 的外观等功能。">
+              <Field
+                label="插件类型"
+                hint={`Pi 插件为 AI 增加能力，桌面插件扩展 ${productName} 的外观等功能。`}
+              >
                 <Select<PluginHost>
                   aria-label="插件类型"
                   value={manualHost}

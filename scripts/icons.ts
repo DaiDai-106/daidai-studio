@@ -19,7 +19,7 @@ for (const size of [16, 24, 32, 48, 64, 128, 256, 512, 1024]) {
 const master = await readFile(join(destination, "1024.png"));
 const icns = createICNS(master, BICUBIC2, 0);
 const ico = createICO(master, BICUBIC2, 0, true, true);
-if (!icns || !ico) throw new Error("Could not convert the Dai icon to ICNS and ICO.");
+if (!icns || !ico) throw new Error("Could not convert the application icon to ICNS and ICO.");
 await writeFile(join(destination, "app.icns"), icns);
 await writeFile(join(destination, "app.ico"), ico);
 

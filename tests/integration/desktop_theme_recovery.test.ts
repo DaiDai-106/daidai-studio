@@ -124,7 +124,7 @@ test("配色或清单暂时缺失时保留选择，资源恢复后重新应用",
     await page.waitForFunction(() => !document.documentElement.dataset.daiTheme);
     await page.getByRole("button", { name: "打开设置", exact: true }).click();
     await page.getByRole("button", { name: "主题方案", exact: true }).click();
-    await page.getByRole("menuitemradio", { name: "Dai 默认", exact: true }).click();
+    await page.getByRole("menuitemradio", { name: "Dai Studio 默认", exact: true }).click();
     await page.waitForFunction(
       async () => !(await window.desktop.application.getWorkspace()).settings.desktopTheme,
     );

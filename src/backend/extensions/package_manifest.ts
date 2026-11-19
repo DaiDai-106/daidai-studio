@@ -1,4 +1,5 @@
 import type { CatalogResource, PluginHost } from "../../contracts/catalog.ts";
+import { productName } from "../../shared/app_metadata.ts";
 
 function checkDesktopResources(resources: readonly CatalogResource[]) {
   if (resources.some((resource) => resource !== "desktop-theme"))
@@ -31,7 +32,7 @@ export function packageManifest(manifest: Record<string, unknown>) {
     | undefined;
   const host: PluginHost = dai?.host === "daidai_pi" ? "desktop" : "pi";
   if (host === "desktop") {
-    if (dai?.schemaVersion !== 1) throw new Error("Dai 桌面插件清单版本无效。");
+    if (dai?.schemaVersion !== 1) throw new Error(`${productName} 桌面插件清单版本无效。`);
     checkDesktopResources(resources);
     if (dai.themes !== undefined) resources.push("desktop-theme");
   }
