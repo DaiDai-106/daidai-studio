@@ -6,4 +6,6 @@
 
 Electron 测试需要可用的图形显示环境；Git、npm 等子进程测试需要运行环境允许启动对应程序。不可运行时应报告具体限制，不把跳过或未执行视为通过。
 
+推送 `master` 或提交面向 `master` 的 PR 时，GitHub Actions 构建三平台安装包。推送版本标签时，三个打包版都通过启动检查后才会发布。需要全量回归时，在 Desktop CI 的 **Run workflow** 勾选 **Run the full Linux test suite**，用 Ubuntu 和 Xvfb 运行 `npm run check`。
+
 旧场景和机器人项目不会显示，也不会被自动删除。场景或机器人能力若重新引入，需要重新定义协议、数据迁移和专项验收。

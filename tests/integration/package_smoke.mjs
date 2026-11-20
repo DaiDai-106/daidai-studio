@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { _electron as electron } from "playwright";
@@ -27,8 +27,9 @@ try {
   await page.getByRole("button", { name: "打开设置", exact: true }).waitFor();
   const info = await page.evaluate(() => window.desktop.getAppInfo());
   assert.equal(info.name, packageInfo.productName);
+  assert.equal(info.version, packageInfo.version);
   const workspace = await page.evaluate(() => window.desktop.application.getWorkspace());
-  assert.equal(workspace.dataRoot, join(profile, "data"));
+  assert.equal(workspace.dataRoot, await realpath(join(profile, "data")));
   assert.deepEqual(workspace.projects, []);
   console.log("打包版启动和数据隔离检查通过。");
 } finally {

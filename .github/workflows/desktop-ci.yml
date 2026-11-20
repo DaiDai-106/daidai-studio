@@ -1,0 +1,111 @@
+name: Desktop CI
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      linux_regression:
+        description: Run the full Linux test suite
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    if: github.event_name != 'workflow_dispatch' || !inputs.linux_regression
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            runner: ubuntu-24.04
+            target: --deb
+            artifact: dai-studio-linux-amd64
+            extension: deb
+          - name: macOS Apple Silicon
+            runner: macos-26
+            target: --mac
+            artifact: dai-studio-macos-arm64
+            extension: dmg
+          - name: Windows x64
+            runner: windows-2025
+            target: --win
+            artifact: dai-studio-windows-x64
+            extension: exe
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - name: Build and package
+        env:
+          PACKAGE_TARGET: ${{ matrix.target }}
+          CHECK_PACKAGED_APP: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 'true' || 'false' }}
+        run: bash scripts/github-build.sh "$PACKAGE_TARGET"
+      - name: Upload installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: release/*.${{ matrix.extension }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+          overwrite: true
+
+  linux-regression:
+    name: Linux regression tests
+    if: github.event_name == 'workflow_dispatch' && inputs.linux_regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: bash scripts/github-build.sh --linux-tests
+
+  release:
+    name: Publish GitHub Release
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency: desktop-release-${{ github.ref }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dai-studio-*
+          path: installers
+          merge-multiple: true
+      - name: Publish release with all three installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node --experimental-strip-types scripts/github-release.ts

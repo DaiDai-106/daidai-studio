@@ -18,6 +18,7 @@ test("menus and shortcuts preserve drafts, respect dialogs and fit narrow window
     .getByRole("button", { name: `应用信息，版本 ${packageInfo.version}`, exact: true })
     .waitFor();
   const footer = page.locator(".sidebar-footer");
+  await page.locator(".app-layout:not([inert])").waitFor();
   // Keyboard focus avoids native pointer interference from other Electron tests.
   await footer.getByRole("button", { name: "设置", exact: true }).focus();
   await page.getByRole("tooltip").filter({ hasText: "设置" }).waitFor();
