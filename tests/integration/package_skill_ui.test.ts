@@ -3,8 +3,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { _electron as electron, type Locator } from "playwright";
-import { openTestProject } from "./support.ts";
+import type { Locator } from "playwright";
+import { holdApplicationResponses, launchElectron, openTestProject } from "./support.ts";
 
 async function assertSkillDialogLayout(dialog: Locator) {
   const name = dialog.getByLabel("技能名称");
@@ -34,19 +34,7 @@ test("Pi package and standard skills can be managed and restored in the settings
     join(source, "skills", "package-skill", "SKILL.md"),
     `---\nname: package-skill\ndescription: 包内技能\n---\n${"包内说明。\n".repeat(100)}`,
   );
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] =>
-        entry[0] !== "ELECTRON_RUN_AS_NODE" && entry[1] !== undefined,
-    ),
-  );
-  const launch = () =>
-    electron.launch({
-      args: [process.cwd(), `--user-data-dir=${profile}`],
-      env,
-      chromiumSandbox: true,
-    });
-  let app = await launch();
+  let app = await launchElectron(profile);
   try {
     let page = await app.firstWindow();
     const pageErrors: string[] = [];
@@ -72,7 +60,6 @@ test("Pi package and standard skills can be managed and restored in the settings
     await page
       .getByText("全局插件与 Coding 模块插件，对所有 Coding 项目生效。", { exact: true })
       .waitFor();
-    await page.screenshot({ path: join(tmpdir(), "dai-plugin-installed-scope.png") });
     await page.waitForFunction(async () =>
       (await window.desktop.application.catalogTasks()).every((task) => task.state !== "running"),
     );
@@ -204,7 +191,10 @@ test("Pi package and standard skills can be managed and restored in the settings
 
     await packageRow.getByRole("button", { name: "启用" }).click();
     await packageRow.getByRole("button", { name: "停用" }).waitFor();
+    const hold = await holdApplicationResponses(app);
+    const initialSkills = await hold("skill.library.list");
     await page.getByRole("tab", { name: "我的技能", exact: true }).click();
+    await initialSkills.entered();
     await page.getByRole("button", { name: "新建技能" }).click();
     const editor = page.getByRole("dialog", { name: "新建技能" });
     await assertSkillDialogLayout(editor);
@@ -214,6 +204,15 @@ test("Pi package and standard skills can be managed and restored in the settings
       .fill("---\nname: user-skill\ndescription: 用户技能\n---\n初始内容。\n");
     await editor.getByRole("button", { name: "保存" }).click();
     const userRow = page.locator(".setting-row").filter({ hasText: "user-skill" });
+    await userRow.waitFor();
+    await initialSkills.release();
+    await page.evaluate(
+      () =>
+        new Promise<void>((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => done())),
+        ),
+    );
+    assert.equal(await userRow.count(), 1);
     await userRow.getByRole("button", { name: "编辑" }).click();
     const edit = page.getByRole("dialog", { name: "编辑技能" });
     await assertSkillDialogLayout(edit);
@@ -224,7 +223,7 @@ test("Pi package and standard skills can be managed and restored in the settings
     await edit.waitFor({ state: "hidden" });
     await app.close();
 
-    app = await launch();
+    app = await launchElectron(profile);
     page = await app.firstWindow();
     page.setDefaultTimeout(10000);
     await page.getByRole("button", { name: "插件与技能", exact: true }).click();

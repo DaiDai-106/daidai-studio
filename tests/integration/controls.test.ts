@@ -129,7 +129,7 @@ test("menus and shortcuts preserve drafts, respect dialogs and fit narrow window
   await menu.waitFor({ state: "hidden" });
 
   assert.equal(await page.getByRole("button", { name: "通用对话", exact: true }).count(), 0);
-  await chooseProject(application, page, join(userData, "project"), "coding");
+  await chooseProject(application, page, join(userData, "project"));
   await application.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()[0]?.setContentSize(840, 640),
   );

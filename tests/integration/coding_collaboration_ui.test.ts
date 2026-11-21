@@ -5,8 +5,8 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { type ElectronApplication, _electron as electron } from "playwright";
-import { chooseProject } from "./support.ts";
+import type { ElectronApplication } from "playwright";
+import { chooseProject, launchElectron } from "./support.ts";
 
 test("Coding 搜索、文件引用草稿恢复、真实模型上下文及聊天文件定位", {
   timeout: 60_000,
@@ -52,18 +52,7 @@ test("Coding 搜索、文件引用草稿恢复、真实模型上下文及聊天�
   await once(server, "listening");
   const address = server.address();
   assert.ok(address && typeof address !== "string");
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] =>
-        entry[0] !== "ELECTRON_RUN_AS_NODE" && entry[1] !== undefined,
-    ),
-  );
-  const launch = () =>
-    electron.launch({
-      args: [process.cwd(), `--user-data-dir=${join(root, "profile")}`],
-      env,
-      chromiumSandbox: true,
-    });
+  const launch = () => launchElectron(join(root, "profile"));
   let app: ElectronApplication | undefined;
   try {
     app = await launch();
@@ -72,7 +61,7 @@ test("Coding 搜索、文件引用草稿恢复、真实模型上下文及聊天�
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]?.setContentSize(1440, 900),
     );
-    await chooseProject(app, page, project, "coding");
+    await chooseProject(app, page, project);
     await page.getByRole("button", { name: "展开代码工作区" }).click();
     await page.evaluate(async (port) => {
       const api = window.desktop.application;
@@ -134,7 +123,12 @@ test("Coding 搜索、文件引用草稿恢复、真实模型上下文及聊天�
     await page.getByRole("button", { name: "引用项目文件", exact: true }).click();
     await picker.getByRole("option", { name: "src/main.ts", exact: true }).click();
     assert.equal(await input.inputValue(), "前文 后文");
-    await page.getByRole("textbox", { name: "消息内容" }).fill("分析文件");
+    // 等待文件引用在下一帧恢复焦点和光标，再替换草稿正文。
+    await input.evaluate(
+      () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+    await input.fill("分析文件");
+    assert.equal(await input.inputValue(), "分析文件");
     await app.close();
     app = await launch();
     page = await app.firstWindow();
@@ -142,7 +136,6 @@ test("Coding 搜索、文件引用草稿恢复、真实模型上下文及聊天�
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]?.setContentSize(1440, 900),
     );
-    await page.getByRole("button", { name: "project", exact: true }).click();
     await page.locator(".conversation-title").first().click();
     await page.getByRole("tab", { name: "main.ts", exact: true }).waitFor();
     assert.equal(await page.getByRole("textbox", { name: "消息内容" }).inputValue(), "分析文件");

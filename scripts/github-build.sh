@@ -27,25 +27,14 @@ case "$target" in
     fi
     install_linux_dependencies "${dependencies[@]}"
     ;;
-  --linux-tests)
-    install_linux_dependencies "${linux_gui_dependencies[@]}"
-    ;;
-  --mac|--win) ;;
+  --win) ;;
   *)
-    echo "Usage: bash scripts/github-build.sh --deb|--mac|--win|--linux-tests" >&2
+    echo "Usage: bash scripts/github-build.sh --deb|--win" >&2
     exit 1
     ;;
 esac
 
 npm ci
-
-if [[ "$target" == --linux-tests ]]; then
-  node -e "require('electron')"
-  configure_chromium_sandbox node_modules/electron/dist/chrome-sandbox
-  xvfb-run -a dbus-run-session -- npm run check
-  exit 0
-fi
-
 npm run build
 node --experimental-strip-types electron.package.ts "$target"
 
@@ -66,15 +55,6 @@ case "$target" in
     configure_chromium_sandbox release/linux-unpacked/chrome-sandbox
     xvfb-run -a dbus-run-session -- node tests/integration/package_smoke.mjs \
       release/linux-unpacked/dai-studio
-    ;;
-  --mac)
-    shopt -s nullglob
-    images=(release/*.dmg)
-    test "${#images[@]}" -eq 1
-    mount_dir=$(mktemp -d "$RUNNER_TEMP/dai-studio-dmg.XXXXXX")
-    hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "${images[0]}"
-    trap 'hdiutil detach "$mount_dir"' EXIT
-    node tests/integration/package_smoke.mjs "$mount_dir/Dai Studio.app/Contents/MacOS/Dai Studio"
     ;;
   --win)
     node tests/integration/package_smoke.mjs "release/win-unpacked/Dai Studio.exe"

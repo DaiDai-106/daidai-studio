@@ -117,6 +117,7 @@ const desktop: DesktopBridge = {
     deleteConversation: (id) => call("conversation.delete", { id }),
     updateConversation: (change) => call("conversation.update", change),
     watchConversation: (id) => call("conversation.watch", { id }),
+    readConversationHistory: (input) => call("conversation.history", input),
     getConversationTrace: (id) => call("conversation.trace", { id }),
     getTraceDetail: (id, entryId) => call("conversation.traceDetail", { id, entryId }),
     sendMessage: (id, requestId, text, images, delivery) =>

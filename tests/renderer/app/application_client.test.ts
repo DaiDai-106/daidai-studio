@@ -9,15 +9,6 @@ import type {
 import type { ApplicationBridge } from "../../../src/contracts/bridge.ts";
 import { createApplicationClient } from "../../../src/renderer/app/logic/application_client.ts";
 
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (cause: Error) => void;
-  const promise = new Promise<T>((done, fail) => {
-    resolve = done;
-    reject = fail;
-  });
-  return { promise, resolve, reject };
-}
 const tick = () => new Promise<void>((done) => setImmediate(done));
 const conversation = (id = "a", title = id): ConversationInfo => ({
   id,
@@ -46,6 +37,7 @@ const view = (id = "a", sequence = 0, historyKey = "branch"): ConversationView =
   sequence,
   historyKey,
   messages: [],
+  history: { start: 0, markers: [] },
   partial: "",
   busy: true,
   error: "",
@@ -94,12 +86,12 @@ async function fixture(t: TestContext) {
 
 test("修改按顺序提交；旧快照在修改完成后到达也不能回退标题和草稿", async (t) => {
   const { client, mock } = await fixture(t);
-  const stale = deferred<WorkspaceInfo>();
+  const stale = Promise.withResolvers<WorkspaceInfo>();
   let reads = 0;
   mock.read = async () => (++reads === 1 ? stale.promise : mock.current);
   const refresh = client.refresh();
   await tick();
-  const first = deferred<ConversationInfo>();
+  const first = Promise.withResolvers<ConversationInfo>();
   const calls: string[] = [];
   mock.update = async (change) => {
     calls.push(change.title ?? "");
@@ -124,7 +116,7 @@ test("修改按顺序提交；旧快照在修改完成后到达也不能回退�
 
 test("审批和扩展事件使旧快照失效；初始快照建立前的事件也可恢复", async (t) => {
   const { client, mock, emit } = await fixture(t);
-  const stale = deferred<WorkspaceInfo>();
+  const stale = Promise.withResolvers<WorkspaceInfo>();
   let reads = 0;
   mock.read = async () => (++reads === 1 ? stale.promise : mock.current);
   const pending = client.refresh();
@@ -150,7 +142,7 @@ test("审批和扩展事件使旧快照失效；初始快照建立前的事件�
 
 test("删除墓碑阻止迟到的修改和快照复活会话", async (t) => {
   const { client, mock, emit } = await fixture(t);
-  const updating = deferred<ConversationInfo>();
+  const updating = Promise.withResolvers<ConversationInfo>();
   mock.update = () => updating.promise;
   const pending = client.updateConversation({ id: "a", title: "late" });
   await tick();
@@ -163,7 +155,7 @@ test("删除墓碑阻止迟到的修改和快照复活会话", async (t) => {
 
 test("重复分页共用请求；刷新或局部修改后迟到的旧页被丢弃", async (t) => {
   const { client, mock } = await fixture(t);
-  const page = deferred<WorkspaceInfo>();
+  const page = Promise.withResolvers<WorkspaceInfo>();
   let pages = 0;
   mock.read = async (cursor) => {
     if (cursor) {
@@ -203,7 +195,15 @@ test("流式帧复用历史数组，拒绝乱序、不同分支及不同会话�
   const initial = view("a", 1);
   initial.messages = [{ id: "m", role: "user", text: "history", failed: false }];
   emit({ type: "conversation", view: initial });
-  const { messages: _messages, ...progress } = { ...initial, sequence: 3, partial: "latest" };
+  const {
+    messages: _messages,
+    history: _history,
+    ...progress
+  } = {
+    ...initial,
+    sequence: 3,
+    partial: "latest",
+  };
   emit({ type: "conversation.progress", view: progress });
   assert.equal(client.getSnapshot().view?.messages, initial.messages);
   emit({ type: "conversation", view: { ...initial, sequence: 2 } });
@@ -220,7 +220,7 @@ test("流式帧复用历史数组，拒绝乱序、不同分支及不同会话�
 
 test("A→B→A 时第一次 A 的 watch 响应不覆盖最后一次激活", async (t) => {
   const { client, mock } = await fixture(t);
-  const old = deferred<ConversationView>();
+  const old = Promise.withResolvers<ConversationView>();
   let first = true;
   mock.watch = (id) => {
     if (first) {
@@ -238,7 +238,7 @@ test("A→B→A 时第一次 A 的 watch 响应不覆盖最后一次激活", asy
 });
 
 test("断开并重新连接后，旧快照不能覆盖新连接的数据", async () => {
-  const old = deferred<WorkspaceInfo>();
+  const old = Promise.withResolvers<WorkspaceInfo>();
   let reads = 0;
   const api = {
     getWorkspace: () =>
@@ -264,7 +264,7 @@ test("断开并重新连接后，旧快照不能覆盖新连接的数据", async
 
 test("初始快照返回前收到审批，不被迟到的空审批快照覆盖", async () => {
   let receive!: (event: ApplicationEvent) => void;
-  const initial = deferred<WorkspaceInfo>();
+  const initial = Promise.withResolvers<WorkspaceInfo>();
   const approval = {
     id: "approval",
     conversationId: "a",
@@ -299,35 +299,57 @@ test("初始快照返回前收到审批，不被迟到的空审批快照覆盖",
 
 test("已切走的 watch 失败不污染当前会话", async (t) => {
   const { client, mock } = await fixture(t);
-  let reject!: (cause: Error) => void;
-  const old = new Promise<ConversationView>((_resolve, fail) => {
-    reject = fail;
-  });
-  mock.watch = (id) => (id === "a" ? old : Promise.resolve(view(id)));
+  const old = Promise.withResolvers<ConversationView>();
+  mock.watch = (id) => (id === "a" ? old.promise : Promise.resolve(view(id)));
   const pending = client.run(() => client.activate("a"));
   await client.activate("b");
-  reject(new Error("old failure"));
+  old.reject(new Error("old failure"));
   await pending;
   assert.equal(client.getSnapshot().view?.conversationId, "b");
   assert.equal(client.getSnapshot().error, "");
 });
 
-test("当前切换失败时恢复原会话，后续流式更新仍能被接收", async (t) => {
+test("切换失败时保留原会话在等待期间收到的最终回复", async (t) => {
   const { client, mock, emit } = await fixture(t);
   await client.activate("a");
   const previous = client.getSnapshot().view;
-  mock.watch = async () => {
-    throw new Error("cannot open");
-  };
-  await assert.rejects(client.activate("b"), /cannot open/);
+  const target = Promise.withResolvers<ConversationView>();
+  mock.watch = () => target.promise;
+  const pending = assert.rejects(client.activate("b"), /cannot open/);
   assert.equal(client.getSnapshot().view, previous);
-  emit({ type: "conversation", view: { ...view("a", 2), partial: "still live" } });
-  assert.equal(client.getSnapshot().view?.partial, "still live");
+  const completed: ConversationView = {
+    ...view("a", 2),
+    busy: false,
+    messages: [{ id: "reply", role: "assistant", text: "完成", failed: false }],
+  };
+  emit({ type: "conversation", view: completed });
+  target.reject(new Error("cannot open"));
+  await pending;
+  assert.equal(client.getSnapshot().view, completed);
+  mock.watch = async () => view("c");
+  await assert.rejects(client.activate("b"), /与当前选择不一致/);
+  assert.equal(client.getSnapshot().view, completed);
+});
+
+test("切换成功时，以目标会话先收到的新事件为准", async (t) => {
+  const { client, mock, emit } = await fixture(t);
+  await client.activate("a");
+  const target = Promise.withResolvers<ConversationView>();
+  mock.watch = () => target.promise;
+  const pending = client.activate("b");
+  emit({ type: "conversation", view: view("b", 4) });
+  const { messages: _messages, ...progress } = { ...view("b", 5), partial: "新的回复" };
+  emit({ type: "conversation.progress", view: progress });
+  assert.equal(client.getSnapshot().view?.conversationId, "a");
+  target.resolve(view("b", 3));
+  await pending;
+  assert.equal(client.getSnapshot().view?.conversationId, "b");
+  assert.equal(client.getSnapshot().view?.partial, "新的回复");
 });
 
 test("刷新替换游标后，旧分页响应不能追加记录或修改新游标", async (t) => {
   const { client, mock } = await fixture(t);
-  const oldPage = deferred<WorkspaceInfo>();
+  const oldPage = Promise.withResolvers<WorkspaceInfo>();
   mock.read = async (cursor) =>
     cursor ? oldPage.promise : { ...workspace(), nextCursor: "new cursor" };
   const pending = client.loadMore();
@@ -345,7 +367,7 @@ test("刷新替换游标后，旧分页响应不能追加记录或修改新游�
 for (const invalidation of ["refresh", "write", "disconnect"] as const) {
   test(`${invalidation} 后过期分页的失败不再显示到当前界面`, async (t) => {
     const { client, mock, disconnect } = await fixture(t);
-    const page = deferred<WorkspaceInfo>();
+    const page = Promise.withResolvers<WorkspaceInfo>();
     mock.read = async (cursor) => (cursor ? page.promise : mock.current);
     const pending = client.run(() => client.loadMore());
     await tick();

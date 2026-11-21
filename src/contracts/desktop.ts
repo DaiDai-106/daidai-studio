@@ -26,6 +26,7 @@ export interface AppInfo {
   electronVersion: string;
   nodeVersion: string;
   dataRoot: string;
+  staticPreviewAvailable: boolean;
 }
 
 // preload 只向前端开放这里列出的桌面能力。

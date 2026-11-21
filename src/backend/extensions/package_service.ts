@@ -149,15 +149,19 @@ export function createPackageService({
     { projectTrusted: true },
   );
   // SDK 的 project 作用域对应 Dai 模块，cwd 不指向用户项目。
-  const manager = new DefaultPackageManager({
-    cwd: host === "pi" ? moduleRoot : packageRoot,
-    agentDir: packageRoot,
-    settingsManager: settings,
-  });
-  if (progress)
-    manager.setProgressCallback((event) =>
-      progress(event.message ?? `${event.action}: ${event.source}`),
-    );
+  function packageManager(settingsManager: SettingsManager) {
+    const manager = new DefaultPackageManager({
+      cwd: host === "pi" ? moduleRoot : packageRoot,
+      agentDir: packageRoot,
+      settingsManager,
+    });
+    if (progress)
+      manager.setProgressCallback((event) =>
+        progress(event.message ?? `${event.action}: ${event.source}`),
+      );
+    return manager;
+  }
+  const manager = packageManager(settings);
 
   function scopeOptions(scope: Scope) {
     if (scope !== "global" && scope !== "module") throw new Error("无效的包作用域。");
@@ -393,22 +397,21 @@ export function createPackageService({
       });
     },
 
-    update(source: string): Promise<void> {
+    update(source: string, scope: Scope): Promise<void> {
       return run(async () => {
+        scopeOptions(scope);
         const normalized = normalizePackageSource(source);
-        const paths = (["global", "module"] as const).map((scope) =>
-          manager.getInstalledPath(normalized, scope === "global" ? "user" : "project"),
+        if (!configured().some((item) => item.source === normalized && item.scope === scope))
+          throw new Error("找不到指定作用域的包。");
+        // SDK 按来源跨作用域匹配。仅把选中的安装传入其内存配置。
+        const scoped = SettingsManager.inMemory(
+          { ...settings.getGlobalSettings(), packages: scope === "global" ? [normalized] : [] },
+          { projectTrusted: true },
         );
-        const targets = configured().filter(
-          (item) =>
-            item.source === normalized ||
-            (!!item.installedPath && paths.includes(item.installedPath)),
-        );
+        if (scope === "module") scoped.setProjectPackages([normalized]);
         await beforeChange();
-        await manager.update(normalized);
-        // 更新可同时影响全局和模块配置，验证该宿主的实际清单，不自动切换宿主。
-        for (const item of targets) await validateSource(item.source, item.scope);
-        await flush();
+        await packageManager(scoped).update(normalized);
+        await validateSource(normalized, scope);
       });
     },
   };

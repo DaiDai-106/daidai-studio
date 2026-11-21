@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -31,7 +31,7 @@ test("Git 差异按项目目录区分暂存、未暂存和未跟踪文件", asyn
     try {
       const project = store.createProject({ name: "代码", mode: "coding", path: projectDir });
       const files = createCodingFileService(store);
-      const service = createCodingGitService(store, files);
+      const service = createCodingGitService(files);
       const result = await service.changes(project.id);
       assert.equal(result.entries.length, 2);
       const tracked = result.entries.find((entry) => entry.path === "tracked.ts");
@@ -41,6 +41,18 @@ test("Git 差异按项目目录区分暂存、未暂存和未跟踪文件", asyn
       assert.match((await service.diff(project.id, "tracked.ts", "unstaged")).patch, /\+unstaged/);
       assert.match((await service.diff(project.id, "new[1].py", "untracked")).patch, /\+print/);
       await assert.rejects(service.diff(project.id, "../outside.txt", "unstaged"), /路径无效/);
+
+      await Promise.all(
+        Array.from({ length: 200 }, (_, index) =>
+          writeFile(join(projectDir, `added-${index}.py`), "print('new')\n"),
+        ),
+      );
+      const truncated = await service.changes(project.id);
+      assert.equal(truncated.truncated, true);
+      assert.ok(!truncated.entries.some(({ path }) => path === "new[1].py"));
+      assert.match((await service.diff(project.id, "new[1].py", "untracked")).patch, /\+print/);
+      git("add", "--", "sub/new[1].py");
+      await assert.rejects(service.diff(project.id, "new[1].py", "untracked"), /不再是未跟踪文件/);
     } finally {
       store.close();
     }
@@ -63,10 +75,13 @@ test("无首次提交的仓库和非仓库均显示真实状态", async () => {
     try {
       const first = store.createProject({ name: "代码", mode: "coding", path: repo });
       const second = store.createProject({ name: "普通目录", mode: "coding", path: plain });
-      const service = createCodingGitService(store, createCodingFileService(store));
+      const service = createCodingGitService(createCodingFileService(store));
       assert.equal((await service.changes(first.id)).entries[0]?.staged, true);
       assert.match((await service.diff(first.id, "new.ts", "staged")).patch, /\+const a = 1/);
-      await assert.rejects(service.changes(second.id), /无法读取 Git/);
+      await assert.rejects(service.changes(second.id), /不在 Git 仓库中/);
+      execFileSync("git", ["config", "core.worktree", plain], { cwd: repo });
+      await assert.rejects(service.changes(first.id), /不在 Git 工作树中/);
+      await assert.rejects(service.diff(first.id, "new.ts", "staged"), /不在 Git 工作树中/);
     } finally {
       store.close();
     }
@@ -85,20 +100,21 @@ test("查看 Git 状态和差异不会执行仓库配置的清理过滤器", asy
     git("init", "-q");
     git("config", "user.email", "test@example.invalid");
     git("config", "user.name", "Test");
-    git("config", "filter.spy.clean", `touch '${marker}'; cat`);
+    const markerPath = process.platform === "win32" ? marker.replaceAll("\\", "/") : marker;
+    git("config", "filter.spy.clean", `touch '${markerPath}'; cat`);
     await writeFile(join(repo, ".gitattributes"), "*.ts filter=spy\n");
-    await writeFile(join(repo, "file.ts"), "old\n");
+    await writeFile(join(repo, "with space.ts"), "old\n");
     git("add", ".");
     git("commit", "-qm", "initial");
+    await access(marker);
     await rm(marker, { force: true });
-    await writeFile(join(repo, "file.ts"), "new\n");
+    await writeFile(join(repo, "with space.ts"), "new\n");
     const store = openProjectStore(join(root, "data"));
     try {
       const project = store.createProject({ name: "代码", mode: "coding", path: repo });
-      const service = createCodingGitService(store, createCodingFileService(store));
+      const service = createCodingGitService(createCodingFileService(store));
       await assert.rejects(service.changes(project.id), /过滤器/);
-      await assert.rejects(service.diff(project.id, "file.ts", "unstaged"), /过滤器/);
-      const { access } = await import("node:fs/promises");
+      await assert.rejects(service.diff(project.id, "with space.ts", "unstaged"), /过滤器/);
       await assert.rejects(access(marker));
     } finally {
       store.close();

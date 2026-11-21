@@ -1,14 +1,10 @@
 import { useRef, useState } from "react";
 import type { CreateProjectInput } from "../../../contracts/bridge.ts";
-import type { Conversation } from "../../features/chat/logic/types.ts";
 import type { useConversationDrafts } from "../../features/chat/logic/use_conversation_drafts.ts";
 import type { ApplicationState } from "./use_application.ts";
 
-const emptyMessages: Conversation["messages"] = [];
-
 type Action =
   | { type: "home" }
-  | { type: "select"; id: string }
   | { type: "fork"; id: string }
   | { type: "selectProject"; id: string }
   | { type: "create"; projectId: string }
@@ -21,25 +17,25 @@ export function useWorkbenchNavigation(
   { drafts, writer, clearDraft }: ReturnType<typeof useConversationDrafts>,
 ) {
   const { api, workspace } = application;
-  const [activeId, setActiveId] = useState("");
-  const [projectId, setProjectId] = useState("");
+  const [{ activeId, projectId, isNewConversation }, setSelection] = useState({
+    activeId: "",
+    projectId: "",
+    isNewConversation: false,
+  });
   const [availability, setAvailability] = useState<{
     id: string;
     available: boolean | null;
   } | null>(null);
 
   const navigating = useRef(false);
+  const pending = useRef<{ id: string; projectId: string }>(undefined);
+  const currentProject = useRef("");
 
   const projects = workspace?.projects ?? [];
-  const conversations: Conversation[] = (workspace?.conversations ?? []).map((item) => ({
+  const activeView = application.view?.conversationId === activeId ? application.view : null;
+  const conversations = (workspace?.conversations ?? []).map((item) => ({
     ...item,
     draft: drafts[item.id] ?? item.draft,
-    messages:
-      item.id === activeId
-        ? application.view?.conversationId === item.id
-          ? application.view.messages
-          : emptyMessages
-        : emptyMessages,
   }));
   const active = conversations.find((item) => item.id === activeId);
   const projectInfo = projects.find((item) => item.id === projectId);
@@ -48,37 +44,34 @@ export function useWorkbenchNavigation(
       ? { ...projectInfo, available: availability.available }
       : projectInfo;
 
-  async function activate(id: string, target: string) {
-    await application.activate(id);
-    setActiveId(id);
-    setProjectId(target);
+  async function activate(
+    id: string,
+    target: string,
+    isNewConversation = false,
+    isCurrent = () => true,
+  ) {
+    await application.activate(id, isCurrent);
+    if (!isCurrent()) return;
+    currentProject.current = target;
+    setSelection({ activeId: id, projectId: target, isNewConversation });
   }
 
-  async function select(id: string) {
-    const value = workspace?.conversations.find((item) => item.id === id);
-    if (!value) return;
-    if (value.projectId !== projectId) {
-      const checked = await api.refreshProject(value.projectId);
-      setAvailability({ id: checked.id, available: checked.available });
-      await application.refresh();
-    }
-    await activate(id, value.projectId);
+  async function checkProject(id: string) {
+    const checked = await api.refreshProject(id);
+    setAvailability({ id: checked.id, available: checked.available });
   }
 
   async function create(target: string) {
     if (!target) throw new Error("请先选择项目。");
     const conversation = await api.createConversation(target);
     await application.refresh();
-    await activate(conversation.id, target);
+    await activate(conversation.id, target, true);
   }
 
   async function apply(action: Action) {
     switch (action.type) {
       case "home":
         await activate("", "");
-        return;
-      case "select":
-        await select(action.id);
         return;
       case "fork": {
         const fork = await api.forkConversation(action.id);
@@ -87,11 +80,7 @@ export function useWorkbenchNavigation(
         return;
       }
       case "selectProject":
-        {
-          const checked = await api.refreshProject(action.id);
-          setAvailability({ id: checked.id, available: checked.available });
-        }
-        await application.refresh();
+        await checkProject(action.id);
         await activate("", action.id);
         return;
       case "create":
@@ -99,9 +88,8 @@ export function useWorkbenchNavigation(
         return;
       case "removeProject":
         await api.removeProject(action.id);
-        if (action.id === projectId) {
-          await activate("", "");
-        }
+        if (pending.current?.projectId === action.id) pending.current = undefined;
+        if (action.id === projectId) await activate("", "");
         await application.refresh();
         return;
       case "archive":
@@ -112,63 +100,80 @@ export function useWorkbenchNavigation(
           await application.deleteConversation(action.id);
           clearDraft(action.id);
         }
+        if (pending.current?.id === action.id) pending.current = undefined;
         if (action.id === activeId) {
           const next = conversations.find(
             (item) => item.id !== action.id && item.projectId === projectId && !item.archived,
           );
-          if (next) await select(next.id);
-          else {
-            await activate("", projectId);
-          }
+          if (next) await activate(next.id, next.projectId);
+          else await activate("", projectId);
         }
         return;
       }
     }
   }
 
-  async function createProject(draft: CreateProjectInput) {
+  async function navigate(task?: () => Promise<boolean>) {
     if (navigating.current) return false;
     navigating.current = true;
-    return (
-      (await application.run(async () => {
-        try {
+    try {
+      const result =
+        task &&
+        (await application.run(async () => {
           await writer.flush();
-          const project = await api.createProject(draft);
-          if (!project) return false;
-          await application.refresh();
-          await activate("", project.id);
-          return true;
-        } finally {
-          navigating.current = false;
-        }
-      })) === true
-    );
+          return task();
+        }));
+      // 会话选择只保留最后一次点击，项目变更仍通过同一导航锁串行执行。
+      while (pending.current) {
+        const target = pending.current;
+        const isCurrent = () => pending.current === target;
+        await application.run(async () => {
+          await writer.flush();
+          if (!isCurrent()) return;
+          if (target.projectId !== currentProject.current) await checkProject(target.projectId);
+          if (!isCurrent()) return;
+          await activate(target.id, target.projectId, false, isCurrent);
+        });
+        if (isCurrent()) pending.current = undefined;
+      }
+      return result === true;
+    } finally {
+      navigating.current = false;
+    }
   }
 
-  function request(action: Action) {
-    if (navigating.current) return Promise.resolve(false);
-    navigating.current = true;
-    return application
-      .run(async () => {
-        try {
-          await writer.flush();
-          await apply(action);
-          return true;
-        } finally {
-          navigating.current = false;
-        }
-      })
-      .then((result) => result === true);
+  function select(id: string) {
+    if (id === activeId && !navigating.current) return;
+    const item = workspace?.conversations.find((item) => item.id === id);
+    if (!item) return;
+    pending.current = { id, projectId: item.projectId };
+    void navigate();
+  }
+
+  function createProject(draft: CreateProjectInput) {
+    return navigate(async () => {
+      const project = await api.createProject(draft);
+      if (!project) return false;
+      await application.refresh();
+      await activate("", project.id);
+      return true;
+    });
   }
 
   return {
     projects,
     conversations,
     active,
+    activeView,
+    isNewConversation,
     project,
     projectId,
-    activeId,
+    select,
     createProject,
-    request,
+    request: (action: Action) =>
+      navigate(async () => {
+        await apply(action);
+        return true;
+      }),
   };
 }

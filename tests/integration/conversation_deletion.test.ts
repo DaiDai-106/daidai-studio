@@ -3,33 +3,20 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { _electron as electron } from "playwright";
-import { openTestProject } from "./support.ts";
+import { launchElectron, openTestProject } from "./support.ts";
 
 test("conversation deletion confirms inline and blocks access after restart", {
   timeout: 60_000,
 }, async () => {
   const profile = await mkdtemp(join(tmpdir(), "dai-delete-chat-"));
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] =>
-        entry[0] !== "ELECTRON_RUN_AS_NODE" && entry[1] !== undefined,
-    ),
-  );
-  const launch = () =>
-    electron.launch({
-      args: [process.cwd(), `--user-data-dir=${profile}`],
-      env,
-      chromiumSandbox: true,
-    });
-  let app = await launch();
+  let app = await launchElectron(profile);
   try {
     let page = await app.firstWindow();
     page.setDefaultTimeout(7000);
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]?.setContentSize(1500, 940),
     );
-    const directory = await openTestProject(app, page, profile, "coding");
+    const directory = await openTestProject(app, page, profile);
     const first = await page.evaluate(async () => {
       const item = (await window.desktop.application.getWorkspace()).conversations[0];
       if (!item) throw new Error("Missing first conversation");
@@ -49,7 +36,6 @@ test("conversation deletion confirms inline and blocks access after restart", {
     await menu.getByRole("menuitem", { name: "确认删除", exact: true }).waitFor();
     assert.equal(await page.getByRole("dialog").count(), 0);
     assert.equal(await page.locator(".conversation-row").count(), 2);
-    await menu.screenshot({ path: join(tmpdir(), "dai-delete-menu-confirm.png") });
     await page.keyboard.press("Escape");
     await menu.waitFor({ state: "hidden" });
     assert.equal(await page.locator(".conversation-row").count(), 2);
@@ -91,7 +77,7 @@ test("conversation deletion confirms inline and blocks access after restart", {
       "export const example = 1;\n",
     );
     await app.close();
-    app = await launch();
+    app = await launchElectron(profile);
     page = await app.firstWindow();
     const ids = await page.evaluate(async () =>
       (await window.desktop.application.getWorkspace()).conversations.map((item) => item.id),

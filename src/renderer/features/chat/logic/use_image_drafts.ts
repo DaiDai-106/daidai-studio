@@ -8,7 +8,7 @@ export function useImageDrafts(
   onSend: (images: ChatImage[]) => Promise<boolean>,
 ) {
   const readingImages = useRef(false);
-  const sending = useRef(false);
+  const sending = useRef(new Set<string>());
   const [imageDrafts, setImageDrafts] = useState<Record<string, ChatImage[]>>({});
   const [imageError, setImageError] = useState("");
   const images = imageDrafts[conversationId] ?? [];
@@ -63,12 +63,12 @@ export function useImageDrafts(
   }
 
   async function send() {
-    if (readingImages.current || sending.current) return;
+    if (readingImages.current || sending.current.has(conversationId)) return;
     if (images.length && !supportsImages) {
       setImageError("当前模型不支持图片输入，请切换模型或移除图片。");
       return;
     }
-    sending.current = true;
+    sending.current.add(conversationId);
     try {
       if (await onSend(images)) {
         // 只移除本次发送的图片，保留发送期间新添加的草稿。
@@ -81,7 +81,7 @@ export function useImageDrafts(
         setImageError("");
       }
     } finally {
-      sending.current = false;
+      sending.current.delete(conversationId);
     }
   }
 

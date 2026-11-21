@@ -116,18 +116,18 @@ try {
   globalThis.fetch = originalFetch;
   await catalog.close();
 }
-await b.update(source);
+await a.update(source, "global");
 assert.match(await extensionText(b), /version-2/, "global npm update must fetch the new version");
 assert.match(
   await extensionText(a),
   /version-1/,
   "updating global scope must not modify module copy",
 );
-await a.update(source);
+await a.update(source, "module");
 assert.match(await extensionText(a), /version-2/, "module npm package must update when selected");
 const beforeFailedUpdate = await b.inspect();
 assert.equal((await fetch(`${registry}/make-unavailable`)).status, 204);
-await assert.rejects(b.update(source));
+await assert.rejects(b.update(source, "global"));
 assert.deepEqual(await b.inspect(), beforeFailedUpdate);
 assert.match(await extensionText(b), /version-2/);
 const before = await a.inspect();
@@ -150,7 +150,7 @@ await desktop.install(theme, "global");
 assert.equal((await desktop.inspect())[0]?.version, "3.0.0");
 assert.match(await extensionText(a), /version-2/);
 assert.match(await extensionText(b), /version-2/);
-await desktop.update(theme);
+await desktop.update(theme, "global");
 await desktop.setEnabled(theme, "global", false);
 await desktop.setEnabled(theme, "global", true);
 await desktop.remove(theme, "global");

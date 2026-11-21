@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { _electron as electron } from "playwright";
 import { createPiHistory } from "../../src/backend/agent/pi_history.ts";
 import { openProjectStore } from "../../src/backend/projects/store.ts";
+import { servePlanner } from "../support/planner.ts";
+import { launchElectron, launchTestApp, openTestProject } from "./support.ts";
 
-test("未配置模型也可恢复原生摘要、扩展消息及跨分支累计用量", { timeout: 60_000 }, async () => {
+test("未配置模型也可恢复原生截图、摘要、扩展消息及跨分支累计用量", {
+  timeout: 60_000,
+}, async () => {
   const root = await mkdtemp(join(tmpdir(), "dai-native-history-"));
   const profile = join(root, "profile");
   const directory = join(root, "project");
@@ -27,7 +30,14 @@ test("未配置模型也可恢复原生摘要、扩展消息及跨分支累计�
     };
     const first = manager.appendMessage({
       role: "user",
-      content: "压缩前的用户消息",
+      content: [
+        { type: "text", text: "压缩前的用户消息" },
+        {
+          type: "image",
+          mimeType: "image/png",
+          data: await readFile("dist/icons/1024.png", "base64"),
+        },
+      ],
       timestamp: 1,
     });
     manager.appendUsage("fixture", "local", "model", usage);
@@ -40,22 +50,39 @@ test("未配置模型也可恢复原生摘要、扩展消息及跨分支累计�
   } finally {
     store.close();
   }
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] =>
-        entry[0] !== "ELECTRON_RUN_AS_NODE" && entry[1] !== undefined,
-    ),
-  );
-  const app = await electron.launch({
-    args: [process.cwd(), `--user-data-dir=${profile}`],
-    env,
-    chromiumSandbox: true,
-  });
+  const app = await launchElectron(profile);
   try {
     const page = await app.firstWindow();
     page.setDefaultTimeout(10000);
     await page.getByRole("button", { name: "恢复历史", exact: true }).click();
     await page.getByText("压缩前的用户消息", { exact: true }).waitFor();
+    const thumbnail = page.getByRole("button", { name: "放大图片 1", exact: true });
+    await thumbnail.locator("img").evaluate((node: HTMLImageElement) => node.decode());
+    await thumbnail.scrollIntoViewIfNeeded();
+    const scrollTop = () => page.locator(".messages").evaluate((area) => area.scrollTop);
+    const beforePreview = await scrollTop();
+    const thumbnailBounds = await thumbnail.boundingBox();
+    await thumbnail.click();
+    const preview = page.getByRole("dialog", { name: "图片预览" });
+    await preview.waitFor();
+    const image = preview.getByRole("img", { name: "图片 1", exact: true });
+    await image.evaluate((node: HTMLImageElement) => node.decode());
+    const imageBounds = await image.boundingBox();
+    assert.ok(thumbnailBounds && imageBounds && imageBounds.width > thumbnailBounds.width);
+    assert.equal(await preview.getByRole("button").count(), 1);
+    assert.ok(
+      await image.evaluate((node: HTMLImageElement) => {
+        const { top, right, bottom, left } = node.getBoundingClientRect();
+        return top >= 0 && left >= 0 && right <= innerWidth && bottom <= innerHeight;
+      }),
+    );
+    await page.keyboard.press("Escape");
+    await preview.waitFor({ state: "hidden" });
+    assert.equal(await scrollTop(), beforePreview);
+    assert.ok(await thumbnail.evaluate((button) => button === document.activeElement));
+    await thumbnail.press("Enter");
+    await preview.getByRole("button", { name: "关闭图片预览", exact: true }).click();
+    await preview.waitFor({ state: "hidden" });
     await page.locator("summary").filter({ hasText: "上下文压缩摘要" }).click();
     await page.getByText("原生压缩摘要内容", { exact: true }).waitFor();
     await page.locator("summary").filter({ hasText: "扩展通知" }).click();
@@ -88,4 +115,93 @@ test("未配置模型也可恢复原生摘要、扩展消息及跨分支累计�
     await app.close();
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("截图预览期间流式回复可以继续，关闭后保留聊天阅读位置", {
+  timeout: 60_000,
+}, async (context) => {
+  const finish = Promise.withResolvers<void>();
+  const firstChunk = "开始回复。";
+  const planner = await servePlanner(() => ({
+    text: `${firstChunk}\n\n${"继续回复。\n\n".repeat(65)}回复结束。`,
+    splitAt: firstChunk.length,
+    beforeFinish: finish.promise,
+  }));
+  context.after(async () => {
+    finish.resolve();
+    await planner.close();
+  });
+  const { application, page, profile } = await launchTestApp(context);
+  page.setDefaultTimeout(10_000);
+  await application.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 760),
+  );
+  await page.evaluate(
+    (endpoint) =>
+      window.desktop.application.saveProvider({
+        id: "local",
+        name: "Local",
+        providerType: "local",
+        authMethod: "none",
+        endpoint,
+        enabled: true,
+        models: [
+          {
+            id: "preview",
+            name: "Preview",
+            context: 8192,
+            output: 1024,
+            reasoning: "标准",
+            supportsImages: true,
+          },
+        ],
+      }),
+    planner.endpoint,
+  );
+  await openTestProject(application, page, profile);
+  await page.evaluate(
+    async (data) => {
+      const [conversation] = (await window.desktop.application.getWorkspace()).conversations;
+      if (!conversation) throw new Error("缺少测试会话。");
+      await window.desktop.application.sendMessage(
+        conversation.id,
+        crypto.randomUUID(),
+        "带截图的消息",
+        [{ mimeType: "image/png", data }],
+      );
+    },
+    await readFile("dist/icons/1024.png", "base64"),
+  );
+
+  const messages = page.locator(".messages");
+  const thumbnail = page.getByRole("button", { name: "放大图片 1", exact: true });
+  const readingOffset = () =>
+    thumbnail.evaluate((button) => {
+      const area = button.closest(".messages");
+      if (!area) throw new Error("缺少消息区。");
+      return button.getBoundingClientRect().top - area.getBoundingClientRect().top;
+    });
+  await messages.getByText(firstChunk, { exact: true }).waitFor();
+  await thumbnail.locator("img").evaluate((image: HTMLImageElement) => image.decode());
+  await page.waitForFunction(() => {
+    const area = document.querySelector(".messages");
+    return area && area.scrollHeight - area.clientHeight - area.scrollTop < 2;
+  });
+  const before = await readingOffset();
+  await thumbnail.click();
+  const preview = page.getByRole("dialog", { name: "图片预览" });
+  await preview.waitFor();
+  assert.ok(Math.abs((await readingOffset()) - before) < 2);
+  finish.resolve();
+  await messages.getByText("回复结束。", { exact: true }).waitFor({ state: "attached" });
+  await page.evaluate(
+    () =>
+      new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+  );
+  assert.ok(Math.abs((await readingOffset()) - before) < 2);
+
+  await page.keyboard.press("Escape");
+  await preview.waitFor({ state: "hidden" });
+  assert.ok(Math.abs((await readingOffset()) - before) < 2);
+  assert.ok(await thumbnail.evaluate((button) => button === document.activeElement));
 });

@@ -20,7 +20,7 @@ Electron 主进程处理窗口、操作系统文件选择以及受控 IPC；独�
 
 Pi 会话拥有对话历史，Dai 保存项目索引、草稿和模型选择。`src/contracts` 约定实际跨进程请求、响应和事件。
 
-后端在 `request_policy.ts` 中为每个命令显式声明调度策略：读取和中断响应绕过写入队列，普通修改全局串行。发送消息在初始化并提交后返回，模型生成继续异步运行；同一会话的重复发送会被拒绝。
+`src/contracts/request_policy.ts` 为每个命令声明调度策略。读取和中断响应绕过写入队列，模型目录查询也可独立执行。普通修改串行排队，等待超时的修改会在执行前取消；已开始的修改返回实际结果。发送消息在初始化并提交后返回，模型生成继续异步运行。同一会话的运行记录管理队列、输出和结束清理，查看空会话只读取历史，发送时才绑定会话文件。
 
 仓库主要目录的职责如下：
 
@@ -43,6 +43,14 @@ tests/              测试入口、契约、后端和 Electron 测试
 项目、设置、凭据和 Pi 会话各有明确的存储与恢复职责。旧架构数据和会话不要求兼容或迁移；用户在新版重新配置所需模型。Dai 不装配 MCP 连接器。
 
 Pi 依赖固定为 `1.5.2`（`pi-ai`、`pi-coding-agent` 同步升级）。模型目录、基础工具和会话历史复用 Pi；项目身份、桌面交互、访问审批由 Dai 管理。Pi 1.5 的模型推理档 schema 使用 pi-schema，应用 IPC 仍使用 TypeBox：契约从 Pi 的 `MODEL_THINKING_LEVELS` 构造本地 TypeBox 枚举，避免两套取值手工漂移。Pi 的终端渲染和交互功能不会自动替代 Electron 界面。
+
+## 桌面进程
+
+`src/desktop/main/index.ts` 按顺序启动后端和窗口。`window.ts` 管理窗口、同步主题和处理外部链接，`paths.ts`、`tray.ts` 和 `zoom.ts` 分别管理数据目录、托盘和缩放。`ipc.ts` 检查请求来源并转发普通应用请求，项目目录和 Skill 选择由主进程处理。渲染进程通过 `src/desktop/preload/index.ts` 暴露的 `DesktopBridge` 访问这些能力。
+
+`backend_process.ts` 启动后端、等待就绪并处理异常退出，`backend.ts` 校验响应与事件，并用请求 ID 配对结果。查询和写入排队的等待上限为 30 秒，后端退出时主进程拒绝仍在等待的调用。关闭窗口通常隐藏到托盘，应用退出时由 `quit.ts` 协调草稿保存、后端清理与托盘关闭。Linux 用设备号和 inode 将桌面主进程和后端绑定到同一数据目录。
+
+网页预览按项目和标签身份隔离。`browser/controller.ts` 和 `browser/ipc.ts` 管理视图、矩形、生命周期和请求，`urls.ts` 与 `static_server.ts` 限制预览来源及项目内 HTML 的静态资源。初始化中的标签也计入数量上限。关闭标签或销毁窗口时取消未完成的初始化，取消标记只保留到初始化结束。浏览器通过后端确认项目身份，文件与 Git 由 `src/backend/coding/` 处理，共用的目录句柄和限量读取逻辑位于 `src/shared/node/file_access.ts`。 [Coding 工作区](coding_workspace.md#安全与平台边界)
 
 ## 核心数据与请求流程
 
@@ -100,3 +108,4 @@ Coding 创建 Agent 时启用 Pi 的项目指令发现：按上游规则读取�
 - `tests/backend/agent/pi_history.test.ts`、`history_projection.test.ts`、`streaming.test.ts` 和 `concurrency.test.ts` 覆盖历史、流式投影及会话并发；`file_access.test.ts`、`shell_approval.test.ts` 覆盖工具路径与命令确认。以上文件后缀均为 `.test.ts`，具体路径在 `tests/backend/agent/`。
 - `tests/integration/native_history_ui.test.ts` 验证未配置模型时恢复摘要、扩展消息及跨分支用量；`tests/backend/agent/pi_agent.test.ts` 验证项目指令发现与资源隔离、SDK 统计和恢复统计一致。
 - `tests/contracts/application.test.ts` 验证应用契约；执行环境与测试结果要求见 [测试与验收](testing.md)。测试存在不代表当前工作树已通过。
+- `tests/integration/desktop.test.ts`、`tests/desktop/project_directory.test.ts` 和 `tests/integration/shell_desktop.test.ts` 验证窗口、目录选择和桌面 Shell 流程。网页预览与 TLS 测试见 [Coding 工作区](coding_workspace.md#验收)。Electron 测试需要图形环境，其他平台需实际验证。

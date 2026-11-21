@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   ConversationView,
   MessageBlock,
@@ -6,6 +6,7 @@ import type {
 } from "../../../../contracts/application.ts";
 import { productName } from "../../../../shared/app_metadata.ts";
 import { BrandIcon } from "../../../shared/components/brand_icon.tsx";
+import { Dialog } from "../../../shared/components/dialog.tsx";
 import { Icon } from "../../../shared/components/icon.tsx";
 import { MarkdownText } from "../../../shared/components/markdown_text.tsx";
 import {
@@ -44,18 +45,56 @@ function Thinking({
   );
 }
 
-function MessageImages({ images }: { images?: MessageInfo["images"] | undefined }) {
-  return images?.length ? (
-    <div className="message-images">
-      {images.map((image, index) => (
-        <img
-          key={image.data}
-          src={`data:${image.mimeType};base64,${image.data}`}
-          alt={`图片 ${index + 1}`}
-        />
-      ))}
-    </div>
-  ) : null;
+function MessageImages({
+  images,
+  onOpen,
+}: {
+  images: NonNullable<MessageInfo["images"]>;
+  onOpen(): void;
+}) {
+  const [preview, setPreview] = useState<{ src: string; alt: string } | null>(null);
+  const opener = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    if (preview) return;
+    opener.current?.focus({ preventScroll: true });
+    opener.current = null;
+  }, [preview]);
+  return (
+    <>
+      <div className="message-images">
+        {images.map((image, index) => {
+          const src = `data:${image.mimeType};base64,${image.data}`;
+          const alt = `图片 ${index + 1}`;
+          return (
+            <button
+              key={alt}
+              type="button"
+              className="message-image"
+              aria-label={`放大${alt}`}
+              aria-haspopup="dialog"
+              onClick={(event) => {
+                onOpen();
+                opener.current = event.currentTarget;
+                setPreview({ src, alt });
+              }}
+            >
+              <img src={src} alt={alt} />
+            </button>
+          );
+        })}
+      </div>
+      {preview && (
+        <Dialog
+          title="图片预览"
+          closeLabel="关闭图片预览"
+          className="message-image-dialog"
+          onClose={() => setPreview(null)}
+        >
+          <img className="message-image-preview" src={preview.src} alt={preview.alt} />
+        </Dialog>
+      )}
+    </>
+  );
 }
 
 function Reply({ message }: { message: MessageInfo }) {
@@ -85,11 +124,13 @@ const Turn = memo(function Turn({
   stream,
   showThinking,
   model,
+  onImagePreviewOpen,
 }: {
   turn: ConversationTurn;
   stream: ConversationView | null;
   showThinking: boolean;
   model?: string | undefined;
+  onImagePreviewOpen(): void;
 }) {
   const active = !!stream?.busy;
   const [choice, setChoice] = useState<boolean | null>(null);
@@ -143,18 +184,26 @@ const Turn = memo(function Turn({
   }, [active, choice]);
   const claim = () => setChoice(true);
   return (
-    <div className="conversation-turn" data-turn-id={turn.id}>
+    <div
+      className="conversation-turn"
+      data-turn-id={turn.id}
+      data-user-turn={turn.user ? "" : undefined}
+    >
       {turn.event && (
         <details className="history-event">
           <summary>{turn.event.eventLabel ?? "会话记录"}</summary>
           <MarkdownText text={turn.event.text} />
-          <MessageImages images={turn.event.images} />
+          {turn.event.images?.length ? (
+            <MessageImages images={turn.event.images} onOpen={onImagePreviewOpen} />
+          ) : null}
         </details>
       )}
       {turn.user && (
         <article className="message user">
           <UserMessage text={turn.user.text} />
-          <MessageImages images={turn.user.images} />
+          {turn.user.images?.length ? (
+            <MessageImages images={turn.user.images} onOpen={onImagePreviewOpen} />
+          ) : null}
         </article>
       )}
       {hasProcess && (
@@ -231,11 +280,13 @@ export function ConversationTranscript({
   stream,
   showThinking,
   model,
+  onImagePreviewOpen,
 }: {
   messages: MessageInfo[];
   stream: ConversationView | null;
   showThinking: boolean;
   model?: string | undefined;
+  onImagePreviewOpen(): void;
 }) {
   const history = useMemo(() => conversationTurns(messages), [messages]);
   const turns = !history.length && stream?.busy ? [pendingTurn] : history;
@@ -248,6 +299,7 @@ export function ConversationTranscript({
           stream={index === turns.length - 1 ? stream : null}
           showThinking={showThinking}
           model={model}
+          onImagePreviewOpen={onImagePreviewOpen}
         />
       ))}
     </>

@@ -3,9 +3,8 @@ import { cp, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { _electron as electron } from "playwright";
 import { createThemePackage } from "../support/desktop_theme.ts";
-import { openTestProject } from "./support.ts";
+import { launchElectron, openTestProject } from "./support.ts";
 
 test("真实桌面可安装主题、切换浅深色、重启恢复，并在停用/移除后恢复默认", {
   timeout: 90_000,
@@ -24,19 +23,7 @@ test("真实桌面可安装主题、切换浅深色、重启恢复，并在停�
   const manifest = JSON.parse(await readFile(join(source, "package.json"), "utf8"));
   const declaration = manifest.dai.themes[0];
   const id = `${manifest.name}:${declaration.id}`;
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] =>
-        entry[0] !== "ELECTRON_RUN_AS_NODE" && entry[1] !== undefined,
-    ),
-  );
-  const launch = () =>
-    electron.launch({
-      args: [process.cwd(), `--user-data-dir=${profile}`],
-      env,
-      chromiumSandbox: true,
-    });
-  let app = await launch();
+  let app = await launchElectron(profile);
   try {
     let page = await app.firstWindow();
     page.setDefaultTimeout(15_000);
@@ -96,7 +83,7 @@ test("真实桌面可安装主题、切换浅深色、重启恢复，并在停�
     await page.getByRole("menuitemradio", { name: "跟随系统", exact: true }).click();
     assert.equal(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource), "system");
     await app.close();
-    app = await launch();
+    app = await launchElectron(profile);
     page = await app.firstWindow();
     page.setDefaultTimeout(15_000);
     page.on("pageerror", (error) => errors.push(error.message));

@@ -1,6 +1,5 @@
 import { useState } from "react";
-import type { ProjectInfo as Project } from "../../../contracts/application.ts";
-import type { Conversation } from "../../features/chat/logic/types.ts";
+import type { ConversationInfo, ProjectInfo as Project } from "../../../contracts/application.ts";
 import { ActionMenu } from "../../shared/components/action_menu.tsx";
 import { Dialog, Field } from "../../shared/components/dialog.tsx";
 import { Icon } from "../../shared/components/icon.tsx";
@@ -10,7 +9,7 @@ export function RenameDialog({
   onSave,
   onClose,
 }: {
-  conversation: Conversation;
+  conversation: ConversationInfo;
   onSave: (title: string) => void;
   onClose: () => void;
 }) {
@@ -46,7 +45,7 @@ export function ArchivesDialog({
   onDelete,
   onClose,
 }: {
-  conversations: Conversation[];
+  conversations: ConversationInfo[];
   projects: Project[];
   projectId: string | null;
   error: string;

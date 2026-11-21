@@ -1,17 +1,11 @@
 import { type Static, Type } from "typebox";
 import { object } from "./schema.ts";
 
-export const CatalogSourceIdSchema = Type.Enum(["pi", "company"]);
+const CatalogSourceIdSchema = Type.Enum(["pi", "company"]);
 // 市场回答“在哪里发现”，宿主回答“由谁加载”；两者始终独立。
-export const PluginHostSchema = Type.Enum(["pi", "desktop"]);
+const PluginHostSchema = Type.Enum(["pi", "desktop"]);
 export type PluginHost = Static<typeof PluginHostSchema>;
-export const CatalogResourceSchema = Type.Enum([
-  "extension",
-  "skill",
-  "prompt",
-  "theme",
-  "desktop-theme",
-]);
+const CatalogResourceSchema = Type.Enum(["extension", "skill", "prompt", "theme", "desktop-theme"]);
 // 模块标识独立于项目模式；当前界面仅开放 Coding，后续模块可直接复用。
 export const pluginModules = {
   coding: "Coding",
@@ -26,7 +20,7 @@ export type PluginScope = Static<typeof PluginScopeSchema>;
 export type PackageLoad = { source: string; scope: PluginScope; error: string };
 const text = (maxLength = 4096) => Type.String({ maxLength });
 // 安装信息不依赖市场来源；Agent 和 Desktop 加载器共用这一只读快照。
-export const InstalledPackageSchema = object({
+const InstalledPackageSchema = object({
   host: PluginHostSchema,
   source: text(),
   scope: PluginScopeSchema,
@@ -41,7 +35,7 @@ export const InstalledPackageSchema = object({
   manifestError: text(2000),
 });
 export type InstalledPackage = Static<typeof InstalledPackageSchema>;
-export const CatalogEntrySchema = object({
+const CatalogEntrySchema = object({
   host: PluginHostSchema,
   sourceId: CatalogSourceIdSchema,
   id: Type.String({ minLength: 1, maxLength: 500 }),
@@ -58,6 +52,13 @@ export const CatalogEntrySchema = object({
 export type CatalogEntry = Static<typeof CatalogEntrySchema>;
 export type CatalogSourceId = Static<typeof CatalogSourceIdSchema>;
 export type CatalogResource = Static<typeof CatalogResourceSchema>;
+export const CatalogOriginSchema = object({
+  ...Type.Pick(InstalledPackageSchema, ["source", "host", "scope", "moduleId"]).properties,
+  sourceId: CatalogSourceIdSchema,
+  entryId: CatalogEntrySchema.properties.id,
+  catalogUrl: Type.Optional(text(2000)),
+});
+export type CatalogOrigin = Static<typeof CatalogOriginSchema>;
 export const CatalogDetailSchema = object({
   entry: CatalogEntrySchema,
   readme: text(100_000),
@@ -65,7 +66,7 @@ export const CatalogDetailSchema = object({
   notice: Type.Optional(text(2000)),
 });
 export type CatalogDetail = Static<typeof CatalogDetailSchema>;
-export const CatalogGroupSchema = object({
+const CatalogGroupSchema = object({
   sourceId: CatalogSourceIdSchema,
   entries: Type.Array(CatalogEntrySchema, { maxItems: 40 }),
   nextOffset: Type.Union([Type.Integer({ minimum: 0, maximum: 100_000 }), Type.Null()]),
@@ -86,7 +87,7 @@ export const CatalogTaskSchema = object({
   startedAt: Type.Number(),
 });
 export type CatalogTask = Static<typeof CatalogTaskSchema>;
-export const CatalogInstalledSchema = object({
+const CatalogInstalledSchema = object({
   ...Type.Omit(InstalledPackageSchema, ["dai", "manifestError", "installedPath"]).properties,
   sourceId: Type.Enum(["pi", "company", "manual"]),
   entryId: text(500),

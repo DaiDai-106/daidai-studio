@@ -1,7 +1,11 @@
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { extname } from "node:path";
-import { openDirectoryRoot, readFileResource } from "../../../shared/node/file_access.ts";
+import {
+  directoryHandlesAvailable,
+  openDirectoryRoot,
+  readFileResource,
+} from "../../../shared/node/file_access.ts";
 
 const MAX_RESOURCE = 8 * 1024 * 1024;
 const mediaTypes: Record<string, string> = {
@@ -37,7 +41,7 @@ function pathParts(path: string) {
 
 /** 临时服务只暴露明确授权的项目目录，不跟随符号链接。 */
 export async function createStaticPreview(rootPath: string, entry: string) {
-  if (process.platform !== "linux") throw new Error("当前系统暂不支持安全的项目文件预览。");
+  if (!directoryHandlesAvailable) throw new Error("当前系统暂不支持本地 HTML 预览。");
   const parts = pathParts(entry);
   if (![".html", ".htm"].includes(extname(entry).toLowerCase()))
     throw new Error("请选择项目中的 HTML 文件。");

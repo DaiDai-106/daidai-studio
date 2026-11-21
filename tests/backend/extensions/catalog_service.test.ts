@@ -7,9 +7,97 @@ import { openApplication } from "../../../src/backend/application.ts";
 import { createCatalogService } from "../../../src/backend/extensions/catalog_service.ts";
 import { createPackageService } from "../../../src/backend/extensions/package_service.ts";
 import { openProjectStore } from "../../../src/backend/projects/store.ts";
-import type { ApplicationEvent } from "../../../src/contracts/application.ts";
-import { waitForCatalogTask } from "../../support/catalog_task.ts";
+import { type ApplicationEvent, validateResult } from "../../../src/contracts/application.ts";
+import { runPackageAction, waitForCatalogTask } from "../../support/catalog_task.ts";
 import { createThemePackage } from "../../support/desktop_theme.ts";
+
+test("来源关联损坏时仍能列出插件，并在移除前报告错误", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dai-invalid-origins-"));
+  const dataRoot = join(root, "data");
+  const source = join(root, "plugin");
+  const catalog = createCatalogService({ dataRoot, publish() {}, async changed() {} });
+  try {
+    await mkdir(source);
+    await writeFile(join(source, "package.json"), JSON.stringify({ name: "test-plugin" }));
+    await createPackageService({ dataRoot }).install(source, "global");
+    await mkdir(join(dataRoot, "catalog"), { recursive: true });
+    await writeFile(join(dataRoot, "catalog", "origins.json"), "{invalid");
+    const task = catalog.start({ action: "remove", source, scope: "global" });
+    const result = await waitForCatalogTask(() => catalog.taskList(), task.id);
+    assert.equal(result.state, "failed");
+    assert.match(result.message, /损坏/);
+    assert.equal((await catalog.installed())[0]?.source, source);
+  } finally {
+    await catalog.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("损坏的单条来源回退为手动来源，其他记录仍可使用", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dai-partial-origins-"));
+  const dataRoot = join(root, "data");
+  const source = join(root, "plugin");
+  const catalog = createCatalogService({ dataRoot, publish() {}, async changed() {} });
+  try {
+    await mkdir(source);
+    await writeFile(join(source, "package.json"), JSON.stringify({ name: "test-plugin" }));
+    const packages = createPackageService({ dataRoot });
+    await packages.install(source, "global");
+    await packages.install(source, "module");
+    const directory = join(dataRoot, "catalog");
+    await mkdir(directory, { recursive: true });
+    const origin = { source, host: "pi", sourceId: "pi" };
+    const moduleOrigin = { ...origin, scope: "module", moduleId: "coding" };
+    await writeFile(
+      join(directory, "origins.json"),
+      JSON.stringify([
+        null,
+        { ...origin, scope: "global", entryId: 42 },
+        { ...moduleOrigin, entryId: "x".repeat(501) },
+        { ...moduleOrigin, entryId: "test-plugin" },
+      ]),
+    );
+    const installed = await catalog.installed();
+    validateResult("catalog.installed", installed);
+    assert.equal(installed.find((item) => item.scope === "global")?.sourceId, "manual");
+    assert.equal(installed.find((item) => item.scope === "module")?.entryId, "test-plugin");
+
+    const task = catalog.start({ action: "remove", source, scope: "global" });
+    assert.equal((await waitForCatalogTask(catalog.taskList, task.id)).state, "completed");
+    const [remaining] = await catalog.installed();
+    assert.equal(remaining?.entryId, "test-plugin");
+    assert.equal(remaining?.scope, "module");
+  } finally {
+    await catalog.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("移除提交后来源关联写入失败时，任务如实报告结果", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dai-origins-save-failure-"));
+  const dataRoot = join(root, "data");
+  const source = join(root, "plugin");
+  const catalog = createCatalogService({
+    dataRoot,
+    publish() {},
+    async changed() {
+      await mkdir(join(dataRoot, "catalog", "origins.json"), { recursive: true });
+    },
+  });
+  try {
+    await mkdir(source);
+    await writeFile(join(source, "package.json"), JSON.stringify({ name: "test-plugin" }));
+    await createPackageService({ dataRoot }).install(source, "global");
+    const task = catalog.start({ action: "remove", source, scope: "global" });
+    const result = await waitForCatalogTask(() => catalog.taskList(), task.id);
+    assert.equal(result.state, "completed");
+    assert.match(result.message, /已移除.*来源关联保存失败/);
+    assert.deepEqual(await catalog.installed(), []);
+  } finally {
+    await catalog.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "dai-catalog-"));
@@ -266,45 +354,18 @@ test("后台任务复用 Pi 安装、启停和移除；已安装版本来自本�
     join(pkg, "skills", "demo", "SKILL.md"),
     "---\nname: demo\ndescription: demo\n---\nSkill instructions\n",
   );
-  async function finish(id: string) {
-    for (let i = 0; i < 200; i++) {
-      const task = (await f.app.request("catalog.tasks", {})).find((t) => t.id === id);
-      if (task && task.state !== "running") return task;
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    throw new Error("task timeout");
-  }
+  const options = { source: pkg, scope: "global" } as const;
   try {
-    const started = await f.app.request("catalog.packageAction", {
-      source: pkg,
-      scope: "global",
-      action: "install",
-    });
-    assert.equal((await finish(started.id)).state, "completed");
+    await runPackageAction(f.app, { ...options, action: "install" });
     const installed = await f.app.request("catalog.installed", {});
     assert.equal(installed[0]?.version, "1.2.3");
     assert.equal(installed[0]?.sourceId, "manual");
     assert.equal(installed[0]?.loadState, "waiting");
-    const disable = await f.app.request("catalog.packageAction", {
-      source: pkg,
-      scope: "global",
-      action: "disable",
-    });
-    await finish(disable.id);
+    await runPackageAction(f.app, { ...options, action: "disable" });
     assert.equal((await f.app.request("catalog.installed", {}))[0]?.loadState, "disabled");
-    const reinstall = await f.app.request("catalog.packageAction", {
-      source: pkg,
-      scope: "global",
-      action: "install",
-    });
-    assert.equal((await finish(reinstall.id)).state, "completed");
+    await runPackageAction(f.app, { ...options, action: "install" });
     assert.equal((await f.app.request("catalog.installed", {}))[0]?.enabled, true);
-    const remove = await f.app.request("catalog.packageAction", {
-      source: pkg,
-      scope: "global",
-      action: "remove",
-    });
-    await finish(remove.id);
+    await runPackageAction(f.app, { ...options, action: "remove" });
     assert.deepEqual(await f.app.request("catalog.installed", {}), []);
     assert.match(await readFile(join(pkg, "package.json"), "utf8"), /test-local/);
     assert.ok(f.events.some((e) => e.type === "catalog.task" && e.task.state === "completed"));
@@ -368,8 +429,11 @@ test("一个包内任意扩展加载失败都保留包级诊断，下次成功�
     const pkg = join(root, "pkg");
     await mkdir(pkg);
     await writeFile(join(pkg, "package.json"), JSON.stringify({ name: "multi-extension" }));
-    catalog.start({ source: pkg, scope: "global", action: "install" });
+    const install = { source: pkg, scope: "global", action: "install" } as const;
+    catalog.start(install);
+    assert.throws(() => catalog.start(install), /已有插件操作进行中/);
     await catalog.close();
+    assert.throws(() => catalog.start(install), /应用正在退出/);
     catalog.recordLoad("coding", [
       { source: pkg, scope: "global", error: "first extension failed" },
       { source: pkg, scope: "global", error: "" },

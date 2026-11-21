@@ -1,13 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
+import { Value } from "typebox/value";
 import type { ApplicationEvent, Arguments } from "../../contracts/application.ts";
-import type {
-  CatalogInstalled,
-  CatalogSourceId,
-  CatalogTask,
-  PackageLoad,
-  PluginModule,
-  PluginScope,
+import {
+  type CatalogInstalled,
+  type CatalogOrigin,
+  CatalogOriginSchema,
+  type CatalogTask,
+  type PackageLoad,
+  type PluginModule,
+  type PluginScope,
 } from "../../contracts/catalog.ts";
 import { createCatalogSources } from "./catalog_sources.ts";
 import { createCatalogStorage } from "./catalog_storage.ts";
@@ -18,19 +20,14 @@ export function createCatalogService(options: {
   publish(event: ApplicationEvent): void;
   changed(moduleId?: PluginModule): Promise<void>;
 }) {
-  type PackageIdentity = Pick<CatalogInstalled, "source" | "host" | "scope" | "moduleId">;
-  type Association = PackageIdentity & {
-    sourceId: CatalogSourceId;
-    entryId: string;
-    catalogUrl?: string;
-  };
+  type PackageIdentity = Pick<CatalogOrigin, "source" | "host" | "scope" | "moduleId">;
   const tasks: CatalogTask[] = [];
   const loads = new Map<string, string>();
   // 查询与来源关联共享一个存储实例，路径和缓存的所有权留在存储模块。
   const storage = createCatalogStorage(options.dataRoot);
   const { read, write } = storage;
   const sources = createCatalogSources(storage);
-  let pending = Promise.resolve();
+  let activeTask: Promise<void> | undefined;
   let closed = false;
   const loadKey = (moduleId: PluginModule, scope: PluginScope, source: string) =>
     `${moduleId}\0${scope}\0${source}`;
@@ -45,6 +42,15 @@ export function createCatalogService(options: {
     );
   }
 
+  async function readOrigins(): Promise<CatalogOrigin[]> {
+    const links = await read<unknown>("origins.json", []);
+    if (!Array.isArray(links)) throw new Error("插件来源关联格式无效。");
+    return links.filter(
+      (link: unknown): link is CatalogOrigin =>
+        Value.Check(CatalogOriginSchema, link) && (link.scope === "module") === !!link.moduleId,
+    );
+  }
+
   // 两类插件共用任务和进度协议；会话失效回调只由 Pi 安装空间调用。
   function manager(task: CatalogTask) {
     return createPackageService({
@@ -56,8 +62,7 @@ export function createCatalogService(options: {
         options.publish({ type: "catalog.task", task: { ...task } });
       },
       beforeAgentChange: async () => {
-        const moduleId =
-          task.action === "update" || task.scope === "global" ? undefined : task.moduleId;
+        const moduleId = task.scope === "global" ? undefined : task.moduleId;
         await options.changed(moduleId);
         // 模块变更只清除该模块的诊断；其他模块仍可展示最近加载结果。
         if (!moduleId) loads.clear();
@@ -68,7 +73,7 @@ export function createCatalogService(options: {
 
   function start(
     input: Arguments<"catalog.packageAction">,
-    association?: Omit<Association, "source" | "host" | "scope" | "moduleId">,
+    association?: Pick<CatalogOrigin, "sourceId" | "entryId" | "catalogUrl">,
     replacement?: { source: string; version: string; previousVersion: string },
   ): CatalogTask {
     const host = input.host ?? "pi";
@@ -76,8 +81,7 @@ export function createCatalogService(options: {
     if (closed) throw new Error("应用正在退出。");
     if (input.scope === "module" && !input.moduleId) throw new Error("请选择插件模块。");
     const source = normalizePackageSource(input.source);
-    if (tasks.some((t) => t.state === "running"))
-      throw new Error("已有插件操作进行中，请等待完成。");
+    if (activeTask) throw new Error("已有插件操作进行中，请等待完成。");
     const task: CatalogTask = {
       id: randomUUID(),
       host,
@@ -91,10 +95,26 @@ export function createCatalogService(options: {
     };
     tasks.unshift(task);
     tasks.splice(100);
-    pending = pending.then(async () => {
+    activeTask = Promise.resolve().then(async () => {
       try {
         const service = manager(task);
-        let updateMessage = "";
+        let operationMessage = "";
+        const origins =
+          association || input.action === "remove"
+            ? (await readOrigins()).filter(
+                (link) =>
+                  !samePackage(link, task) &&
+                  !(replacement && samePackage(link, { ...task, source: replacement.source })),
+              )
+            : undefined;
+        if (association && origins)
+          origins.push({
+            ...association,
+            host,
+            source,
+            scope: input.scope,
+            ...(input.scope === "module" ? { moduleId: input.moduleId } : {}),
+          });
         if (input.action === "install") {
           await service.install(source, input.scope, replacement);
         } else if (input.action === "update") {
@@ -109,54 +129,51 @@ export function createCatalogService(options: {
           if (!before || local || pinned || offline) {
             await service.checkChange();
             if (!before) throw new Error("找不到指定作用域的包。");
-            updateMessage = local
+            operationMessage = local
               ? "本地目录不会自动下载更新，请直接更新目录内容。"
               : pinned
                 ? "来源固定在指定版本，请通过市场详情选择其他版本。"
                 : "当前处于离线模式，未执行更新。";
           } else {
-            await service.update(source);
+            await service.update(source, input.scope);
             const after = (await service.inspect()).find(
               (p) => p.source === source && p.scope === input.scope,
             );
-            updateMessage =
+            operationMessage =
               before?.version && after?.version && before.version !== after.version
                 ? `版本已变化：${before.version} → ${after.version}。`
                 : "未观察到版本变化；内容可能已更新，也可能没有更新。";
           }
-        } else if (input.action === "remove") await service.remove(source, input.scope);
-        else await service.setEnabled(source, input.scope, input.action === "enable");
-        if (association || input.action === "remove") {
-          const links = await read<Association[]>("origins.json", []);
-          const next = links.filter(
-            (a) =>
-              !samePackage(a, task) &&
-              !(replacement && samePackage(a, { ...task, source: replacement.source })),
-          );
-          if (association)
-            next.push({
-              ...association,
-              host,
-              source,
-              scope: input.scope,
-              ...(input.scope === "module" ? { moduleId: input.moduleId } : {}),
-            });
-          await write("origins.json", next);
-        }
-        task.state = "completed";
-        task.message = replacement
+        } else if (input.action === "remove") {
+          const removed = await service.remove(source, input.scope);
+          operationMessage = removed ? "已移除。" : "插件已不存在。";
+        } else await service.setEnabled(source, input.scope, input.action === "enable");
+        let message = replacement
           ? replacement.previousVersion === replacement.version
             ? `版本未变化：${replacement.version}。`
             : `已更新：${replacement.previousVersion || "未知版本"} → ${replacement.version}。`
           : input.action === "install"
             ? "已安装并启用。"
-            : updateMessage || "操作已完成。";
+            : operationMessage || "操作已完成。";
+        if (origins) {
+          try {
+            await write("origins.json", origins);
+          } catch {
+            message += "插件操作已执行，但来源关联保存失败。";
+          }
+        }
+        task.message = message;
+        task.state = "completed";
       } catch (error) {
         task.state = "failed";
         task.message = (error instanceof Error ? error.message : "操作失败。").slice(0, 2000);
       } finally {
-        options.publish({ type: "catalog.task", task: { ...task } });
-        options.publish({ type: "workspace" });
+        try {
+          options.publish({ type: "catalog.task", task: { ...task } });
+          options.publish({ type: "workspace" });
+        } finally {
+          activeTask = undefined;
+        }
       }
     });
     return { ...task };
@@ -170,7 +187,7 @@ export function createCatalogService(options: {
           createPackageService({ dataRoot: options.dataRoot, host, moduleId }).inspect(),
         ),
       ).then((groups) => groups.flat()),
-      read<Association[]>("origins.json", []),
+      readOrigins().catch(() => []),
     ]);
     return packages.map((p) => {
       const { dai: _dai, installedPath: _path, manifestError, ...info } = p;
@@ -249,7 +266,7 @@ export function createCatalogService(options: {
     },
     async close() {
       closed = true;
-      await pending;
+      await activeTask;
     },
   };
 }

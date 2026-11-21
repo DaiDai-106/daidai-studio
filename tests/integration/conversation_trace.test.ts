@@ -3,10 +3,10 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { _electron as electron } from "playwright";
 import { createPiHistory } from "../../src/backend/agent/pi_history.ts";
 import { openProjectStore } from "../../src/backend/projects/store.ts";
 import { EVENT_CHANNEL, REQUEST_CHANNEL } from "../../src/contracts/desktop.ts";
+import { launchElectron } from "./support.ts";
 
 const usage = {
   input: 1,
@@ -129,16 +129,7 @@ test("统一轨迹入口展示角色、历史系统注入、工具定义和完�
   } finally {
     store.close();
   }
-  const app = await electron.launch({
-    args: [process.cwd(), `--user-data-dir=${profile}`],
-    env: Object.fromEntries(
-      Object.entries(process.env).filter(
-        (entry): entry is [string, string] =>
-          entry[0] !== "ELECTRON_RUN_AS_NODE" && entry[1] !== undefined,
-      ),
-    ),
-    chromiumSandbox: true,
-  });
+  const app = await launchElectron(profile);
   try {
     const page = await app.firstWindow();
     page.setDefaultTimeout(10000);
@@ -240,10 +231,8 @@ test("统一轨迹入口展示角色、历史系统注入、工具定义和完�
         .count(),
       0,
     );
-    await page.screenshot({ path: "/tmp/dai-trace-light.png" });
     await page.evaluate(() => window.desktop.application.updateSettings({ theme: "dark" }));
     await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
-    await page.screenshot({ path: "/tmp/dai-trace-dark.png" });
     const before = await page.evaluate(
       (id) => window.desktop.application.watchConversation(id),
       conversationId,

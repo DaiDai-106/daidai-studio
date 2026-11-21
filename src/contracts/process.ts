@@ -8,10 +8,11 @@ export type BackendRequest = {
   type: "request";
   version: 1;
   id: string;
+  deadline: number;
   method: Method;
   args: Arguments<Method>;
 };
-export type BackendResponse = { type: "response"; id: string } & (
+type BackendResponse = { type: "response"; id: string } & (
   | { ok: true; result: unknown }
   | { ok: false; error: string }
 );

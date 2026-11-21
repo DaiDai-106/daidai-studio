@@ -3,12 +3,12 @@ import { cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/pro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { _electron as electron } from "playwright";
 import { openApplication } from "../../src/backend/application.ts";
 import { createPackageService } from "../../src/backend/extensions/package_service.ts";
 import { REQUEST_CHANNEL, THEMES_CHANNEL } from "../../src/contracts/desktop.ts";
 import { runPackageAction, waitForCatalogTask } from "../support/catalog_task.ts";
 import { createThemePackage } from "../support/desktop_theme.ts";
+import { launchElectron } from "./support.ts";
 
 async function openThemeApp() {
   const root = await mkdtemp(join(tmpdir(), "dai-theme-recovery-"));
@@ -32,17 +32,7 @@ async function openThemeApp() {
   } finally {
     await seed.close();
   }
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] =>
-        entry[0] !== "ELECTRON_RUN_AS_NODE" && entry[1] !== undefined,
-    ),
-  );
-  const app = await electron.launch({
-    args: [process.cwd(), `--user-data-dir=${profile}`],
-    env,
-    chromiumSandbox: true,
-  });
+  const app = await launchElectron(profile);
   const page = await app.firstWindow();
   page.setDefaultTimeout(10_000);
   await page.waitForFunction((id) => document.documentElement.dataset.daiTheme === id, id);
@@ -77,10 +67,9 @@ test("公司目录及来源关联损坏不影响 Desktop 主题发现和选择",
     for (const name of ["sources.json", "origins.json"]) {
       const path = join(root, name);
       await writeFile(path, "{");
-      await assert.rejects(
-        page.evaluate(() => window.desktop.application.installedPlugins()),
-        /目录配置损坏/,
-      );
+      const installed = page.evaluate(() => window.desktop.application.installedPlugins());
+      if (name === "sources.json") await assert.rejects(installed, /目录配置损坏/);
+      else assert.equal((await installed)[0]?.sourceId, "manual");
       const state = await page.evaluate((id) => window.desktop.getThemes(id), id);
       assert.equal(state.selection, "available");
       await page.evaluate(

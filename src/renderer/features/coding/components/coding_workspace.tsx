@@ -9,6 +9,7 @@ import "../styles/coding.css";
 
 export function CodingWorkspace({
   projectId,
+  staticPreviewAvailable,
   hidden,
   onToggle,
   previewEnabled,
@@ -17,6 +18,7 @@ export function CodingWorkspace({
   onAnnotate,
 }: {
   projectId: string;
+  staticPreviewAvailable: boolean;
   hidden: boolean;
   onToggle: () => void;
   previewEnabled: boolean;
@@ -168,11 +170,15 @@ export function CodingWorkspace({
                 projectId={projectId}
                 path=""
                 onOpen={(path) => open({ type: "file", path })}
-                onPreview={(path) => open({ type: "preview", url: "", file: path })}
+                onPreview={
+                  staticPreviewAvailable
+                    ? (path) => open({ type: "preview", url: "", file: path })
+                    : undefined
+                }
               />
             </FileSearch>
           </div>
-          {panel === "changes" && (
+          {panel === "changes" && !hidden && (
             <ChangesList
               projectId={projectId}
               onOpen={(path, kind) => open({ type: "diff", path, kind })}

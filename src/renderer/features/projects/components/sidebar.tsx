@@ -1,17 +1,20 @@
-import type { ProjectInfo as Project } from "../../../../contracts/application.ts";
+import { useState } from "react";
+import type {
+  ConversationInfo,
+  ProjectInfo as Project,
+} from "../../../../contracts/application.ts";
 import { productName } from "../../../../shared/app_metadata.ts";
 import { shortcutLabel } from "../../../app/logic/shortcuts.ts";
 import { ActionMenu } from "../../../shared/components/action_menu.tsx";
 import { BrandIcon } from "../../../shared/components/brand_icon.tsx";
 import { Icon, IconButton } from "../../../shared/components/icon.tsx";
 import { Tooltip } from "../../../shared/components/tooltip.tsx";
-import type { Conversation } from "../../chat/logic/types.ts";
 
 interface Props {
   projects: Project[];
   activeProjectId: string;
   pendingProjectIds: string[];
-  conversations: Conversation[];
+  conversations: ConversationInfo[];
   activeConversationId: string;
   busyConversationIds: string[];
   onSelectConversation: (id: string) => void;
@@ -23,7 +26,6 @@ interface Props {
   onArchives: (projectId: string | null) => void;
   onHome: () => void;
   version: string;
-  onSelectProject: (id: string) => void;
   onOpen: () => void;
   onRemove: (id: string) => void;
   onSettings: (page: "general" | "tools" | "about") => void;
@@ -32,6 +34,16 @@ interface Props {
 }
 
 export function Sidebar(props: Props) {
+  const [collapsedProjects, setCollapsedProjects] = useState(() => new Set<string>());
+
+  function toggleProject(id: string) {
+    setCollapsedProjects((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }
+
   return (
     <aside className="sidebar" aria-label="项目侧栏">
       <div className="brand">
@@ -60,11 +72,16 @@ export function Sidebar(props: Props) {
               <button
                 type="button"
                 className="project-title"
-                aria-current={project.id === props.activeProjectId ? "page" : undefined}
-                onClick={() => props.onSelectProject(project.id)}
+                aria-expanded={!collapsedProjects.has(project.id)}
+                aria-controls={`project-conversations-${project.id}`}
+                onClick={() => toggleProject(project.id)}
               >
                 <Icon name="folder" size={16} />
                 <span>{project.name}</span>
+                <Icon
+                  name={collapsedProjects.has(project.id) ? "chevron" : "chevron-down"}
+                  size={12}
+                />
               </button>
               {props.pendingProjectIds.includes(project.id) && (
                 <span role="status" aria-label="扩展等待回复" className="extension-pending">
@@ -93,7 +110,11 @@ export function Sidebar(props: Props) {
                 ]}
               />
             </div>
-            <div className="conversation-list">
+            <div
+              className="conversation-list"
+              id={`project-conversations-${project.id}`}
+              hidden={collapsedProjects.has(project.id)}
+            >
               {props.conversations
                 .filter(
                   (conversation) => conversation.projectId === project.id && !conversation.archived,

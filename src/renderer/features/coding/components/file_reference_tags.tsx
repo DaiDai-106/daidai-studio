@@ -21,6 +21,7 @@ export function FileReferenceTags({
               type="button"
               aria-label={label}
               title={label}
+              disabled={!coding}
               onClick={() => coding?.openFile(reference)}
             >
               <Icon name="file" size={13} />

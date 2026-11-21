@@ -1,9 +1,29 @@
-# Linux x64 发布
+# GitHub Release
 
-推送 `master` 时，`.gitlab-ci.yml` 运行单个 Linux x64 发布任务。任务串行计算版本、执行 `npm run check`，然后复用已通过测试的构建生成 `.deb` 并验证打包版启动。全部通过后，任务用 `CI_JOB_TOKEN` 将安装包上传到 Generic Package Registry，并创建 GitLab Release。下载权限遵循项目和包仓库的访问规则。私有项目可从 Package Registry 的网页下载对应文件，或用具备读取权限的 GitLab 凭据请求下载地址。
+推送 `vX.Y.Z` 标签会构建 Linux x64、Windows x64 和 macOS Apple Silicon 安装包。打包前校验标签与 `package.json` 的版本一致，且 `CHANGELOG.md` 有标题为 `## [X.Y.Z]` 的变更记录。三个安装包都通过启动验证后，GitHub Actions 创建 Release，并从该记录提取发布说明。
 
-第一个稳定版本为 `v0.0.1`。之后按这条发布线的最高稳定标签增加补丁号。下一次发布前，在 `CHANGELOG.md` 中加入对应的二级标题，例如 `## [0.0.2]`，并写入该版改动。缺少条目时，发布任务会在打包前报错。CI 将同一个版本写入安装包和版本页，并从该条目提取 Release 正文。已发布的提交重试时复用原有 Release。流水线按 GitLab 的推送事件触发，一次推送多个提交时为该批次生成一个版本。
+## 配置 macOS 签名和公证
 
-发布任务需要能执行无标签任务的 Linux x64 Docker Runner，使用 `node:22-bookworm` 和 Chromium 沙箱运行 Electron 测试。GitLab 项目需允许上传 Package Registry、创建 Release 和稳定版本标签。若 `master` 流水线同时入队，可将 `dai-studio-release` 资源组的处理顺序设为 `oldest_first`。脚本拒绝在比最新稳定标签更早的提交上创建新版本。
+使用 Apple Developer Program 团队的 **Developer ID Application** 证书。在 Mac 的钥匙串访问中，将证书和对应私钥一起导出为带密码的 `.p12`。在 Apple 账户的「登录和安全」中生成 App 专用密码，并从 Apple Developer 账户的 Membership 页面查看 Team ID。[Apple 证书指南](https://developer.apple.com/help/account/certificates/create-developer-id-certificates) · [Apple App 专用密码](https://support.apple.com/en-us/102654)
 
-下载 `.deb` 后，可通过 `sudo apt install ./dai-studio_0.0.1_amd64.deb` 安装。安装包需要发行版提供 `libssl3t64`，例如 Ubuntu 24.04。
+在 GitHub 仓库的 **Settings → Secrets and variables → Actions → New repository secret** 中添加以下五项。[仓库 Secrets 设置](https://github.com/DaiDai-106/daidai-studio/settings/secrets/actions)
+
+| Secret | 值 |
+| --- | --- |
+| `CSC_LINK` | `.p12` 文件的单行 Base64 内容 |
+| `CSC_KEY_PASSWORD` | 导出 `.p12` 时设置的密码 |
+| `APPLE_ID` | 有团队访问权限的 Apple 账户登录邮箱 |
+| `APPLE_APP_SPECIFIC_PASSWORD` | 为公证生成的 Apple App 专用密码 |
+| `APPLE_TEAM_ID` | 证书所属的 Apple Developer Team ID |
+
+在 Mac 上可以用以下命令将 `.p12` 的 Base64 内容直接复制到剪贴板，再粘贴到 `CSC_LINK`。
+
+```bash
+base64 -i "Developer ID Application.p12" | tr -d '\n' | pbcopy
+```
+
+GitHub Actions 只在推送版本标签时生成 macOS 安装包。签名和公证由 `desktop-ci.yml` 中的 macOS 发版任务执行。它会签名 `.app` 和 `.dmg`，提交最终 `.dmg` 给 Apple 公证，写入并验证公证票据，再挂载镜像验证应用启动。 [Apple 的 Mac 软件分发指南](https://developer.apple.com/documentation/xcode/packaging-mac-software-for-distribution)
+
+## 安装 Linux 包
+
+下载 `.deb` 后可用 `sudo apt install ./dai-studio_0.0.1_amd64.deb` 安装，文件名按实际版本替换。安装包需要发行版提供 `libssl3t64`，例如 Ubuntu 24.04。

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ManagedSkill } from "../../../../contracts/application.ts";
 import type { PluginModule, PluginScope } from "../../../../contracts/catalog.ts";
 import { productName } from "../../../../shared/app_metadata.ts";
@@ -25,28 +25,36 @@ export function SkillLibrary({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  const revision = useRef(0);
   const visible = skills.filter(
     (skill) =>
-      (!userOnly || skill.source === "user") &&
       (!packageSource || skill.ownerSource === packageSource) &&
       (!packageScope || skill.ownerScope === packageScope) &&
       `${skill.name} ${skill.description}`.toLowerCase().includes(query.toLowerCase()),
   );
-  useEffect(() => {
-    let active = true;
-    let request = 0;
-    setSkills([]);
-    const refresh = async () => {
-      const version = ++request;
-      setError("");
+  const refresh = useCallback(
+    async (fallback = "读取技能失败。") => {
+      const request = ++revision.current;
       try {
         const items = await window.desktop.application.listSkills(moduleId, userOnly);
-        if (active && version === request) setSkills(items);
+        if (request === revision.current) setSkills(items);
       } catch (cause) {
-        if (active && version === request) setError(errorMessage(cause, "读取技能失败。"));
+        if (request === revision.current) {
+          setError(errorMessage(cause, fallback));
+          return false;
+        }
       }
+      return true;
+    },
+    [moduleId, userOnly],
+  );
+  useEffect(() => {
+    setSkills([]);
+    const reload = () => {
+      setError("");
+      void refresh();
     };
-    void refresh();
+    reload();
     // 同版本更新也可能改变技能内容；按实际任务刷新，不依赖版本号变化。
     const unsubscribe = window.desktop.application.subscribe((event) => {
       if (
@@ -54,26 +62,23 @@ export function SkillLibrary({
         event.type === "catalog.task" &&
         event.task.host === "pi" &&
         event.task.state !== "running" &&
-        (event.task.scope === "global" ||
-          event.task.action === "update" ||
-          event.task.moduleId === moduleId)
+        (event.task.scope === "global" || event.task.moduleId === moduleId)
       )
-        void refresh();
+        reload();
     });
     return () => {
-      active = false;
+      revision.current++;
       unsubscribe();
     };
-  }, [moduleId, userOnly]);
+  }, [moduleId, userOnly, refresh]);
 
   // 读取和写入共用提交状态；只有写入成功后才刷新列表。
-  async function run(action: () => Promise<unknown>) {
+  async function run(action: () => Promise<boolean>) {
     if (busy) return false;
     setBusy(true);
     setError("");
     try {
-      await action();
-      return true;
+      return await action();
     } catch (cause) {
       setError(errorMessage(cause, "技能操作失败。"));
       return false;
@@ -85,7 +90,7 @@ export function SkillLibrary({
   function change(action: () => Promise<unknown>) {
     return run(async () => {
       await action();
-      setSkills(await window.desktop.application.listSkills(moduleId, userOnly));
+      return refresh("技能操作失败。");
     });
   }
 
@@ -93,6 +98,7 @@ export function SkillLibrary({
     return run(async () => {
       const text = await window.desktop.application.readSkillDocument(skill.id, moduleId);
       setEditor({ name: skill.name, text, mode: skill.editable ? "edit" : "view" });
+      return true;
     });
   }
   return (

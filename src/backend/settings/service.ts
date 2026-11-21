@@ -196,9 +196,10 @@ export async function createSettingsService(options: {
       });
       if (result.errors.size) throw new Error("模型目录读取失败，请检查认证或手动输入模型 ID。");
     }
-    if (loginId) {
+    if (loginId && credential) {
       const refreshed = await temporary.read(config.id);
-      if (refreshed) logins.replaceCredential(loginId, refreshed);
+      if (refreshed && refreshed !== credential)
+        logins.replaceCredential(loginId, credential, refreshed);
     }
     return models.getModels(config.id).slice(0, 1000).map(modelChoice);
   }

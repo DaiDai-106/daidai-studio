@@ -10,7 +10,7 @@ import type {
 } from "../../contracts/application.ts";
 import type { ConversationMode } from "../../contracts/capabilities.ts";
 
-export interface StoredProject {
+interface StoredProject {
   id: string;
   name: string;
   mode: ConversationMode;
@@ -30,6 +30,27 @@ export interface StoredConversation {
   accessMode: AccessMode;
   interrupted: boolean;
   hasMessages: boolean;
+}
+
+type ConversationRow = Omit<StoredConversation, "archived" | "interrupted" | "hasMessages"> & {
+  archived: number;
+  interrupted: number;
+  hasMessages: number;
+};
+
+const conversationColumns = `c.id, c.project_id AS projectId, c.title, c.created_at AS createdAt,
+  c.model_id AS modelId, c.draft, c.archived, c.session_file AS sessionFile,
+  c.thinking_level AS thinkingLevel, c.access_mode AS accessMode, c.interrupted,
+  c.has_messages AS hasMessages`;
+
+function decodeConversation(row: ConversationRow): StoredConversation {
+  return {
+    ...row,
+    accessMode: row.accessMode === "full" ? "full" : "ask",
+    archived: Boolean(row.archived),
+    interrupted: Boolean(row.interrupted),
+    hasMessages: Boolean(row.hasMessages),
+  };
 }
 
 export interface QueuedMessage {
@@ -85,10 +106,12 @@ export function openProjectStore(dataRoot: string) {
       .get(id) as StoredProject | undefined;
   }
 
-  function anyProject(id: string): StoredProject | undefined {
+  function listProjects(hidden: boolean): StoredProject[] {
     return db
-      .prepare("SELECT id, name, mode, path FROM projects WHERE id = ? AND mode = 'coding'")
-      .get(id) as StoredProject | undefined;
+      .prepare(
+        "SELECT id, name, mode, path FROM projects WHERE hidden = ? AND mode = 'coding' ORDER BY created_at DESC, rowid DESC",
+      )
+      .all(Number(hidden)) as unknown as StoredProject[];
   }
 
   function requireProject(id: string) {
@@ -99,26 +122,10 @@ export function openProjectStore(dataRoot: string) {
 
   function conversation(id: string): StoredConversation | undefined {
     const row = db
-      .prepare(`SELECT id, project_id AS projectId, title, created_at AS createdAt, model_id AS modelId,
-      draft, archived, session_file AS sessionFile, thinking_level AS thinkingLevel, access_mode AS accessMode, interrupted,
-      has_messages AS hasMessages
-      FROM conversations WHERE id = ? AND project_id IN (SELECT id FROM projects WHERE mode = 'coding')`)
-      .get(id) as
-      | (Omit<StoredConversation, "archived" | "interrupted" | "hasMessages"> & {
-          archived: number;
-          interrupted: number;
-          hasMessages: number;
-        })
-      | undefined;
-    return (
-      row && {
-        ...row,
-        accessMode: row.accessMode === "full" ? "full" : "ask",
-        archived: Boolean(row.archived),
-        interrupted: Boolean(row.interrupted),
-        hasMessages: Boolean(row.hasMessages),
-      }
-    );
+      .prepare(`SELECT ${conversationColumns} FROM conversations c
+        JOIN projects p ON p.id = c.project_id AND p.mode = 'coding' WHERE c.id = ?`)
+      .get(id) as ConversationRow | undefined;
+    return row && decodeConversation(row);
   }
 
   function requireConversation(id: string) {
@@ -142,21 +149,8 @@ export function openProjectStore(dataRoot: string) {
       return result;
     },
     getProject: project,
-    listProjects(): StoredProject[] {
-      return db
-        .prepare(
-          "SELECT id, name, mode, path FROM projects WHERE hidden = 0 AND mode = 'coding' ORDER BY created_at DESC, rowid DESC",
-        )
-        .all() as unknown as StoredProject[];
-    },
-
-    listHiddenProjects(): StoredProject[] {
-      return db
-        .prepare(
-          "SELECT id, name, mode, path FROM projects WHERE hidden = 1 AND mode = 'coding' ORDER BY created_at DESC, rowid DESC",
-        )
-        .all() as unknown as StoredProject[];
-    },
+    listProjects: () => listProjects(false),
+    listHiddenProjects: () => listProjects(true),
 
     hideProject(id: string) {
       requireProject(id);
@@ -164,9 +158,13 @@ export function openProjectStore(dataRoot: string) {
     },
 
     restoreProject(id: string) {
-      if (!anyProject(id)) throw new Error("项目不存在。");
-      db.prepare("UPDATE projects SET hidden = 0 WHERE id = ?").run(id);
-      return requireProject(id);
+      const restored = db
+        .prepare(
+          "UPDATE projects SET hidden = 0 WHERE id = ? AND mode = 'coding' RETURNING id, name, mode, path",
+        )
+        .get(id) as StoredProject | undefined;
+      if (!restored) throw new Error("项目不存在。");
+      return restored;
     },
 
     createConversation(projectId: string, modelId = "", sessionFile: string | null = null) {
@@ -201,11 +199,17 @@ export function openProjectStore(dataRoot: string) {
     },
     queueMessage(id: string, message: QueuedMessage) {
       requireConversation(id);
-      db.prepare("INSERT INTO conversation_queue (conversation_id, id, body) VALUES (?, ?, ?)").run(
-        id,
-        message.id,
-        JSON.stringify(message),
-      );
+      db.exec("BEGIN");
+      try {
+        db.prepare(
+          "INSERT INTO conversation_queue (conversation_id, id, body) VALUES (?, ?, ?)",
+        ).run(id, message.id, JSON.stringify(message));
+        db.prepare("UPDATE conversations SET draft = '' WHERE id = ?").run(id);
+        db.exec("COMMIT");
+      } catch (error) {
+        if (db.isTransaction) db.exec("ROLLBACK");
+        throw error;
+      }
     },
     promoteQueuedMessage(id: string, messageId: string) {
       requireConversation(id);
@@ -221,25 +225,19 @@ export function openProjectStore(dataRoot: string) {
       );
     },
     listConversationPage(cursor?: { createdAt: number; id: string }, limit = 100) {
-      const rows = (
-        cursor
-          ? db
-              .prepare(`SELECT c.id, c.created_at AS createdAt FROM conversations c
-            JOIN projects p ON p.id = c.project_id AND p.hidden = 0 AND p.mode = 'coding'
-            WHERE (c.created_at < ? OR (c.created_at = ? AND c.id < ?))
-            ORDER BY c.created_at DESC, c.id DESC LIMIT ?`)
-              .all(cursor.createdAt, cursor.createdAt, cursor.id, limit + 1)
-          : db
-              .prepare(
-                "SELECT c.id, c.created_at AS createdAt FROM conversations c JOIN projects p ON p.id = c.project_id AND p.hidden = 0 AND p.mode = 'coding' ORDER BY c.created_at DESC, c.id DESC LIMIT ?",
-              )
-              .all(limit + 1)
-      ) as { id: string; createdAt: number }[];
+      const rows = db
+        .prepare(`SELECT ${conversationColumns} FROM conversations c
+          JOIN projects p ON p.id = c.project_id AND p.hidden = 0 AND p.mode = 'coding'
+          ${cursor ? "WHERE (c.created_at, c.id) < (?, ?)" : ""}
+          ORDER BY c.created_at DESC, c.id DESC LIMIT ?`)
+        .all(
+          ...(cursor ? [cursor.createdAt, cursor.id, limit + 1] : [limit + 1]),
+        ) as ConversationRow[];
       const page = rows.slice(0, limit);
       const last = page.at(-1);
       return {
-        items: page.map((row) => requireConversation(row.id)),
-        next: rows.length > limit ? last : undefined,
+        items: page.map(decodeConversation),
+        next: rows.length > limit && last ? { id: last.id, createdAt: last.createdAt } : undefined,
       };
     },
 

@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
-import { constants, type Dirent } from "node:fs";
-import { type FileHandle, open, readdir } from "node:fs/promises";
-import { openDirectoryRoot, readFileResource } from "../../shared/node/file_access.ts";
+import { readdir } from "node:fs/promises";
 import type { openProjectStore } from "../projects/store.ts";
+import { projectPathParts, readProjectFile, withProjectDirectory } from "./project_access.ts";
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 
@@ -25,46 +24,22 @@ function accessError(error: unknown, path: string): never {
   }
 }
 
-function parts(path: string): string[] {
-  if (!path) return [];
-  const values = path.split("/");
-  if (values.some((value) => !value || value === "." || value === ".." || value.includes("\0")))
-    throw new Error("文件路径无效。");
-  return values;
-}
-
-/** 目录句柄固定路径，并拒绝穿过符号链接。 */
-async function directory(root: string, names: string[]): Promise<FileHandle> {
-  if (process.platform !== "linux") throw new Error("当前系统暂不支持安全的代码文件访问。");
-  const opened = await openDirectoryRoot(root);
-  let handle = opened.handle;
-  try {
-    for (const name of names) {
-      const child = await open(
-        `/proc/self/fd/${handle.fd}/${name}`,
-        constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
-      );
-      await handle.close();
-      handle = child;
-    }
-    return handle;
-  } catch (error) {
-    await handle.close();
-    throw error;
-  }
+function listEntries(root: string, path: string) {
+  return withProjectDirectory(root, projectPathParts(path), (directory) =>
+    readdir(directory, { withFileTypes: true }),
+  );
 }
 
 export function createCodingFileService(store: ReturnType<typeof openProjectStore>) {
-  function project(id: string) {
+  function projectPath(id: string) {
     const value = store.getProject(id);
-    if (value?.mode !== "coding") throw new Error("Coding 项目不存在。");
-    return value;
+    if (!value) throw new Error("Coding 项目不存在。");
+    return value.path;
   }
 
-  async function listDirectory(projectId: string, path: string, offset: number, snapshot?: string) {
-    const parent = await directory(project(projectId).path, parts(path));
+  async function list(projectId: string, path: string, offset: number, snapshot?: string) {
     try {
-      const entries = await readdir(`/proc/self/fd/${parent.fd}`, { withFileTypes: true });
+      const entries = await listEntries(projectPath(projectId), path);
       const visible = entries
         .filter((entry) => entry.isFile() || entry.isDirectory())
         .sort(
@@ -79,17 +54,16 @@ export function createCodingFileService(store: ReturnType<typeof openProjectStor
         entries: visible.slice(offset, offset + 200),
         nextOffset: offset + 200 < visible.length ? offset + 200 : null,
       };
-    } finally {
-      await parent.close();
+    } catch (error) {
+      accessError(error, path);
     }
   }
 
-  async function readFile(projectId: string, path: string) {
-    const names = parts(path);
-    if (!names.length) throw new Error("请选择文件。");
-    const root = await openDirectoryRoot(project(projectId).path);
+  async function read(projectId: string, path: string) {
     try {
-      const data = await readFileResource(root.handle, names, MAX_FILE_BYTES);
+      const names = projectPathParts(path);
+      if (!names.length) throw new Error("请选择文件。");
+      const data = await readProjectFile(projectPath(projectId), names, MAX_FILE_BYTES);
       if (data.includes(0)) throw new Error("不支持查看二进制文件。");
       let content: string;
       try {
@@ -98,13 +72,13 @@ export function createCodingFileService(store: ReturnType<typeof openProjectStor
         throw new Error("仅支持 UTF-8 文本文件。");
       }
       return { content, version: createHash("sha256").update(data).digest("hex") };
-    } finally {
-      await root.handle.close();
+    } catch (error) {
+      accessError(error, path);
     }
   }
 
   async function search(projectId: string, query: string) {
-    const root = project(projectId).path;
+    const root = projectPath(projectId);
     const needle = query.trim().toLowerCase();
     const pending = [""];
     const paths: string[] = [];
@@ -119,17 +93,11 @@ export function createCodingFileService(store: ReturnType<typeof openProjectStor
       "build",
       "__pycache__",
     ]);
-    while (pending.length) {
+    for (const path of pending) {
       if (Date.now() > deadline) return { paths, truncated: true };
-      const path = pending.shift() ?? "";
-      let entries: Dirent[];
+      let entries: Awaited<ReturnType<typeof listEntries>>;
       try {
-        const parent = await directory(root, parts(path));
-        try {
-          entries = await readdir(`/proc/self/fd/${parent.fd}`, { withFileTypes: true });
-        } finally {
-          await parent.close();
-        }
+        entries = await listEntries(root, path);
       } catch (error) {
         // 扫描中的子目录可能已删除、换成链接或不可读；根目录失败仍需告知用户。
         if (
@@ -152,21 +120,5 @@ export function createCodingFileService(store: ReturnType<typeof openProjectStor
     return { paths, truncated: false };
   }
 
-  async function list(projectId: string, path: string, offset: number, snapshot?: string) {
-    try {
-      return await listDirectory(projectId, path, offset, snapshot);
-    } catch (error) {
-      accessError(error, path);
-    }
-  }
-
-  async function read(projectId: string, path: string) {
-    try {
-      return await readFile(projectId, path);
-    } catch (error) {
-      accessError(error, path);
-    }
-  }
-
-  return { list, read, search };
+  return { list, read, search, projectPath };
 }

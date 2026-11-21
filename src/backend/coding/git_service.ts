@@ -1,82 +1,118 @@
 import { execFile } from "node:child_process";
+import { stat } from "node:fs/promises";
+import { devNull } from "node:os";
+import { delimiter, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
-import { openDirectoryRoot } from "../../shared/node/file_access.ts";
-import type { openProjectStore } from "../projects/store.ts";
 import type { createCodingFileService } from "./file_service.ts";
+import { projectPathParts, withProjectDirectory } from "./project_access.ts";
 
 const execute = promisify(execFile);
 const MAX_FILES = 200;
 const MAX_OUTPUT = 2 * 1024 * 1024;
+type Git = (args: string[]) => Promise<string>;
+
+function status(git: Git, path: string) {
+  return git([
+    "status",
+    "--porcelain=v1",
+    "-z",
+    "--untracked-files=all",
+    "--no-renames",
+    "--ignore-submodules=dirty",
+    "--",
+    path,
+  ]);
+}
 
 function safeRelativePath(path: string) {
-  if (
-    !path ||
-    path.split("/").some((part) => !part || part === "." || part === ".." || part.includes("\0"))
-  )
-    throw new Error("文件路径无效。");
+  if (!projectPathParts(path).length) throw new Error("文件路径无效。");
   return path;
 }
 
+async function gitExecutable() {
+  if (process.platform !== "win32") return "git";
+  // Git for Windows 只从 PATH 中的绝对目录查找，避免执行项目里的 git.exe。
+  for (const directory of (process.env.PATH ?? "").split(delimiter)) {
+    const path = directory.replace(/^"(.*)"$/, "$1");
+    if (!isAbsolute(path)) continue;
+    const executable = join(path, "git.exe");
+    if ((await stat(executable).catch(() => undefined))?.isFile()) return executable;
+  }
+  throw new Error("找不到 Git。请安装 Git for Windows 并将它加入 PATH，然后重启应用。");
+}
+
 /** Git 只读取项目范围内的状态与差异，不启用外部 diff、textconv 或 shell。 */
-export function createCodingGitService(
-  store: ReturnType<typeof openProjectStore>,
-  files: ReturnType<typeof createCodingFileService>,
-) {
+export function createCodingGitService(files: ReturnType<typeof createCodingFileService>) {
   async function withGit<T>(
     projectId: string,
-    run: (git: (args: string[]) => Promise<string>) => Promise<T>,
+    path: string,
+    run: (git: Git, prefix: string) => Promise<T>,
   ) {
-    const project = store.getProject(projectId);
-    if (project?.mode !== "coding") throw new Error("Coding 项目不存在。");
-    if (process.platform !== "linux") throw new Error("当前系统暂不支持安全的 Git 差异读取。");
-    const root = await openDirectoryRoot(project.path);
+    const root = files.projectPath(projectId);
+    const executable = await gitExecutable();
     const env = Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
+      Object.entries(process.env).filter(([key]) => !/^GIT_/i.test(key)),
     );
     Object.assign(env, {
       GIT_OPTIONAL_LOCKS: "0",
       GIT_TERMINAL_PROMPT: "0",
+      GIT_ALLOW_PROTOCOL: "",
       LC_ALL: "C",
     });
-    let filterOverrides: string[] = [];
-    const git = async (args: string[], allowNoMatch = false) => {
-      try {
-        const result = await execute(
-          "git",
-          [
-            "--literal-pathspecs",
-            "-c",
-            "core.fsmonitor=false",
-            "-c",
-            "core.hooksPath=/dev/null",
-            ...filterOverrides,
-            ...args,
-          ],
-          {
-            cwd: `/proc/self/fd/${root.handle.fd}`,
-            env,
-            timeout: 10_000,
-            maxBuffer: MAX_OUTPUT,
-            encoding: "utf8",
-          },
-        );
-        return result.stdout;
-      } catch (error) {
-        const value = error as NodeJS.ErrnoException & { stderr?: string; killed?: boolean };
-        if (allowNoMatch && Number(value.code) === 1 && !value.stderr?.trim()) return "";
-        if (value.code === "ENOENT") throw new Error("找不到 Git，无法查看工作区差异。");
-        if (value.killed || value.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER")
-          throw new Error("Git 结果过大或读取超时。");
-        throw new Error(`无法读取 Git 状态或差异：${value.stderr?.trim() || value.message}`);
-      }
-    };
-    try {
+    return withProjectDirectory(root, [], async (cwd) => {
+      let filterOverrides: string[] = [];
+      const git = async (
+        args: string[],
+        { allowNoMatch = false, input }: { allowNoMatch?: boolean; input?: string } = {},
+      ) => {
+        try {
+          const execution = execute(
+            executable,
+            [
+              "--no-pager",
+              "--literal-pathspecs",
+              "-c",
+              "core.fsmonitor=false",
+              "-c",
+              `core.hooksPath=${devNull}`,
+              ...filterOverrides,
+              ...args,
+            ],
+            {
+              cwd,
+              env,
+              windowsHide: true,
+              timeout: 10_000,
+              maxBuffer: MAX_OUTPUT,
+              encoding: "utf8",
+            },
+          );
+          // 子进程提前退出时，执行结果负责报告错误。
+          execution.child.stdin?.on("error", () => {});
+          execution.child.stdin?.end(input);
+          const result = await execution;
+          return result.stdout;
+        } catch (error) {
+          const value = error as NodeJS.ErrnoException & { stderr?: string; killed?: boolean };
+          const stderr = value.stderr?.trim();
+          if (allowNoMatch && Number(value.code) === 1 && !stderr) return "";
+          if (value.code === "ENOENT") throw new Error("找不到 Git，无法查看工作区差异。");
+          if (stderr?.includes("not a git repository"))
+            throw new Error("当前项目目录不在 Git 仓库中。");
+          if (value.killed || value.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER")
+            throw new Error("Git 结果过大或读取超时。");
+          throw new Error(`无法读取 Git 状态或差异：${stderr || value.message}`);
+        }
+      };
+      const location = await git(["rev-parse", "--is-inside-work-tree", "--show-prefix"]);
+      const insideWorkTree = /^true\r?\n/.exec(location);
+      if (!insideWorkTree) throw new Error("当前项目目录不在 Git 工作树中。");
+      const prefix = location.slice(insideWorkTree[0].length).replace(/\r?\n$/, "");
       // status 和 diff 可能调用 clean/process。配置了过滤器时先检查项目文件的属性；
       // 属性读取自身不会运行过滤器，无法安全检查时拒绝继续。
-      const filters = await git(
-        ["config", "--null", "--name-only", "--get-regexp", "^filter\\."],
-        true,
-      );
+      const filters = await git(["config", "--null", "--name-only", "--get-regexp", "^filter\\."], {
+        allowNoMatch: true,
+      });
       if (filters) {
         const names = new Set<string>();
         for (const key of filters.split("\0").filter(Boolean)) {
@@ -105,49 +141,30 @@ export function createCodingGitService(
           "--others",
           "--exclude-standard",
           "--",
-          ".",
+          path,
         ]);
         const paths = [...new Set(listed.split("\0").filter(Boolean))];
-        if (paths.length > 5000) throw new Error("项目文件过多，无法安全检查 Git 过滤器。");
-        let batch: string[] = [];
-        let length = 0;
-        async function checkBatch() {
-          if (!batch.length) return;
-          const output = await git(["check-attr", "-z", "filter", "--", ...batch]);
+        if (paths.length) {
+          for (const path of paths) safeRelativePath(path);
+          const output = await git(["check-attr", "--stdin", "-z", "filter"], {
+            input: `${paths.join("\0")}\0`,
+          });
           const fields = output.split("\0");
+          if (fields.length !== paths.length * 3 + 1)
+            throw new Error("未能检查全部 Git 文件属性。");
           for (let i = 2; i < fields.length; i += 3) {
-            if (fields[i] && fields[i] !== "unspecified" && fields[i] !== "unset")
+            if (fields[i] !== "unspecified" && fields[i] !== "unset")
               throw new Error("项目文件使用 Git 过滤器，暂不支持安全读取差异。");
           }
-          batch = [];
-          length = 0;
         }
-        for (const path of paths) {
-          safeRelativePath(path);
-          if (batch.length >= 128 || length + path.length > 30_000) await checkBatch();
-          batch.push(path);
-          length += path.length;
-        }
-        await checkBatch();
       }
-      return await run(git);
-    } finally {
-      await root.handle.close();
-    }
+      return run(git, prefix);
+    });
   }
 
   async function changes(projectId: string) {
-    return withGit(projectId, async (git) => {
-      const prefix = (await git(["rev-parse", "--show-prefix"])).replace(/\n$/, "");
-      const result = await git([
-        "status",
-        "--porcelain=v1",
-        "-z",
-        "--untracked-files=all",
-        "--no-renames",
-        "--",
-        ".",
-      ]);
+    return withGit(projectId, ".", async (git, prefix) => {
+      const result = await status(git, ".");
       const rows = result.split("\0").filter(Boolean);
       const entries = rows.map((row) => {
         const status = row.slice(0, 2);
@@ -168,9 +185,10 @@ export function createCodingGitService(
   async function diff(projectId: string, path: string, kind: "staged" | "unstaged" | "untracked") {
     safeRelativePath(path);
     if (kind === "untracked") {
-      const current = await changes(projectId);
-      if (!current.entries.some((entry) => entry.path === path && entry.untracked))
-        throw new Error("文件不再是未跟踪文件，请刷新变更列表。");
+      const untracked = await withGit(projectId, path, async (git, prefix) =>
+        (await status(git, path)).split("\0").includes(`?? ${prefix}${path}`),
+      );
+      if (!untracked) throw new Error("文件不再是未跟踪文件，请刷新变更列表。");
       const file = await files.read(projectId, path);
       if (file.content.length > 200_000 || file.content.split("\n").length > 5000)
         throw new Error("未跟踪文件过大，无法显示差异。");
@@ -181,7 +199,7 @@ export function createCodingGitService(
         untracked: true,
       };
     }
-    return withGit(projectId, async (git) => ({
+    return withGit(projectId, path, async (git) => ({
       patch: await git([
         "diff",
         ...(kind === "staged" ? ["--cached"] : []),
@@ -189,6 +207,8 @@ export function createCodingGitService(
         "--no-ext-diff",
         "--no-textconv",
         "--no-renames",
+        "--ignore-submodules=dirty",
+        "--submodule=short",
         "--unified=3",
         "--",
         path,

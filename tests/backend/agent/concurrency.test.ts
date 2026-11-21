@@ -15,10 +15,7 @@ test("并发发送先占位；执行中拒绝变更包和技能，避免半成�
   const dataRoot = join(root, "data");
   const store = openProjectStore(dataRoot);
   const originalFetch = globalThis.fetch;
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
+  const { promise: gate, resolve: release } = Promise.withResolvers<void>();
   globalThis.fetch = async () =>
     new Response(
       new ReadableStream({
@@ -39,10 +36,17 @@ test("并发发送先占位；执行中拒绝变更包和技能，避免半成�
 
     publish: () => {},
   });
+  let waitForStartup: (() => Promise<void>) | undefined;
   const conversations = createConversations({
     dataRoot,
     store,
-    settings,
+    settings: {
+      ...settings,
+      async info() {
+        await waitForStartup?.();
+        return settings.info();
+      },
+    },
     publish: () => {},
   });
   try {
@@ -63,10 +67,9 @@ test("并发发送先占位；执行中拒绝变更包和技能，避免半成�
     const project = store.createProject({ name: "场景", mode: "coding", path: root });
     const conversation = await conversations.create(project.id);
     const first = conversations.send({ id: conversation.id, requestId: "a", text: "第一条" });
-    // UI 可能在 Pi agent 异步初始化期间请求当前视图，不能创建第二个空会话文件。
+    // 界面可在 Agent 初始化期间读视图，绑定会话文件只由发送路径写入。
     conversations.watch(conversation.id);
-    const initialSessionFile = store.getConversation(conversation.id)?.sessionFile;
-    assert.ok(initialSessionFile);
+    assert.equal(store.getConversation(conversation.id)?.sessionFile, null);
     await conversations.update({ id: conversation.id, title: "初始化期间手动命名" });
     await assert.rejects(
       conversations.send({ id: conversation.id, requestId: "b", text: "第二条" }),
@@ -74,6 +77,9 @@ test("并发发送先占位；执行中拒绝变更包和技能，避免半成�
     );
     await first;
     assert.equal(store.getConversation(conversation.id)?.title, "初始化期间手动命名");
+    const initialSessionFile = store.getConversation(conversation.id)?.sessionFile;
+    assert.ok(initialSessionFile);
+    conversations.watch(conversation.id);
     assert.equal(store.getConversation(conversation.id)?.sessionFile, initialSessionFile);
     await assert.rejects(conversations.update({ id: conversation.id, archived: true }), /先停止/);
     await assert.rejects(conversations.remove(conversation.id), /先停止/);
@@ -99,21 +105,36 @@ test("并发发送先占位；执行中拒绝变更包和技能，避免半成�
       /先停止/,
     );
     assert.deepEqual(await skills["skill.library.list"]({ moduleId: "coding" }), []);
-    const pendingConversation = await conversations.create(project.id);
+    const pendingConversation = store.createConversation(project.id);
+    await conversations.update({ id: pendingConversation.id, draft: "立刻停止" });
+    const { promise: starting, resolve: start } = Promise.withResolvers<void>();
+    const { promise: startup, resolve: resumeStartup } = Promise.withResolvers<void>();
+    waitForStartup = () => {
+      start();
+      return startup;
+    };
     const pending = conversations.send({
       id: pendingConversation.id,
       requestId: "pending",
       text: "立刻停止",
     });
-    assert.deepEqual(
-      new Set(conversations.busyIds()),
-      new Set([conversation.id, pendingConversation.id]),
-    );
-    await conversations.stop(pendingConversation.id);
-    await pending;
-    await new Promise((resolve) => setImmediate(resolve));
+    const cancelled = assert.rejects(pending, /发送已取消/);
+    try {
+      await starting;
+      assert.deepEqual(
+        new Set(conversations.busyIds()),
+        new Set([conversation.id, pendingConversation.id]),
+      );
+      await conversations.stop(pendingConversation.id);
+    } finally {
+      resumeStartup();
+    }
+    await cancelled;
     assert.equal(conversations.watch(pendingConversation.id).busy, false);
     assert.deepEqual(conversations.watch(pendingConversation.id).messages, []);
+    assert.equal(store.getConversation(pendingConversation.id)?.draft, "立刻停止");
+    assert.equal(store.getConversation(pendingConversation.id)?.title, "新会话");
+    assert.equal(store.getConversation(pendingConversation.id)?.interrupted, false);
     assert.deepEqual(conversations.busyIds(), [conversation.id]);
   } finally {
     release();
@@ -121,6 +142,54 @@ test("并发发送先占位；执行中拒绝变更包和技能，避免半成�
     await settings.close();
     store.close();
     globalThis.fetch = originalFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("初始化持久化失败时释放会话占位", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dai-run-write-failure-"));
+  const store = openProjectStore(root);
+  const settings = await createSettingsService({ dataRoot: root, publish() {} });
+  const conversations = createConversations({
+    dataRoot: root,
+    settings,
+    publish() {},
+    store: {
+      ...store,
+      updateConversation(id, change) {
+        if (change.interrupted === true) throw new Error("模拟启动时 SQLite 写入失败");
+        return store.updateConversation(id, change);
+      },
+    },
+  });
+  try {
+    await settings.handlers["provider.save"]({
+      config: {
+        id: "local",
+        name: "Local",
+        providerType: "local",
+        authMethod: "none",
+        endpoint: "http://127.0.0.1:11434/v1",
+        enabled: true,
+        models: [
+          { id: "example", name: "Example", context: 4096, output: 1024, reasoning: "标准" },
+        ],
+      },
+    });
+    const project = store.createProject({ name: "P", mode: "coding", path: root });
+    const conversation = await conversations.create(project.id);
+    await conversations.update({ id: conversation.id, draft: "未送出的草稿" });
+    await assert.rejects(
+      conversations.send({ id: conversation.id, requestId: "failed", text: "未送出的草稿" }),
+      /SQLite 写入失败/,
+    );
+    assert.deepEqual(conversations.busyIds(), []);
+    assert.equal(store.getConversation(conversation.id)?.draft, "未送出的草稿");
+    await conversations.remove(conversation.id);
+  } finally {
+    await conversations.close();
+    await settings.close();
+    store.close();
     await rm(root, { recursive: true, force: true });
   }
 });

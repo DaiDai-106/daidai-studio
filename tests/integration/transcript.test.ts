@@ -3,9 +3,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { _electron as electron } from "playwright";
 import { servePlanner, turnResults } from "../support/planner.ts";
-import { openTestProject } from "./support.ts";
+import { launchElectron, openTestProject } from "./support.ts";
 
 function gate() {
   let release = () => {};
@@ -55,17 +54,7 @@ test("Electron renders public thinking and real tool details, preserves disclosu
       beforeContent: final.promise,
     };
   });
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] =>
-        entry[0] !== "ELECTRON_RUN_AS_NODE" && entry[1] !== undefined,
-    ),
-  );
-  let app = await electron.launch({
-    args: [process.cwd(), `--user-data-dir=${root}`],
-    env,
-    chromiumSandbox: true,
-  });
+  let app = await launchElectron(root);
   let processHandle = app.process();
   const errors: string[] = [];
   try {
@@ -170,11 +159,7 @@ test("Electron renders public thinking and real tool details, preserves disclosu
       "Preference survives backend snapshot and renderer reload",
     );
     await app.close();
-    app = await electron.launch({
-      args: [process.cwd(), `--user-data-dir=${root}`],
-      env,
-      chromiumSandbox: true,
-    });
+    app = await launchElectron(root);
     processHandle = app.process();
     page = await app.firstWindow();
     page.setDefaultTimeout(8000);

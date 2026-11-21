@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import type { Conversation } from "../../features/chat/logic/types.ts";
+import type { Arguments, ChatImage } from "../../../contracts/application.ts";
 import { useConversationDrafts } from "../../features/chat/logic/use_conversation_drafts.ts";
 import type { ApplicationState } from "./use_application.ts";
 import { useWorkbenchNavigation } from "./use_workbench_navigation.ts";
@@ -9,13 +9,16 @@ export function useWorkbench(application: ApplicationState) {
   const { api } = application;
   const draftState = useConversationDrafts(application);
   const { setDrafts, writer } = draftState;
-  const { projects, conversations, active, project, projectId, activeId, createProject, request } =
-    useWorkbenchNavigation(application, draftState);
+  const { projectId, request, ...navigation } = useWorkbenchNavigation(application, draftState);
+  const { active } = navigation;
   const [accessPending, setAccessPending] = useState(false);
   const accessPendingRef = useRef(false);
 
   function update(
-    patch: Partial<Pick<Conversation, "draft" | "modelId" | "thinkingLevel" | "accessMode">>,
+    patch: Pick<
+      Arguments<"conversation.update">,
+      "draft" | "modelId" | "thinkingLevel" | "accessMode"
+    >,
   ) {
     if (!active) return;
     const id = active.id;
@@ -47,7 +50,7 @@ export function useWorkbench(application: ApplicationState) {
       });
   }
 
-  async function send(images: import("../../../contracts/application.ts").ChatImage[] = []) {
+  async function send(images: ChatImage[] = []) {
     if (!active || accessPendingRef.current || (!active.draft.trim() && !images.length))
       return false;
     const id = active.id;
@@ -70,20 +73,12 @@ export function useWorkbench(application: ApplicationState) {
     return result === true;
   }
   return {
-    projects,
-    conversations,
-    active,
-    project,
-    projectId,
+    ...navigation,
     update,
     accessPending,
     send,
-    select: (id: string) => {
-      if (id !== activeId) request({ type: "select", id });
-    },
     home: () => request({ type: "home" }),
     selectProject: (id: string) => request({ type: "selectProject", id }),
-    createProject,
     fork: (id: string) => request({ type: "fork", id }),
     create: (target = projectId) => request({ type: "create", projectId: target }),
     removeProject: (id: string) => request({ type: "removeProject", id }),

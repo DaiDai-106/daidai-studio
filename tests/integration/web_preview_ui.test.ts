@@ -7,8 +7,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { WebContentsView } from "electron";
-import { type ElectronApplication, _electron as electron } from "playwright";
-import { chooseProject } from "./support.ts";
+import type { ElectronApplication } from "playwright";
+import { chooseProject, launchElectron } from "./support.ts";
 
 async function waitForView(app: ElectronApplication, expected: boolean | null) {
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -59,25 +59,15 @@ test("本地网页和代码使用独立内容标签，网页受隔离且关闭�
   await once(server, "listening");
   const address = server.address();
   assert.ok(address && typeof address !== "string");
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] =>
-        entry[0] !== "ELECTRON_RUN_AS_NODE" && entry[1] !== undefined,
-    ),
-  );
-  let app: Awaited<ReturnType<typeof electron.launch>> | undefined;
+  let app: ElectronApplication | undefined;
   try {
-    app = await electron.launch({
-      args: [process.cwd(), `--user-data-dir=${join(root, "profile")}`],
-      env,
-      chromiumSandbox: true,
-    });
+    app = await launchElectron(join(root, "profile"));
     const page = await app.firstWindow();
     page.setDefaultTimeout(10_000);
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]?.setContentSize(1440, 900),
     );
-    await chooseProject(app, page, project, "coding");
+    await chooseProject(app, page, project);
     await page.getByRole("button", { name: "展开代码工作区" }).click();
     const limits = await page.evaluate(async (port) => {
       const api = window.desktop;

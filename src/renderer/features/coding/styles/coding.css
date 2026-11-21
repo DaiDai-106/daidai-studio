@@ -6,6 +6,7 @@
   border-top: 1px solid var(--border);
 }
 .coding-workspace[hidden],
+.coding-tabs[hidden],
 .coding-tree[hidden] {
   display: none;
 }

@@ -12,10 +12,11 @@ import "../styles/markdown.css";
 
 function MarkdownLink({ href, children }: { href?: string | undefined; children?: ReactNode }) {
   const coding = useContext(CodingOpenContext);
+  const openFile = coding?.openFile;
   if (href?.startsWith("#dai-file=")) {
     const reference = parseFileReference(decodeURIComponent(href.slice(10)));
-    return reference && coding ? (
-      <button type="button" className="coding-file-link" onClick={() => coding.openFile(reference)}>
+    return reference && openFile ? (
+      <button type="button" className="coding-file-link" onClick={() => openFile(reference)}>
         {children}
       </button>
     ) : (
@@ -60,15 +61,15 @@ function InlineCode({
   children?: ReactNode;
   className?: string | undefined;
 }) {
-  const coding = useContext(CodingOpenContext);
+  const openFile = useContext(CodingOpenContext)?.openFile;
   const text = String(children ?? "");
   const reference = !className && !text.includes("\n") ? parseFileReference(text) : null;
-  return coding && reference ? (
+  return openFile && reference ? (
     <button
       type="button"
       className="coding-file-link"
       title={`打开 ${text}`}
-      onClick={() => coding.openFile(reference)}
+      onClick={() => openFile(reference)}
     >
       <code>{children}</code>
     </button>

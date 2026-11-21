@@ -316,12 +316,6 @@
   font-size: 12px;
 }
 
-.capabilities-intro {
-  margin: 0 0 22px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.7;
-}
 .capability-section-heading {
   display: flex;
   flex-wrap: wrap;

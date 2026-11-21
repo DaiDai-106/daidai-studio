@@ -146,9 +146,6 @@ svg {
 .primary:disabled:hover {
   background: var(--action);
 }
-.secondary {
-  background: var(--surface);
-}
 .text-button {
   padding: 6px 8px;
   border: 0;

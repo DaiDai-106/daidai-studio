@@ -40,7 +40,7 @@ Dai 在 Pi 当前输出和工具批次结束的边界逐条投递，插话优先
 
 ## 验收
 
-`tests/contracts/application.test.ts` 覆盖请求、响应和事件契约；桌面桥接及预览另见 [桌面进程](desktop.md#验收)和 [Coding 工作区](design/coding_workspace.md#验收)。增删字段时同时核对发送、接收及运行时校验；测试存在不代表当前运行已通过。
+`tests/contracts/application.test.ts` 覆盖请求、响应和事件契约。增删字段时同时核对发送、接收及运行时校验。桌面桥接及预览见 [桌面进程](design/backend.md#桌面进程)和 [Coding 工作区](design/coding_workspace.md#验收)。
 
 `workspace.get.busyConversationIds` 返回所有运行中（含初始化）的会话 ID，与当前选中会话无关；启动、初始化失败及结束时推送工作区变更。会话视图仍按 ID 获取，客户端只接收当前选中会话的历史和进度，不混合后台会话的内容。
 

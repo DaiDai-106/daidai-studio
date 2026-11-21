@@ -181,8 +181,9 @@ export function createLogins(
       return attempt.credential;
     },
 
-    replaceCredential(id: string, credential: Credential) {
-      get(id).credential = credential;
+    replaceCredential(id: string, expected: Credential, credential: Credential) {
+      const attempt = attempts.get(id);
+      if (attempt?.credential === expected) attempt.credential = credential;
     },
     consume(id: string) {
       const attempt = get(id);

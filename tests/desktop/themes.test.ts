@@ -155,7 +155,7 @@ test("Desktop 归属跨服务实例持久化，清单丢失或损坏也不进入
       assert.ok(item?.manifestError);
       // 无法读取清单时，重装/更新必须保留原宿主，不能把未知状态提交为 Agent。
       await assert.rejects(reopened.install(source, "global"));
-      await assert.rejects(reopened.update(source));
+      await assert.rejects(reopened.update(source, "global"));
       assert.equal(agentChanges, 0);
       assert.deepEqual(await createPackageService({ dataRoot }).resolve(), {
         extensions: [],
@@ -201,7 +201,13 @@ test("市场配置损坏不影响安装快照或 Desktop 主题发现", async ()
     await mkdir(catalog, { recursive: true });
     for (const name of ["sources.json", "origins.json"]) {
       await writeFile(join(catalog, name), "{");
-      await assert.rejects(app.request("catalog.installed", {}), /目录配置损坏/);
+      if (name === "sources.json") {
+        await assert.rejects(app.request("catalog.installed", {}), /目录配置损坏/);
+      } else {
+        const [installed] = await app.request("catalog.installed", {});
+        assert.equal(installed?.source, source);
+        assert.equal(installed?.sourceId, "manual");
+      }
       const packages = await app.request("package.list", { host: "desktop" });
       assert.deepEqual(packages, before);
       assert.equal((await readDesktopThemes(packages, desktopThemeId)).selection, "available");

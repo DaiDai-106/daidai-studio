@@ -12,7 +12,7 @@ export function FileTree({
   projectId: string;
   path: string;
   onOpen: (path: string) => void;
-  onPreview: (path: string) => void;
+  onPreview: ((path: string) => void) | undefined;
 }) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
@@ -79,7 +79,7 @@ export function FileTree({
                 {entry.directory ? (expanded ? "▾ " : "▸ ") : "  "}
                 {entry.name}
               </button>
-              {!entry.directory && /\.html?$/i.test(entry.name) && (
+              {onPreview && !entry.directory && /\.html?$/i.test(entry.name) && (
                 <button
                   type="button"
                   className="coding-file-preview"

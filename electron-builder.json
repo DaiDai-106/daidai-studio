@@ -6,20 +6,23 @@
     "buildResources": "dist/icons"
   },
   "files": ["dist/**", "package.json", "!dist/icons/*.icns"],
-  "asar": true,
   "publish": null,
   "artifactName": "${name}-${version}-${os}-${arch}.${ext}",
   "mac": {
     "target": ["dmg"],
     "icon": "dist/icons/app.icns",
     "category": "public.app-category.productivity",
-    "identity": "-",
+    "type": "distribution",
+    "forceCodeSigning": true,
+    "hardenedRuntime": true,
     "notarize": false
   },
   "dmg": {
     "title": "${productName} ${version}",
     "icon": "dist/icons/app.icns",
     "backgroundColor": "#F4F1EA",
+    "sign": true,
+    "writeUpdateInfo": false,
     "contents": [
       {
         "x": 160,
@@ -42,11 +45,7 @@
   "nsis": {
     "artifactName": "${name}-setup-${version}-${arch}.exe",
     "oneClick": false,
-    "perMachine": false,
-    "allowToChangeInstallationDirectory": true,
-    "createDesktopShortcut": true,
-    "createStartMenuShortcut": true,
-    "deleteAppDataOnUninstall": false
+    "allowToChangeInstallationDirectory": true
   },
   "linux": {
     "target": ["deb"],

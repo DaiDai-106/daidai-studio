@@ -4,7 +4,7 @@ import { createServer, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { _electron as electron } from "playwright";
+import { launchElectron } from "./support.ts";
 
 test("项目文件夹可直接选择，取消保留表单，未选择时使用默认目录", {
   timeout: 60_000,
@@ -13,17 +13,7 @@ test("项目文件夹可直接选择，取消保留表单，未选择时使用�
   const documents = join(root, "documents");
   const selectedDirectory = join(root, "chosen");
   await Promise.all([mkdir(documents), mkdir(selectedDirectory)]);
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] =>
-        entry[0] !== "ELECTRON_RUN_AS_NODE" && entry[1] !== undefined,
-    ),
-  );
-  const application = await electron.launch({
-    args: [process.cwd(), `--user-data-dir=${join(root, "profile")}`],
-    env,
-    chromiumSandbox: true,
-  });
+  const application = await launchElectron(join(root, "profile"));
   try {
     await application.evaluate(
       ({ app, dialog }, paths) => {
@@ -126,17 +116,7 @@ test("同一文件夹令牌不允许并发使用，失败可重试且保留期�
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("测试服务未启动。");
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] =>
-        entry[0] !== "ELECTRON_RUN_AS_NODE" && entry[1] !== undefined,
-    ),
-  );
-  const application = await electron.launch({
-    args: [process.cwd(), `--user-data-dir=${join(root, "profile")}`],
-    env,
-    chromiumSandbox: true,
-  });
+  const application = await launchElectron(join(root, "profile"));
   try {
     await application.evaluate(
       ({ dialog }, directories) => {

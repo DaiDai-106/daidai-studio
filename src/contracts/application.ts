@@ -156,7 +156,7 @@ export type ConversationView = Static<typeof ConversationViewSchema>;
 export type LoginInfo = Static<typeof LoginInfoSchema>;
 export type ApplicationEvent = Static<typeof EventSchema>;
 // 请求名和参数由前端、桌面进程与后端共同使用。
-export const commands = {
+const commands = {
   ...catalogCommands,
   "workspace.get": object({ cursor: Type.Optional(text(4000)) }),
   "usage.dashboard": object({}),
@@ -240,6 +240,7 @@ export const commands = {
     archived: Type.Optional(Type.Boolean()),
   }),
   "conversation.watch": object({ id }),
+  "conversation.history": object({ id, turnId: id, before: Type.Optional(Type.Boolean()) }),
   "conversation.trace": object({ id }),
   "conversation.traceDetail": object({ id, entryId: id }),
   "conversation.send": object({
@@ -363,11 +364,24 @@ const TraceDetailSchema = object({
 export type TraceRecord = Static<typeof TraceRecordSchema>;
 export type TraceDetail = Static<typeof TraceDetailSchema>;
 
+const ConversationHistorySchema = object({
+  start: Type.Integer({ minimum: 0 }),
+  markers: Type.Array(object({ id, label: text(80) })),
+});
+const ConversationHistoryPageSchema = object({
+  start: ConversationHistorySchema.properties.start,
+  messages: Type.Array(MessageInfoSchema),
+  nextTurnId: Type.Union([id, Type.Null()]),
+  historyKey: text(400),
+});
+export type ConversationHistoryPage = Static<typeof ConversationHistoryPageSchema>;
+
 const ConversationViewSchema = object({
   conversationId: id,
   streamId: id,
   sequence: Type.Integer({ minimum: 0 }),
   messages: Type.Array(MessageInfoSchema),
+  history: ConversationHistorySchema,
   historyKey: Type.Optional(text(400)),
   partial: text(4_000_000),
   partialBlocks: Type.Optional(Type.Array(MessageBlockSchema)),
@@ -399,7 +413,7 @@ const ConversationViewSchema = object({
   activeTools: Type.Array(ToolProgressSchema, { maxItems: 100 }),
 });
 
-const ConversationProgressSchema = Type.Omit(ConversationViewSchema, ["messages"]);
+const ConversationProgressSchema = Type.Omit(ConversationViewSchema, ["messages", "history"]);
 export type ConversationProgress = Static<typeof ConversationProgressSchema>;
 
 const LoginInfoSchema = object({
@@ -512,6 +526,7 @@ const resultSchemas = {
   "conversation.delete": Type.Null(),
   "conversation.update": ConversationInfoSchema,
   "conversation.watch": ConversationViewSchema,
+  "conversation.history": ConversationHistoryPageSchema,
   "conversation.trace": Type.Array(TraceRecordSchema),
   "conversation.traceDetail": TraceDetailSchema,
   "conversation.send": object({ submissionId: id }),

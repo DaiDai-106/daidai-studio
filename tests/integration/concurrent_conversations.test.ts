@@ -84,8 +84,16 @@ test("会话可后台并行，切换和新建项目不打断任务，停止与�
   await queue.getByText("B 后续", { exact: true }).waitFor();
   await input.fill("B 草稿");
 
-  await sidebar.locator(".project-title").first().click();
-  await page.locator(".assistant-navigation strong").filter({ hasText: "AI 助手" }).waitFor();
+  const project = sidebar.getByRole("button", { name: "project", exact: true });
+  const current = sidebar.locator('.conversation-title[title="任务 B"]');
+  await project.click();
+  await current.waitFor({ state: "hidden" });
+  assert.equal(await project.getAttribute("aria-expanded"), "false");
+  assert.equal(await input.inputValue(), "B 草稿");
+  await queue.getByText("B 后续", { exact: true }).waitFor();
+  await project.press("Enter");
+  await current.waitFor();
+  assert.equal(await current.getAttribute("aria-current"), "page");
   const other = join(profile, "other");
   await mkdir(other);
   await chooseProject(application, page, other);

@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { resolveConfig } from "electron-vite";
-import { _electron as electron } from "playwright";
 import { createServer } from "vite";
+import { launchElectron, testElectronEnvironment } from "./support.ts";
 
 test("development renderer survives Vite full reloads", {
   timeout: 30_000,
@@ -23,18 +23,9 @@ test("development renderer survives Vite full reloads", {
     const address = server.httpServer?.address();
     assert.ok(address && typeof address !== "string");
     const url = `http://127.0.0.1:${address.port}/`;
-    const env = Object.fromEntries(
-      Object.entries(process.env).filter(
-        (entry): entry is [string, string] =>
-          entry[0] !== "ELECTRON_RUN_AS_NODE" && entry[1] !== undefined,
-      ),
-    );
+    const env = testElectronEnvironment();
     env.ELECTRON_RENDERER_URL = url;
-    const application = await electron.launch({
-      args: [process.cwd(), `--user-data-dir=${profile}`],
-      env,
-      chromiumSandbox: true,
-    });
+    const application = await launchElectron(profile, env);
     try {
       const page = await application.firstWindow();
       const errors: string[] = [];

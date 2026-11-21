@@ -9,8 +9,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { WebContentsView } from "electron";
-import { type ElectronApplication, _electron as electron } from "playwright";
-import { chooseProject } from "./support.ts";
+import type { ElectronApplication } from "playwright";
+import { chooseProject, launchElectron } from "./support.ts";
 
 test("HTTPS 页面允许安全跳转、跨来源资源和 WSS，保持隔离并拒绝无效证书", {
   timeout: 60_000,
@@ -96,25 +96,15 @@ test("HTTPS 页面允许安全跳转、跨来源资源和 WSS，保持隔离并�
   const pageAddress = pageServer.address();
   assert.ok(pageAddress && typeof pageAddress !== "string");
   pagePort = pageAddress.port;
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] =>
-        entry[0] !== "ELECTRON_RUN_AS_NODE" && entry[1] !== undefined,
-    ),
-  );
   let app: ElectronApplication | undefined;
   try {
-    app = await electron.launch({
-      args: [process.cwd(), `--user-data-dir=${join(root, "profile")}`],
-      env,
-      chromiumSandbox: true,
-    });
+    app = await launchElectron(join(root, "profile"));
     const page = await app.firstWindow();
     page.setDefaultTimeout(10_000);
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]?.setContentSize(1440, 900),
     );
-    await chooseProject(app, page, project, "coding");
+    await chooseProject(app, page, project);
     await page.getByRole("button", { name: "展开代码工作区" }).click();
     await page.getByRole("button", { name: "＋ 网页预览" }).click();
     const address = page.getByRole("textbox", { name: "网页预览地址" });

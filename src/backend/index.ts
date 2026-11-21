@@ -35,8 +35,9 @@ parent.on("message", ({ data }: Electron.MessageEvent) => {
     const request = data as BackendRequest;
     void runtime
       .then(async (app): Promise<unknown> => {
-        if (shutdown || request.version !== 1) throw new Error("应用正在退出或协议版本不兼容。");
-        return app.request(request.method, request.args);
+        if (shutdown || request.version !== 1 || !Number.isSafeInteger(request.deadline))
+          throw new Error("应用正在退出或协议版本不兼容。");
+        return app.request(request.method, request.args, request.deadline);
       })
       .then(
         (result) => parent.postMessage({ type: "response", id: request.id, ok: true, result }),

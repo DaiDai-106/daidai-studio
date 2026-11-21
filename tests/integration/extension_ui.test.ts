@@ -3,9 +3,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { _electron as electron } from "playwright";
 import { servePlanner, turnResults } from "../support/planner.ts";
-import { openTestProject } from "./support.ts";
+import { launchElectron, openTestProject } from "./support.ts";
 
 test("real Pi package dialogs support background recovery, confirm, select, input and cancellation", {
   timeout: 60_000,
@@ -16,33 +15,29 @@ test("real Pi package dialogs support background recovery, confirm, select, inpu
   await writeFile(join(source, "package.json"), JSON.stringify({ name: "dai-ui-test" }));
   await writeFile(
     join(source, "extensions", "index.ts"),
-    `export default pi => pi.registerTool({
-    name: 'ask_user', label: 'Ask', description: 'Ask the user', parameters: {type:'object',properties:{}},
-    execute: async (_id, _params, _signal, _update, ctx) => {
-      const confirmed = await ctx.ui.confirm('确认操作', '继续吗？');
-      const choice = await ctx.ui.select('选择模式', ['A', 'B']);
-      const name = await ctx.ui.input('输入名称', '例如 robot');
-      const optional = await ctx.ui.input('可选说明', '可以取消');
-      return {content:[{type:'text',text:JSON.stringify({confirmed,choice,name,optional})}],details:{}};
-    }
-  });`,
+    `export default pi => {
+      pi.on('input', async (event, ctx) => {
+        if (event.text === '准备发送时停止') await ctx.ui.confirm('发送前确认', '继续吗？');
+        return { action: 'continue' };
+      });
+      pi.registerTool({
+        name: 'ask_user', label: 'Ask', description: 'Ask the user', parameters: {type:'object',properties:{}},
+        execute: async (_id, _params, _signal, _update, ctx) => {
+          const confirmed = await ctx.ui.confirm('确认操作', '继续吗？');
+          const choice = await ctx.ui.select('选择模式', ['A', 'B']);
+          const name = await ctx.ui.input('输入名称', '例如 robot');
+          const optional = await ctx.ui.input('可选说明', '可以取消');
+          return {content:[{type:'text',text:JSON.stringify({confirmed,choice,name,optional})}],details:{}};
+        }
+      });
+    };`,
   );
   const planner = await servePlanner((request) =>
     turnResults(request).count === 0
       ? { id: "ask", name: "ask_user", args: {} }
       : { text: "扩展交互完成" },
   );
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] =>
-        entry[0] !== "ELECTRON_RUN_AS_NODE" && entry[1] !== undefined,
-    ),
-  );
-  const app = await electron.launch({
-    args: [process.cwd(), `--user-data-dir=${join(root, "profile")}`],
-    env,
-    chromiumSandbox: true,
-  });
+  const app = await launchElectron(join(root, "profile"));
   try {
     const page = await app.firstWindow();
     page.setDefaultTimeout(10000);
@@ -116,6 +111,21 @@ test("real Pi package dialogs support background recovery, confirm, select, inpu
       const state = await window.desktop.application.getWorkspace();
       return !state.busyConversationIds.length && !state.extensionUiRequests?.length;
     });
+
+    const requestsBeforePreflight = planner.requests.length;
+    const composer = page.getByRole("textbox", { name: "消息内容" });
+    await composer.fill("准备发送时停止");
+    await page.getByRole("button", { name: "发送消息" }).click();
+    const preflight = page.getByRole("dialog", { name: "发送前确认" });
+    await preflight.getByRole("button", { name: "停止回复" }).click();
+    await preflight.waitFor({ state: "hidden" });
+    await page.getByRole("alert").filter({ hasText: "发送已取消" }).waitFor();
+    assert.equal(await composer.inputValue(), "准备发送时停止");
+    assert.equal(planner.requests.length, requestsBeforePreflight);
+    const saved = await page.evaluate(
+      async () => (await window.desktop.application.getWorkspace()).conversations[0]?.draft,
+    );
+    assert.equal(saved, "准备发送时停止");
   } finally {
     await app.close();
     await planner.close();

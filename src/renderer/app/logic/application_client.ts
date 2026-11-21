@@ -19,10 +19,9 @@ export function createApplicationClient(api: ApplicationBridge) {
   const deleted = new Set<string>();
   let revision = 0;
   let refreshId = 0;
-  let selection = 0;
-  let selected = "";
+  let pendingSelection: { id: string; view: ConversationView | null } | undefined;
   let generation = 0;
-  let writes: Promise<unknown> = Promise.resolve();
+  let writes = Promise.resolve();
   let pageRequest: { cursor: string; promise: Promise<WorkspaceInfo | undefined> } | undefined;
 
   function patch(change: Partial<typeof state>) {
@@ -47,7 +46,7 @@ export function createApplicationClient(api: ApplicationBridge) {
     const life = generation;
     for (;;) {
       // 工作区事件可能先于写入响应到达；先等写入提交，避免旧元数据回写。
-      await writes.catch(() => {});
+      await writes;
       if (request !== refreshId || life !== generation) return state.workspace ?? undefined;
       const version = revision;
       let value: WorkspaceInfo;
@@ -73,28 +72,36 @@ export function createApplicationClient(api: ApplicationBridge) {
     }
   }
 
-  function acceptView(value: ConversationView | ConversationProgress) {
-    if (value.conversationId !== selected || deleted.has(value.conversationId)) return;
-    const previous = state.view;
-    if (previous?.streamId === value.streamId && previous.sequence > value.sequence) return;
-    if ("messages" in value) patch({ view: value });
-    else if (
+  function mergeView(
+    previous: ConversationView | null,
+    value: ConversationView | ConversationProgress,
+  ) {
+    if (previous?.streamId === value.streamId && previous.sequence > value.sequence)
+      return previous;
+    if ("messages" in value) return value;
+    if (
       previous?.streamId === value.streamId &&
       value.historyKey &&
       previous.historyKey === value.historyKey
     )
-      patch({ view: { ...value, messages: previous.messages } });
+      return { ...value, messages: previous.messages, history: previous.history };
     // 不把新分支的增量拼到旧历史；后续完整快照或 watch 会恢复该分支。
+    return previous;
+  }
+
+  function acceptView(value: ConversationView | ConversationProgress) {
+    if (deleted.has(value.conversationId)) return;
+    if (pendingSelection?.id === value.conversationId)
+      pendingSelection.view = mergeView(pendingSelection.view, value);
+    if (value.conversationId !== state.view?.conversationId) return;
+    const view = mergeView(state.view, value);
+    if (view !== state.view) patch({ view });
   }
 
   function forgetConversation(id: string) {
     ++revision;
     deleted.add(id);
     const workspace = state.workspace;
-    if (selected === id) {
-      selected = "";
-      ++selection;
-    }
     patch({
       workspace: workspace
         ? { ...workspace, conversations: workspace.conversations.filter((item) => item.id !== id) }
@@ -138,29 +145,30 @@ export function createApplicationClient(api: ApplicationBridge) {
     }
   }
 
-  async function activate(id: string) {
-    const previousId = selected;
-    const previousView = state.view;
-    const request = ++selection;
-    selected = id;
-    patch({ view: null });
-    if (id) {
-      try {
-        const value = await api.watchConversation(id);
-        if (request === selection) acceptView(value);
-      } catch (error) {
-        if (request === selection) {
-          selected = deleted.has(previousId) ? "" : previousId;
-          patch({ view: selected ? previousView : null });
-          throw error;
-        }
-      }
+  async function activate(id: string, isCurrent = () => true) {
+    if (!id) {
+      pendingSelection = undefined;
+      patch({ view: null });
+      return;
+    }
+    const target = { id, view: id === state.view?.conversationId ? state.view : null };
+    pendingSelection = target;
+    try {
+      const value = await api.watchConversation(id);
+      if (pendingSelection !== target || !isCurrent()) return;
+      if (deleted.has(id)) throw new Error("会话不存在。");
+      if (value.conversationId !== id) throw new Error("读取到的会话与当前选择不一致。");
+      patch({ view: mergeView(target.view, value) });
+    } catch (error) {
+      if (pendingSelection === target && isCurrent()) throw error;
+    } finally {
+      if (pendingSelection === target) pendingSelection = undefined;
     }
   }
 
   function write<T>(action: () => Promise<T>) {
     ++revision;
-    const result = writes.then(action, action);
+    const result = writes.then(action);
     writes = result.then(
       () => {},
       () => {},
@@ -209,7 +217,6 @@ export function createApplicationClient(api: ApplicationBridge) {
     const request = refreshId;
     const life = generation;
     const promise = writes
-      .catch(() => {})
       .then(async () => {
         const version = revision;
         const current = () =>
@@ -271,7 +278,7 @@ export function createApplicationClient(api: ApplicationBridge) {
       return () => {
         ++generation;
         ++refreshId;
-        ++selection;
+        pendingSelection = undefined;
         unsubscribe();
       };
     },

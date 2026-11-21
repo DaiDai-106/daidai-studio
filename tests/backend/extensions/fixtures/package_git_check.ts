@@ -68,19 +68,19 @@ const initial = await a.resolve();
 assert.equal(initial.extensions.length, 1);
 assert.match(await extensionText(a), /version-1/);
 await commit(2);
-await a.update(source);
+await a.update(source, "module");
 assert.match(await extensionText(a), /version-2/);
 await a.install(source, "global");
 assert.equal((await b.inspect()).length, 1);
 assert.equal((await b.inspect())[0]?.scope, "global");
 await commit(3);
-await b.update(source);
+await b.update(source, "global");
 assert.match(await extensionText(b), /version-3/);
 assert.match(await extensionText(a), /version-2/);
 const beforeFailedUpdate = await b.inspect();
 await rename(bare, `${bare}.unavailable`);
 try {
-  await assert.rejects(b.update(source));
+  await assert.rejects(b.update(source, "global"));
   assert.deepEqual(await b.inspect(), beforeFailedUpdate);
   assert.match(await extensionText(b), /version-3/);
 } finally {

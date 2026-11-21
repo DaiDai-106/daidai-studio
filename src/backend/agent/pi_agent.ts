@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -28,6 +28,7 @@ export async function createPiAgent(options: {
   model?: Model<Api>;
   shellApproval?: ExtensionFactory;
   uiContext?: ExtensionUIContext;
+  beforePrompt?: () => void;
   fullAccess?: () => boolean;
   skillPaths?: string[];
 }) {
@@ -86,6 +87,14 @@ export async function createPiAgent(options: {
     settingsManager,
     resourceLoader: loader,
   });
+  // Pi 输入钩子先完成，再从 Core 的入口检查取消并确认提交。
+  const { agent } = session;
+  type Messages = typeof agent.state.messages;
+  const prompt = agent.prompt.bind(agent);
+  agent.prompt = async (input: string | Messages[number] | Messages, images?: ImageContent[]) => {
+    options.beforePrompt?.();
+    return typeof input === "string" ? prompt(input, images) : prompt(input);
+  };
   try {
     await session.bindExtensions(
       options.uiContext ? { uiContext: options.uiContext, mode: "rpc" } : {},

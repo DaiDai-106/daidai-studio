@@ -3,9 +3,8 @@ import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { _electron as electron } from "playwright";
 import { servePlanner, turnResults } from "../support/planner.ts";
-import { openTestProject } from "./support.ts";
+import { launchElectron, openTestProject } from "./support.ts";
 
 test("desktop shows the complete shell command and requires confirmation before execution", {
   timeout: 45000,
@@ -18,17 +17,7 @@ test("desktop shows the complete shell command and requires confirmation before 
       ? { id: "shell-call", name: shell, args: { command } }
       : { text: "命令已处理" };
   });
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] =>
-        entry[0] !== "ELECTRON_RUN_AS_NODE" && entry[1] !== undefined,
-    ),
-  );
-  const app = await electron.launch({
-    args: [process.cwd(), `--user-data-dir=${root}`],
-    env,
-    chromiumSandbox: true,
-  });
+  const app = await launchElectron(root);
   try {
     const page = await app.firstWindow();
     page.setDefaultTimeout(10000);

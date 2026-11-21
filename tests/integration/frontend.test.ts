@@ -4,8 +4,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { _electron as electron } from "playwright";
-import { openTestProject } from "./support.ts";
+import { launchElectron, openTestProject } from "./support.ts";
 
 test("desktop configures a real local service, streams chat and restores Pi history", {
   timeout: 60000,
@@ -39,19 +38,7 @@ test("desktop configures a real local service, streams chat and restores Pi hist
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   assert.ok(address && typeof address === "object");
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] =>
-        entry[0] !== "ELECTRON_RUN_AS_NODE" && entry[1] !== undefined,
-    ),
-  );
-  const launch = () =>
-    electron.launch({
-      args: [process.cwd(), `--user-data-dir=${profile}`],
-      env,
-      chromiumSandbox: true,
-    });
-  let application = await launch();
+  let application = await launchElectron(profile);
   let child = application.process();
   try {
     let page = await application.firstWindow();
@@ -127,7 +114,7 @@ test("desktop configures a real local service, streams chat and restores Pi hist
     await page.getByRole("heading", { name: "项目", exact: true }).waitFor();
     assert.ok((await readFile(join(project.path, "example.ts"))).equals(source));
     await application.close();
-    application = await launch();
+    application = await launchElectron(profile);
     child = application.process();
     page = await application.firstWindow();
     page.setDefaultTimeout(7000);
@@ -140,7 +127,6 @@ test("desktop configures a real local service, streams chat and restores Pi hist
     const hidden = page.getByRole("dialog", { name: "已隐藏项目" });
     await hidden.getByRole("button", { name: "恢复" }).click();
     await hidden.getByRole("button", { name: "关闭弹窗" }).click();
-    await page.getByRole("button", { name: project.name, exact: true }).click();
     await page.locator(".conversation-title").first().click();
     await page.getByText("本地服务的真实协议回复", { exact: true }).waitFor();
     await page.getByRole("button", { name: "对话用量", exact: true }).waitFor();

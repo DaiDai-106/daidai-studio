@@ -4,8 +4,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { _electron as electron } from "playwright";
-import { chooseProject } from "./support.ts";
+import { APP_INFO_CHANNEL } from "../../src/contracts/desktop.ts";
+import { chooseProject, launchElectron } from "./support.ts";
 
 test("Coding 工作区显示语法高亮与区分基准的 Git 差异", { timeout: 60_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "dai-coding-ui-"));
@@ -18,6 +18,7 @@ test("Coding 工作区显示语法高亮与区分基准的 Git 差异", { timeou
   git("config", "user.name", "Test");
   await writeFile(join(projectDir, "sample.ts"), "const value = 1;\n\n// end\n");
   await writeFile(join(projectDir, "guide.md"), "# 使用指南\n\n示例内容\n");
+  await writeFile(join(projectDir, "index.html"), "<h1>Source file</h1>\n");
   git("add", "sample.ts");
   git("commit", "-qm", "initial");
   await writeFile(join(projectDir, "sample.ts"), "const value = 2;\n\n// end\n");
@@ -30,24 +31,25 @@ test("Coding 工作区显示语法高亮与区分基准的 Git 差异", { timeou
     join(projectDir, "src", "guide.md"),
     "# 嵌套指南\n\n[打开项目文件](../guide.md#L1)\n",
   );
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] =>
-        entry[0] !== "ELECTRON_RUN_AS_NODE" && entry[1] !== undefined,
-    ),
-  );
-  const app = await electron.launch({
-    args: [process.cwd(), `--user-data-dir=${profile}`],
-    env,
-    chromiumSandbox: true,
-  });
+  const app = await launchElectron(profile);
   try {
     const page = await app.firstWindow();
     page.setDefaultTimeout(10_000);
-    await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()[0]?.setContentSize(1440, 900),
-    );
-    await chooseProject(app, page, projectDir, "coding");
+    await page.getByRole("button", { name: "新建项目", exact: true }).first().waitFor();
+    await app.evaluate(({ BrowserWindow, app, ipcMain }, channel) => {
+      BrowserWindow.getAllWindows()[0]?.setContentSize(1440, 900);
+      ipcMain.removeHandler(channel);
+      ipcMain.handle(channel, () => ({
+        name: app.getName(),
+        version: app.getVersion(),
+        electronVersion: process.versions.electron,
+        nodeVersion: process.versions.node,
+        dataRoot: app.getPath("userData"),
+        staticPreviewAvailable: false,
+      }));
+    }, APP_INFO_CHANNEL);
+    await page.reload();
+    await chooseProject(app, page, projectDir);
     assert.equal(await page.getByRole("region", { name: "代码工作区" }).isVisible(), false);
     const collapsed = await page.evaluate(() => {
       const chat = document.querySelector(".assistant-workspace");
@@ -81,6 +83,12 @@ test("Coding 工作区显示语法高亮与区分基准的 Git 差异", { timeou
       .getByRole("region", { name: "代码工作区" })
       .getByRole("button", { name: "收起代码工作区" })
       .waitFor();
+    await page.getByRole("button", { name: "index.html", exact: true }).click();
+    await page
+      .getByRole("region", { name: "文件内容" })
+      .getByText("<h1>Source file</h1>")
+      .waitFor();
+    assert.equal(await page.getByRole("button", { name: "预览 index.html" }).count(), 0);
     await page.getByRole("button", { name: "▸ src", exact: true }).click();
     await page.getByRole("button", { name: "nested.ts", exact: true }).waitFor();
     await page.getByRole("button", { name: "guide.md", exact: true }).last().click();
@@ -266,15 +274,23 @@ test("Coding 工作区显示语法高亮与区分基准的 Git 差异", { timeou
       .click();
     await page.getByRole("region", { name: "文件差异" }).getByText("+print(1)").waitFor();
     assert.equal(await page.getByRole("textbox", { name: "文件内容" }).count(), 0);
-    await page.getByRole("button", { name: "project", exact: true }).click();
+    await page.getByRole("button", { name: "收起代码工作区" }).click();
+    await writeFile(join(projectDir, "created-while-closed.txt"), "updated\n");
+    await page.getByRole("button", { name: "展开代码工作区" }).click();
+    await page
+      .locator(".coding-change")
+      .filter({ hasText: "created-while-closed.txt" })
+      .getByRole("button", { name: "未跟踪" })
+      .waitFor();
+    await page.getByRole("button", { name: "返回项目主页", exact: true }).click();
+    await page.getByRole("button", { name: "打开项目 project", exact: true }).click();
+    await page.getByRole("region", { name: "文件差异" }).waitFor();
     await page.getByRole("textbox", { name: "消息内容" }).waitFor({ state: "detached" });
-    assert.equal(await page.getByRole("region", { name: "文件差异" }).isVisible(), true);
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]?.setContentSize(900, 800),
     );
     await page.getByRole("tab", { name: "代码", exact: true }).click();
     await page.getByRole("button", { name: "收起代码工作区" }).click();
-    await page.getByRole("button", { name: "project", exact: true }).click();
     await page.waitForFunction(
       () => document.querySelector(".workspace")?.getAttribute("data-mobile-tab") === "chat",
     );

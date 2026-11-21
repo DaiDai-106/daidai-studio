@@ -87,12 +87,16 @@
   gap: 7px;
   font-size: 13px;
 }
-.project-title > span:last-child {
+.project-title > span {
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .project-title svg {
   color: var(--muted);
+  flex-shrink: 0;
+}
+.project-title > svg:last-child {
+  margin-inline-start: auto;
 }
 .extension-pending {
   color: var(--focus-border);
@@ -173,11 +177,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.title-breadcrumb {
-  color: var(--muted);
-  white-space: nowrap;
-  font-size: 12px;
 }
 .workspace {
   flex: 1;

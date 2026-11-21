@@ -3,24 +3,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { _electron as electron } from "playwright";
-import { openTestProject } from "./support.ts";
+import { launchElectron, openTestProject } from "./support.ts";
 
 test("会话访问权限可切换，重启保留且新会话默认请求批准", { timeout: 60_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "dai-access-ui-"));
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] =>
-        entry[0] !== "ELECTRON_RUN_AS_NODE" && entry[1] !== undefined,
-    ),
-  );
-  const launch = () =>
-    electron.launch({
-      args: [process.cwd(), `--user-data-dir=${root}`],
-      env,
-      chromiumSandbox: true,
-    });
-  let app = await launch();
+  let app = await launchElectron(root);
   try {
     let page = await app.firstWindow();
     page.setDefaultTimeout(15000);
@@ -42,7 +29,7 @@ test("会话访问权限可切换，重启保留且新会话默认请求批准",
       true,
     );
     await app.close();
-    app = await launch();
+    app = await launchElectron(root);
     page = await app.firstWindow();
     page.setDefaultTimeout(15000);
     await page.locator(".conversation-row").first().click();

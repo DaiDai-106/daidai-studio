@@ -15,6 +15,7 @@ import {
   THEMES_CHANNEL,
 } from "../../contracts/desktop.ts";
 import { type WindowPalette, WindowPaletteSchema } from "../../contracts/desktop_theme.ts";
+import { directoryHandlesAvailable } from "../../shared/node/file_access.ts";
 import type { connectBackend } from "./backend.ts";
 import { createProjectDirectory } from "./project_directory.ts";
 import { readDesktopThemes } from "./themes.ts";
@@ -77,6 +78,7 @@ export function registerDesktopIpc(context: DesktopIpcContext): void {
       electronVersion: process.versions.electron,
       nodeVersion: process.versions.node,
       dataRoot: context.dataRoot,
+      staticPreviewAvailable: directoryHandlesAvailable,
     };
   });
 

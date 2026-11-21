@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { Resvg } from "@resvg/resvg-js";
@@ -22,7 +23,13 @@ async function until(check: () => boolean | Promise<boolean>) {
   }
   assert.fail("等待队列状态超时");
 }
-async function configure(app: Awaited<ReturnType<typeof openApplication>>, root: string) {
+type Application = Awaited<ReturnType<typeof openApplication>>;
+
+function waitForIdle(app: Application, id: string) {
+  return until(async () => !(await app.request("conversation.watch", { id })).busy);
+}
+
+async function configure(app: Application, root: string) {
   await app.request("provider.save", {
     config: {
       id: "local",
@@ -47,13 +54,140 @@ async function configure(app: Awaited<ReturnType<typeof openApplication>>, root:
   return app.request("conversation.create", { projectId: project.id });
 }
 
+test("插件前置阶段可停止，且等待确认期间其他会话仍可发送", { timeout: 15_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "dai-prompt-preflight-"));
+  const dataRoot = join(root, "data");
+  const source = join(root, "plugin");
+  await mkdir(source);
+  await writeFile(
+    join(source, "package.json"),
+    JSON.stringify({
+      name: "preflight",
+      pi: { extensions: ["index.ts"] },
+    }),
+  );
+  await writeFile(
+    join(source, "index.ts"),
+    `
+    export default pi => {
+      pi.on("input", async (event, ctx) => {
+        if (event.text === "输入钩子") await ctx.ui.confirm("等待输入", "继续吗？");
+        return { action: "continue" };
+      });
+      pi.on("before_agent_start", async (event, ctx) => {
+        if (event.prompt === "启动钩子") await ctx.ui.confirm("等待启动", "继续吗？");
+      });
+    };
+  `,
+  );
+  await createPackageService({ dataRoot }).install(source, "global");
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = async () => {
+    requests++;
+    return response({ content: "完成" });
+  };
+  const app = await openApplication({ dataRoot, publish() {} });
+  try {
+    const { id, projectId } = await configure(app, root);
+    for (const [index, text] of ["输入钩子", "启动钩子"].entries()) {
+      await app.request("conversation.update", { id, draft: text });
+      const submission = app.request("conversation.send", { id, requestId: `stop-${index}`, text });
+      const cancelled = assert.rejects(submission, /发送已取消/);
+      await until(
+        async () =>
+          (await app.request("workspace.get", {})).extensionUiRequests?.some(
+            (request) => request.conversationId === id,
+          ) ?? false,
+      );
+      assert.equal(requests, index);
+      if (index === 0) {
+        const other = await app.request("conversation.create", { projectId });
+        await app.request("conversation.send", {
+          id: other.id,
+          requestId: "other",
+          text: "另一条",
+        });
+        await waitForIdle(app, other.id);
+      }
+      await app.request("conversation.stop", { id });
+      await cancelled;
+      const view = await app.request("conversation.watch", { id });
+      assert.equal(view.busy, false);
+      assert.deepEqual(view.messages, []);
+      assert.equal(requests, 1);
+      const saved = (await app.request("workspace.get", {})).conversations.find((c) => c.id === id);
+      assert.equal(saved?.draft, text);
+      assert.equal(saved?.interrupted, false);
+    }
+
+    const next = app.request("conversation.send", { id, requestId: "confirmed", text: "启动钩子" });
+    await until(async () => !!(await app.request("workspace.get", {})).extensionUiRequests?.length);
+    await app.request("conversation.update", { id, draft: "等待确认时写的新草稿" });
+    const request = (await app.request("workspace.get", {})).extensionUiRequests?.[0];
+    assert.ok(request);
+    await app.request("extension.ui.respond", {
+      requestId: request.requestId,
+      cancelled: false,
+      value: "true",
+    });
+    assert.equal((await next).submissionId, "confirmed");
+    await waitForIdle(app, id);
+    assert.equal(requests, 2);
+    const saved = (await app.request("workspace.get", {})).conversations.find((c) => c.id === id);
+    assert.equal(saved?.draft, "等待确认时写的新草稿");
+  } finally {
+    await app.close();
+    globalThis.fetch = originalFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("入队和清空草稿在同一事务，失败的提交可重试", { timeout: 15_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "dai-queue-transaction-"));
+  const dataRoot = join(root, "data");
+  const first = Promise.withResolvers<void>();
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = async () => {
+    if (++requests === 1) await first.promise;
+    return response({ content: "完成" });
+  };
+  const app = await openApplication({ dataRoot, publish() {} });
+  const db = new DatabaseSync(join(dataRoot, "projects.sqlite"));
+  try {
+    const { id } = await configure(app, root);
+    await app.request("conversation.send", { id, requestId: "first", text: "第一条" });
+    await app.request("conversation.update", { id, draft: "第二条" });
+    db.exec(`CREATE TRIGGER fail_draft_clear BEFORE UPDATE OF draft ON conversations
+      WHEN OLD.draft <> '' AND NEW.draft = '' BEGIN SELECT RAISE(ABORT, '清空草稿失败'); END;`);
+    const submission = { id, requestId: "queued", text: "第二条", delivery: "followUp" as const };
+    await assert.rejects(app.request("conversation.send", submission), /清空草稿失败/);
+    assert.deepEqual((await app.request("conversation.watch", { id })).queuedMessages, []);
+    assert.equal((await app.request("workspace.get", {})).conversations[0]?.draft, "第二条");
+    db.exec("DROP TRIGGER fail_draft_clear");
+    assert.equal((await app.request("conversation.send", submission)).submissionId, "queued");
+    first.resolve();
+    await waitForIdle(app, id);
+    const view = await app.request("conversation.watch", { id });
+    assert.deepEqual(
+      view.messages.filter((m) => m.role === "user").map((m) => m.text),
+      ["第一条", "第二条"],
+    );
+    assert.equal(requests, 2);
+  } finally {
+    first.resolve();
+    db.close();
+    await app.close();
+    globalThis.fetch = originalFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("工具边界插话优先，后续消息逐条处理；重复文本可独立取消", { timeout: 15000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "dai-queue-"));
   const originalFetch = globalThis.fetch;
-  let release!: () => void;
-  const gate = new Promise<void>((done) => {
-    release = done;
-  });
+  const { promise: gate, resolve: release } = Promise.withResolvers<void>();
   const requests: { messages: { role: string; content: unknown }[] }[] = [];
   globalThis.fetch = async (_url, options) => {
     requests.push(JSON.parse(String(options?.body)));
@@ -137,7 +271,7 @@ test("工具边界插话优先，后续消息逐条处理；重复文本可独�
       ["开始"],
     );
     release();
-    await until(async () => !(await app.request("conversation.watch", { id })).busy);
+    await waitForIdle(app, id);
     const final = await app.request("conversation.watch", { id });
     assert.equal(final.error, "");
     assert.deepEqual(final.queuedMessages, []);
@@ -166,10 +300,7 @@ test("停止后队列和图片持久保留，重开不会自动发送，可显�
   const root = await mkdtemp(join(tmpdir(), "dai-queue-reopen-"));
   const dataRoot = join(root, "data");
   const originalFetch = globalThis.fetch;
-  let release!: () => void;
-  const gate = new Promise<void>((done) => {
-    release = done;
-  });
+  const { promise: gate, resolve: release } = Promise.withResolvers<void>();
   let requests = 0;
   globalThis.fetch = async (_url, options) => {
     requests++;
@@ -204,7 +335,7 @@ test("停止后队列和图片持久保留，重开不会自动发送，可显�
     });
     await app.request("conversation.promoteQueued", { id, messageId: "image" });
     await app.request("conversation.stop", { id });
-    await until(async () => !(await app.request("conversation.watch", { id })).busy);
+    await waitForIdle(app, id);
     assert.equal((await app.request("conversation.watch", { id })).queuedMessages?.length, 2);
     await app.close();
     app = await openApplication({ dataRoot, publish() {} });
@@ -220,7 +351,7 @@ test("停止后队列和图片持久保留，重开不会自动发送，可显�
     await app.request("conversation.cancelQueued", { id, messageId: "image" });
     release();
     await app.request("conversation.resumeQueue", { id });
-    await until(async () => !(await app.request("conversation.watch", { id })).busy);
+    await waitForIdle(app, id);
     const final = await app.request("conversation.watch", { id });
     assert.deepEqual(final.queuedMessages, []);
     assert.ok(final.messages.some((item) => item.role === "user" && item.text === "恢复后执行"));
@@ -283,7 +414,7 @@ test("最后一个模型轮次已结束但运行尚未收尾时发送不丢失�
       delivery: "steer",
     });
     await writeFile(gate, "release");
-    await until(async () => !(await app.request("conversation.watch", { id })).busy);
+    await waitForIdle(app, id);
     const final = await app.request("conversation.watch", { id });
     assert.deepEqual(final.queuedMessages, []);
     assert.deepEqual(

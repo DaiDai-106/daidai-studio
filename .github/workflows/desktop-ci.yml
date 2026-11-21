@@ -6,12 +6,7 @@ on:
     tags: ['v*']
   pull_request:
     branches: [master]
-  workflow_dispatch:
-    inputs:
-      linux_regression:
-        description: Run the full Linux test suite
-        type: boolean
-        default: false
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -22,7 +17,6 @@ defaults:
 
 jobs:
   build:
-    if: github.event_name != 'workflow_dispatch' || !inputs.linux_regression
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
@@ -35,11 +29,6 @@ jobs:
             target: --deb
             artifact: dai-studio-linux-amd64
             extension: deb
-          - name: macOS Apple Silicon
-            runner: macos-26
-            target: --mac
-            artifact: dai-studio-macos-arm64
-            extension: dmg
           - name: Windows x64
             runner: windows-2025
             target: --win
@@ -53,6 +42,9 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
+      - name: Validate release metadata
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        run: node --experimental-strip-types scripts/github-release.ts --check
       - name: Build and package
         env:
           PACKAGE_TARGET: ${{ matrix.target }}
@@ -68,11 +60,11 @@ jobs:
           retention-days: 7
           overwrite: true
 
-  linux-regression:
-    name: Linux regression tests
-    if: github.event_name == 'workflow_dispatch' && inputs.linux_regression
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
+  macos-release:
+    name: macOS Apple Silicon
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: macos-26
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
         with:
@@ -81,12 +73,89 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
-      - run: bash scripts/github-build.sh --linux-tests
+      - name: Validate release metadata
+        run: node --experimental-strip-types scripts/github-release.ts --check
+      - name: Build app
+        run: |
+          npm ci
+          npm run build
+      - name: Sign and notarize macOS installer
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+
+          for secret in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [[ -z "${!secret:-}" ]]; then
+              printf 'Missing macOS release credential: %s\n' "$secret" >&2
+              exit 1
+            fi
+          done
+
+          work_dir=$(mktemp -d "$RUNNER_TEMP/dai-studio-dmg.XXXXXX")
+          trap 'rm -rf -- "$work_dir"' EXIT
+
+          env -u APPLE_ID -u APPLE_APP_SPECIFIC_PASSWORD -u APPLE_TEAM_ID \
+            node node_modules/electron-builder/cli.js --mac dmg --publish never \
+              --config electron-builder.json --config.directories.output="$work_dir/output"
+          unset CSC_LINK CSC_KEY_PASSWORD
+
+          shopt -s nullglob
+          set -- "$work_dir"/output/*.dmg
+          if [[ "$#" != 1 ]]; then
+            printf 'Expected one macOS installer, found %s\n' "$#" >&2
+            exit 1
+          fi
+
+          image=$1
+          codesign --verify --strict "$image"
+
+          if ! submission=$(xcrun notarytool submit "$image" \
+            --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" --wait --output-format json); then
+            printf '%s\n' "$submission" >&2
+            exit 1
+          fi
+          unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+
+          printf '%s\n' "$submission"
+          status=$(node -p 'JSON.parse(require("node:fs").readFileSync(0, "utf8")).status' <<< "$submission")
+          if [[ "$status" != Accepted ]]; then
+            printf 'Apple notarization did not succeed: %s\n' "$status" >&2
+            exit 1
+          fi
+
+          xcrun stapler staple "$image"
+          xcrun stapler validate "$image"
+
+          mount_dir="$work_dir/mount"
+          mkdir "$mount_dir"
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "$image"
+          trap 'hdiutil detach "$mount_dir" && rm -rf -- "$work_dir"' EXIT
+          app="$mount_dir/Dai Studio.app"
+          codesign --verify --deep --strict "$app"
+          node tests/integration/package_smoke.mjs "$app/Contents/MacOS/Dai Studio"
+
+          mkdir -p release
+          mv "$image" release/
+      - name: Upload installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: dai-studio-macos-arm64
+          path: release/*.dmg
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+          overwrite: true
 
   release:
     name: Publish GitHub Release
     if: github.event_name == 'push' && github.ref_type == 'tag'
-    needs: build
+    needs: [build, macos-release]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     concurrency: desktop-release-${{ github.ref }}

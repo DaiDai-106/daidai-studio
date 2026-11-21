@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -14,7 +14,7 @@ test("Coding 文件服务限制项目路径并安全读取文本", async () => {
   await writeFile(join(work, "src", "main.ts"), "const a = 1;\n");
   await writeFile(join(work, "binary"), Buffer.from([0, 1]));
   await writeFile(join(root, "secret"), "secret");
-  await symlink(root, join(work, "external"));
+  await symlink(root, join(work, "external"), "junction");
   const store = openProjectStore(join(root, "data"));
   try {
     const project = store.createProject({ name: "代码", mode: "coding", path: work });
@@ -38,7 +38,7 @@ test("Coding 文件服务限制项目路径并安全读取文本", async () => {
     });
     await assert.rejects(files.list(project.id, "components", 0), /不存在.*components/);
     assert.deepEqual((await files.search(project.id, "")).paths, ["binary", "src/main.ts"]);
-    if (process.getuid?.() !== 0) {
+    if (process.getuid && process.getuid() !== 0) {
       await mkdir(join(work, "private"));
       await writeFile(join(work, "private", "main.ts"), "hidden");
       await chmod(join(work, "private"), 0);
@@ -50,6 +50,15 @@ test("Coding 文件服务限制项目路径并安全读取文本", async () => {
     }
     await writeFile(join(work, "oversized.ts"), "x".repeat(2 * 1024 * 1024 + 1));
     await assert.rejects(files.read(project.id, "oversized.ts"), /超过 2 MiB/);
+    if (process.platform === "win32") {
+      for (const path of ["..\\secret", "src/main.ts:stream", "src/.. /secret", "NUL.txt"]) {
+        await assert.rejects(files.read(project.id, path), /路径无效/);
+      }
+    }
+    await rename(work, join(root, "previous"));
+    await symlink(root, work, "junction");
+    await assert.rejects(files.read(project.id, "secret"), /符号链接/);
+    await assert.rejects(files.list(project.id, "", 0), /符号链接/);
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });

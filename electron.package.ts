@@ -5,9 +5,17 @@ import { fileURLToPath } from "node:url";
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 const target = process.argv[2] ?? "--dir";
 const targets = new Map([
-  ["--dir", { host: process.platform, args: ["--dir"] }],
+  [
+    "--dir",
+    {
+      host: process.platform,
+      args:
+        process.platform === "darwin"
+          ? ["--dir", "--config.mac.identity=-", "--config.mac.forceCodeSigning=false"]
+          : ["--dir"],
+    },
+  ],
   ["--deb", { host: "linux", args: ["--linux", "deb"] }],
-  ["--mac", { host: "darwin", args: ["--mac", "dmg"] }],
   ["--win", { host: "win32", args: ["--win", "nsis"] }],
 ]);
 const selected = targets.get(target);

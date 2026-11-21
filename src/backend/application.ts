@@ -7,6 +7,7 @@ import {
   validateRequest,
 } from "../contracts/application.ts";
 import type { DataRootIdentity } from "../contracts/process.ts";
+import { requestPolicy } from "../contracts/request_policy.ts";
 import { openDirectoryRoot } from "../shared/node/file_access.ts";
 import { createConversations } from "./agent/conversations.ts";
 import { createExtensionUi } from "./agent/extension_ui.ts";
@@ -20,9 +21,10 @@ import { relocateCatalog } from "./extensions/catalog_storage.ts";
 import { createPackageService, relocateModulePackages } from "./extensions/package_service.ts";
 import { createSkillHandlers } from "./extensions/skill_handlers.ts";
 import { openProjectStore } from "./projects/store.ts";
-import { requestPolicy } from "./request_policy.ts";
 import { createSettingsService } from "./settings/service.ts";
 import type { Handlers } from "./types.ts";
+
+const queueTimeout = () => new Error("后端请求排队超时，未执行。");
 
 /** 应用数据、Coding 服务与 Pi 会话的组合入口。 */
 export async function openApplication(options: {
@@ -50,7 +52,7 @@ export async function openApplication(options: {
   relocateModulePackages(dataRoot);
   const store = openProjectStore(dataRoot);
   const coding = createCodingFileService(store);
-  const codingGit = createCodingGitService(store, coding);
+  const codingGit = createCodingGitService(coding);
   let settings: Awaited<ReturnType<typeof createSettingsService>>;
   try {
     settings = await createSettingsService({ dataRoot, publish });
@@ -62,6 +64,7 @@ export async function openApplication(options: {
   const extensionUi = createExtensionUi(publish);
   const conversations = createConversations({
     store,
+    codingFiles: coding,
     dataRoot,
     settings,
     publish,
@@ -223,6 +226,8 @@ export async function openApplication(options: {
       return conversations.watch(id);
     },
 
+    "conversation.history": async ({ id, turnId, before }) =>
+      conversations.readHistory(id, turnId, before),
     "conversation.trace": async ({ id }) => conversations.trace(id),
     "conversation.traceDetail": async ({ id, entryId }) => conversations.traceDetail(id, entryId),
 
@@ -257,18 +262,42 @@ export async function openApplication(options: {
   let mutations = Promise.resolve();
   let closePromise: Promise<void> | undefined;
   return {
-    // 处理请求，方法名与参数作为输入，返回值作为输出。 区分串行并行处理。
-    async request<K extends Method>(method: K, args: Arguments<K>): Promise<Results[K]> {
+    async request<K extends Method>(
+      method: K,
+      args: Arguments<K>,
+      deadline?: number,
+    ): Promise<Results[K]> {
       if (closing) throw new Error("应用正在退出。");
       validateRequest(method, args);
+      if (deadline !== undefined && Date.now() >= deadline) throw queueTimeout();
       const policy = requestPolicy[method];
       if (policy === "interrupt" || policy === "read") return handlers[method](args);
-      const result = mutations.then(() => handlers[method](args));
-      mutations = result.then(
+      let expired = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const dispatched = mutations.then(async () => {
+        clearTimeout(timer);
+        if (expired || (deadline !== undefined && Date.now() >= deadline)) throw queueTimeout();
+        const response = handlers[method](args);
+        // 发送先在队列中占用会话，再独立等待 Pi 接受输入，避免插件交互阻塞其他会话。
+        return { response: policy === "start" ? response : await response };
+      });
+      mutations = dispatched.then(
         () => {},
         () => {},
       );
-      return result;
+      const result = dispatched.then(({ response }) => response);
+      if (deadline === undefined) return result;
+      // 等待期间可以放弃；一旦开始执行，调用方等待真实结果。
+      return new Promise((resolve, reject) => {
+        timer = setTimeout(
+          () => {
+            expired = true;
+            reject(queueTimeout());
+          },
+          Math.max(0, deadline - Date.now()),
+        );
+        void result.then(resolve, reject);
+      });
     },
 
     close() {

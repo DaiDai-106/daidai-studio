@@ -1,12 +1,14 @@
-import { type RefObject, useEffect, useRef, useState } from "react";
+import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
   AccessMode,
   ChatImage,
+  ConversationInfo,
   ConversationView,
   ModelChoice as Model,
   ShellApproval,
   ThinkingLevel,
 } from "../../../../contracts/application.ts";
+import type { ApplicationBridge } from "../../../../contracts/bridge.ts";
 import {
   formatFileReference,
   referenceDraft,
@@ -21,18 +23,20 @@ import {
 } from "../../coding/components/file_reference_picker.tsx";
 import { FileReferenceTags } from "../../coding/components/file_reference_tags.tsx";
 import { fileMention } from "../../coding/logic/file_mention.ts";
-import type { Conversation } from "../logic/types.ts";
+import { type ChatPosition, useConversationHistory } from "../logic/use_conversation_history.ts";
 import { useImageDrafts } from "../logic/use_image_drafts.ts";
+import { ConversationNavigation, type ConversationScrollPin } from "./conversation_navigation.tsx";
 import { ConversationTrace } from "./conversation_trace.tsx";
 import { ConversationTranscript } from "./conversation_transcript.tsx";
 import { ConversationUsage } from "./usage_details.tsx";
 
 interface Props {
   inputRef: RefObject<HTMLTextAreaElement | null>;
-  conversation: Conversation;
+  conversation: ConversationInfo;
+  isNewConversation: boolean;
   models: Model[];
   compact: boolean;
-  codingProjectId?: string;
+  projectId: string;
   onDraft: (value: string) => void;
   onModel: (id: string) => void;
   onThinking: (level: ThinkingLevel) => void;
@@ -44,10 +48,53 @@ interface Props {
   onResumeQueue: () => void;
   onConfigure: () => void;
   stream: ConversationView | null;
+  readHistory: ApplicationBridge["readConversationHistory"];
   shellApproval: ShellApproval | null;
   onShellApproval: (id: string, approved: boolean) => void;
   showThinking?: boolean;
   onStop: () => void;
+}
+
+const emptyMessages: ConversationView["messages"] = [];
+const emptyMarkers: ConversationView["history"]["markers"] = [];
+const historyScrollThreshold = 72;
+
+function imagePreviewFocused() {
+  return document.activeElement?.closest(".message-image-dialog");
+}
+
+function conversationTurn(area: HTMLElement, id: string) {
+  return area.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(id)}"]`);
+}
+
+function captureChatPosition(area: HTMLElement | null, pin: ConversationScrollPin | null) {
+  if (!area) return;
+  const top = area.getBoundingClientRect().top;
+  const pinnedTurn =
+    pin?.turnId && Math.abs(area.scrollTop - pin.top) < 2
+      ? conversationTurn(area, pin.turnId)
+      : null;
+  const turn =
+    pinnedTurn ??
+    Array.from(area.querySelectorAll<HTMLElement>("[data-turn-id]")).find(
+      (item) => item.getBoundingClientRect().bottom > top,
+    );
+  const turnId = turn?.dataset.turnId;
+  return turn && turnId
+    ? { turnId, offset: top - turn.getBoundingClientRect().top, pinned: !!pinnedTurn }
+    : undefined;
+}
+
+function restoreChatPosition(
+  area: HTMLElement,
+  position: ChatPosition,
+): ConversationScrollPin | null {
+  const turn = conversationTurn(area, position.turnId);
+  if (!turn) return null;
+  const bounds = turn.getBoundingClientRect();
+  const offset = position.offset < bounds.height ? position.offset : 0;
+  area.scrollTop += bounds.top - area.getBoundingClientRect().top + offset;
+  return { top: area.scrollTop, ...(position.pinned ? { turnId: position.turnId } : {}) };
 }
 
 export function ChatPanel(props: Props) {
@@ -56,13 +103,26 @@ export function ChatPanel(props: Props) {
   const referenceOpen = mention !== null;
   const [activeOption, setActiveOption] = useState<string | undefined>(undefined);
   const referencePicker = useRef<FileReferencePickerHandle>(null);
-  const draftParts = props.codingProjectId
-    ? splitReferenceDraft(props.conversation.draft, true)
-    : { text: props.conversation.draft, references: [] };
-  const end = useRef<HTMLDivElement>(null);
-  const messages = useRef<HTMLDivElement>(null);
+  const draftParts = splitReferenceDraft(props.conversation.draft, true);
+  const history = useConversationHistory(props.stream, props.readHistory);
+  const pauseHistory = history.pause;
+  const messages = history.messages ?? emptyMessages;
+  const scrollArea = useRef<HTMLDivElement>(null);
   const column = useRef<HTMLDivElement>(null);
   const following = useRef(true);
+  const conversationId = props.conversation.id;
+  const newConversationId = props.isNewConversation ? conversationId : null;
+  const previousConversation = useRef(conversationId);
+  const chatPosition = useRef<ChatPosition | undefined>(undefined);
+  const scrollPin = useRef<ConversationScrollPin | null>(null);
+  const previewPosition = useRef<ChatPosition | undefined>(undefined);
+  const onImagePreviewOpen = useCallback(() => {
+    following.current = false;
+    previewPosition.current = captureChatPosition(scrollArea.current, scrollPin.current);
+    pauseHistory({ keepWindow: true });
+  }, [pauseHistory]);
+  const lastScrollTop = useRef(0);
+  const appliedScroll = useRef<typeof history.scroll>(undefined);
   const picker = useRef<HTMLInputElement>(null);
   const activeModel = props.models.find((model) => model.id === props.conversation.modelId);
   const { images, imageError, addImages, removeImage, send } = useImageDrafts(
@@ -74,32 +134,84 @@ export function ChatPanel(props: Props) {
   const thinkingLevel = thinkingLevels.includes(props.conversation.thinkingLevel ?? "off")
     ? (props.conversation.thinkingLevel ?? "off")
     : (thinkingLevels[0] ?? "off");
-  const hasMessages = props.conversation.messages.length > 0;
   const approval =
-    props.shellApproval?.conversationId === props.conversation.id ? props.shellApproval : null;
-  const hasApproval = !!approval;
+    props.shellApproval?.conversationId === conversationId ? props.shellApproval : null;
+  const hasContent = !!(messages.length || props.stream?.busy || props.stream?.error || approval);
   useEffect(() => {
     if (!props.conversation.id) return;
     setMention(null);
-    following.current = true;
-    end.current?.scrollIntoView({ block: "end" });
+    setActiveOption(undefined);
   }, [props.conversation.id]);
+  useLayoutEffect(() => {
+    if (newConversationId) setView("chat");
+  }, [newConversationId]);
+  useLayoutEffect(() => {
+    const area = scrollArea.current;
+    if (!area) return;
+    if (previousConversation.current !== conversationId) {
+      previousConversation.current = conversationId;
+      chatPosition.current = undefined;
+    }
+    const position = view === "chat" ? chatPosition.current : null;
+    scrollPin.current = position ? restoreChatPosition(area, position) : null;
+    following.current = view === "chat" && !scrollPin.current;
+    if (!scrollPin.current) area.scrollTop = view === "chat" ? area.scrollHeight : 0;
+    lastScrollTop.current = area.scrollTop;
+  }, [conversationId, view]);
+  useLayoutEffect(() => {
+    const next = history.scroll;
+    const area = scrollArea.current;
+    if (!next || appliedScroll.current === next) return;
+    appliedScroll.current = next;
+    if (view !== "chat" || !area) return;
+    following.current = !next.anchor;
+    if (next.anchor) scrollPin.current = restoreChatPosition(area, next.anchor);
+    else {
+      scrollPin.current = null;
+      area.scrollTop = area.scrollHeight;
+    }
+    lastScrollTop.current = area.scrollTop;
+  }, [history.scroll, view]);
   useEffect(() => {
-    if ((!hasMessages && !props.stream?.busy && !hasApproval) || !column.current) return;
+    if (view !== "chat" || !hasContent || !column.current) return;
     // 用户停留在底部时才跟随流式内容，避免打断阅读。
     const observer = new ResizeObserver(() => {
+      const area = scrollArea.current;
+      if (!area) return;
+      if (imagePreviewFocused()) {
+        if (previewPosition.current)
+          scrollPin.current = restoreChatPosition(area, previewPosition.current);
+        return;
+      }
       const selection = window.getSelection();
       if (
+        history.hasNewer ||
         !following.current ||
         document.activeElement?.closest(".turn-process, .trace-record") ||
         (selection && !selection.isCollapsed)
       )
         return;
-      end.current?.scrollIntoView({ block: "end" });
+      area.scrollTop = area.scrollHeight;
     });
     observer.observe(column.current);
     return () => observer.disconnect();
-  }, [hasMessages, props.stream?.busy, hasApproval]);
+  }, [hasContent, history.hasNewer, view]);
+
+  function loadAdjacent(direction: "older" | "newer") {
+    void history.load(direction, () => captureChatPosition(scrollArea.current, scrollPin.current));
+  }
+
+  function loadAtEdge(area: HTMLElement, delta: number, threshold: number) {
+    if (history.status) return;
+    if (delta < 0 && history.hasOlder && area.scrollTop < threshold) loadAdjacent("older");
+    else if (
+      delta > 0 &&
+      history.hasNewer &&
+      area.scrollHeight - area.clientHeight - area.scrollTop < threshold
+    )
+      loadAdjacent("newer");
+  }
+
   return (
     <section className={`chat-panel ${props.compact ? "compact" : ""}`} aria-label="聊天">
       <div className="conversation-view-tabs" role="tablist" aria-label="对话视图">
@@ -114,46 +226,50 @@ export function ChatPanel(props: Props) {
             role="tab"
             key={id}
             aria-selected={view === id}
-            onClick={() => setView(id)}
+            onClick={() => {
+              if (id === view) return;
+              pauseHistory();
+              if (view === "chat")
+                chatPosition.current = following.current
+                  ? undefined
+                  : captureChatPosition(scrollArea.current, scrollPin.current);
+              setView(id);
+            }}
           >
             {label}
           </button>
         ))}
       </div>
-      {view === "chat" &&
-        props.conversation.messages.some((message) => message.role === "user") && (
-          <nav className="conversation-navigation" aria-label="跳转到用户消息">
-            {props.conversation.messages
-              .filter((message) => message.role === "user")
-              .map((message, index) => {
-                const label = message.text.trim().replace(/\s+/g, " ").slice(0, 80) || "图片消息";
-                return (
-                  <button
-                    key={message.id}
-                    type="button"
-                    aria-label={`跳转到第 ${index + 1} 条消息：${label}`}
-                    title={label}
-                    onClick={() => {
-                      const target = Array.from(
-                        messages.current?.querySelectorAll<HTMLElement>("[data-turn-id]") ?? [],
-                      ).find((element) => element.dataset.turnId === message.id);
-                      if (target) {
-                        following.current = false;
-                        target.scrollIntoView({ block: "start" });
-                      }
-                    }}
-                  />
-                );
-              })}
-          </nav>
-        )}
+      <ConversationNavigation
+        key={conversationId}
+        markers={props.stream?.history.markers ?? emptyMarkers}
+        messages={messages}
+        scrollArea={scrollArea}
+        scrollPin={scrollPin}
+        visible={view === "chat"}
+        onJump={history.jump}
+      />
       <div
         className="messages"
-        ref={messages}
+        ref={scrollArea}
         aria-live="polite"
         onScroll={() => {
-          const area = messages.current;
-          if (area) following.current = area.scrollHeight - area.clientHeight - area.scrollTop < 80;
+          const area = scrollArea.current;
+          if (!area || view !== "chat") return;
+          const previous = lastScrollTop.current;
+          const top = area.scrollTop;
+          lastScrollTop.current = top;
+          if (imagePreviewFocused()) return;
+          if (scrollPin.current && Math.abs(top - scrollPin.current.top) < 2) return;
+          scrollPin.current = null;
+          const bottom = area.scrollHeight - area.clientHeight - top;
+          following.current = !history.hasNewer && bottom < 80;
+          if (!following.current) history.keepReading();
+          loadAtEdge(area, top - previous, historyScrollThreshold);
+        }}
+        onWheel={(event) => {
+          if (view === "chat" && !imagePreviewFocused())
+            loadAtEdge(event.currentTarget, event.deltaY, 2);
         }}
       >
         {props.conversation.interrupted && (
@@ -161,21 +277,52 @@ export function ChatPanel(props: Props) {
             上次请求被中断。已保留聊天记录，请确认后重新发送。
           </p>
         )}
-        {view === "trace" || hasMessages || props.stream?.busy || approval ? (
+        {view === "trace" || hasContent ? (
           <div className={`message-column${view === "trace" ? " trace-column" : ""}`} ref={column}>
             {view === "trace" ? (
               <ConversationTrace
-                key={props.conversation.id}
-                conversationId={props.conversation.id}
+                key={conversationId}
+                conversationId={conversationId}
                 stream={props.stream}
               />
             ) : (
-              <ConversationTranscript
-                messages={props.conversation.messages}
-                stream={props.stream}
-                showThinking={props.showThinking ?? true}
-                model={activeModel?.name}
-              />
+              <>
+                {history.hasOlder && (
+                  <div className="history-actions">
+                    <button
+                      type="button"
+                      className="text-button"
+                      disabled={history.status?.loading}
+                      onClick={() => loadAdjacent("older")}
+                    >
+                      加载更早的消息
+                    </button>
+                  </div>
+                )}
+                <ConversationTranscript
+                  key={conversationId}
+                  messages={messages}
+                  stream={history.hasNewer ? null : props.stream}
+                  showThinking={props.showThinking ?? true}
+                  model={activeModel?.name}
+                  onImagePreviewOpen={onImagePreviewOpen}
+                />
+                {history.hasNewer && (
+                  <div className="history-actions">
+                    <button
+                      type="button"
+                      className="text-button"
+                      disabled={history.status?.loading}
+                      onClick={() => loadAdjacent("newer")}
+                    >
+                      加载较新的消息
+                    </button>
+                    <button type="button" className="text-button" onClick={history.showRecent}>
+                      回到最新消息
+                    </button>
+                  </div>
+                )}
+              </>
             )}
             {approval && (
               <section className="shell-approval" aria-label="确认执行命令">
@@ -199,15 +346,13 @@ export function ChatPanel(props: Props) {
                 </div>
               </section>
             )}
-            {props.stream?.error &&
-              props.stream.error !== props.conversation.messages.at(-1)?.text && (
-                <p className="error" role="alert">
-                  {props.stream.error}
-                </p>
-              )}
-            <div ref={end} />
+            {props.stream?.error && props.stream.error !== messages.at(-1)?.text && (
+              <p className="error" role="alert">
+                {props.stream.error}
+              </p>
+            )}
           </div>
-        ) : (
+        ) : props.stream ? (
           <div className="welcome">
             <div className="welcome-symbol">
               <Icon name="file" size={30} />
@@ -219,9 +364,14 @@ export function ChatPanel(props: Props) {
                 : "配置并选择模型后，开始讨论代码任务。"}
             </p>
           </div>
-        )}
+        ) : null}
       </div>
       <div className="composer-wrap">
+        {view === "chat" && history.status?.error && (
+          <p className="error" role="alert">
+            {history.status.error}
+          </p>
+        )}
         {!!props.stream?.queuedMessages?.length && (
           <section className="queued-messages" aria-label="待处理消息">
             <div className="queued-messages-header">
@@ -272,18 +422,17 @@ export function ChatPanel(props: Props) {
             </ul>
           </section>
         )}
-        {referenceOpen && props.codingProjectId && (
+        {mention && (
           <FileReferencePicker
             ref={referencePicker}
             onActiveOption={setActiveOption}
-            projectId={props.codingProjectId}
-            query={mention?.query ?? ""}
+            projectId={props.projectId}
+            query={mention.query}
             onClose={() => {
               setMention(null);
               props.inputRef.current?.focus();
             }}
             onSelect={(reference) => {
-              if (!mention) return;
               const draft =
                 draftParts.text.slice(0, mention.start) + draftParts.text.slice(mention.end);
               const references = [
@@ -342,7 +491,7 @@ export function ChatPanel(props: Props) {
               {imageError}
             </p>
           )}
-          {props.codingProjectId && draftParts.references.length > 0 && (
+          {draftParts.references.length > 0 && (
             <FileReferenceTags
               references={draftParts.references}
               onRemove={(index) =>
@@ -361,12 +510,12 @@ export function ChatPanel(props: Props) {
             placeholder="描述你的代码任务…"
             aria-controls={referenceOpen ? "file-reference-options" : undefined}
             aria-activedescendant={referenceOpen ? activeOption : undefined}
-            aria-autocomplete={props.codingProjectId ? "list" : undefined}
+            aria-autocomplete="list"
             value={draftParts.text}
             onChange={(event) => {
               props.onDraft(referenceDraft(event.target.value, draftParts.references));
               setMention(
-                props.codingProjectId && draftParts.references.length < 5
+                draftParts.references.length < 5
                   ? fileMention(event.target.value, event.target.selectionStart)
                   : null,
               );
@@ -421,21 +570,19 @@ export function ChatPanel(props: Props) {
                 event.target.value = "";
               }}
             />
-            {props.codingProjectId && (
-              <IconButton
-                icon="file"
-                label="引用项目文件"
-                disabled={draftParts.references.length >= 5}
-                onClick={() => {
-                  const input = props.inputRef.current;
-                  const caret = input?.selectionStart ?? draftParts.text.length;
-                  setMention(
-                    fileMention(draftParts.text, caret) ?? { start: caret, end: caret, query: "" },
-                  );
-                  input?.focus();
-                }}
-              />
-            )}
+            <IconButton
+              icon="file"
+              label="引用项目文件"
+              disabled={draftParts.references.length >= 5}
+              onClick={() => {
+                const input = props.inputRef.current;
+                const caret = input?.selectionStart ?? draftParts.text.length;
+                setMention(
+                  fileMention(draftParts.text, caret) ?? { start: caret, end: caret, query: "" },
+                );
+                input?.focus();
+              }}
+            />
             <IconButton icon="image" label="添加图片" onClick={() => picker.current?.click()} />
             <span className="composer-picker mode-button" title="项目模式">
               <Icon name="chat" size={16} />

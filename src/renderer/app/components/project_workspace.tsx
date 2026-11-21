@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { FileReference } from "../../../shared/file_references.ts";
 import { ChatPanel } from "../../features/chat/components/chat_panel.tsx";
 import { ExtensionUiDialog } from "../../features/chat/components/extension_ui_dialog.tsx";
 import { Welcome } from "../../features/chat/components/welcome.tsx";
@@ -27,6 +28,7 @@ export function ProjectWorkspace({
   application,
   workbench,
   configuration,
+  staticPreviewAvailable,
   onConfigure,
   hidden,
   blocked,
@@ -35,6 +37,7 @@ export function ProjectWorkspace({
   application: ApplicationState;
   workbench: ReturnType<typeof useWorkbench>;
   configuration: ReturnType<typeof useSettings>;
+  staticPreviewAvailable: boolean;
   onConfigure(): void;
   hidden: boolean;
   blocked: boolean;
@@ -77,7 +80,7 @@ export function ProjectWorkspace({
         coding.open({ type: "preview", url });
         setMobileTab("code");
       },
-      openFile: (reference: import("../../../shared/file_references.ts").FileReference) => {
+      openFile: (reference: FileReference) => {
         coding.open({ type: "file", ...reference });
         setMobileTab("code");
       },
@@ -134,8 +137,9 @@ export function ProjectWorkspace({
             <ChatPanel
               inputRef={messageInput}
               conversation={active}
+              isNewConversation={workbench.isNewConversation}
               compact={codingPanel.open}
-              codingProjectId={project.id}
+              projectId={project.id}
               models={models}
               onDraft={(draft) => workbench.update({ draft })}
               onModel={(modelId) => workbench.update({ modelId })}
@@ -163,7 +167,8 @@ export function ProjectWorkspace({
                 void application.run(() => application.api.resumeConversationQueue(active.id))
               }
               onConfigure={onConfigure}
-              stream={application.view}
+              stream={workbench.activeView}
+              readHistory={application.api.readConversationHistory}
               shellApproval={application.workspace?.shellApproval ?? null}
               onShellApproval={(id, approved) =>
                 void application.run(() => application.api.respondShell(id, approved))
@@ -196,6 +201,7 @@ export function ProjectWorkspace({
         <CodingWorkspace
           key={project.id}
           projectId={project.id}
+          staticPreviewAvailable={staticPreviewAvailable}
           hidden={!codingPanel.open}
           onToggle={() => showCodingPanel(!codingPanel.open)}
           previewEnabled={

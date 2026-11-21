@@ -1,4 +1,4 @@
-import type { Method } from "../contracts/application.ts";
+import type { Method } from "./application.ts";
 
 // 每个命令必须显式选择调度方式；响应与取消不能等待普通写入队列。
 export const requestPolicy = {
@@ -13,20 +13,20 @@ export const requestPolicy = {
   "catalog.packageAction": "mutation",
   "workspace.get": "read",
   "usage.dashboard": "read",
-  "provider.types": "mutation",
-  "provider.models": "mutation",
+  "provider.types": "read",
+  "provider.models": "read",
   "provider.save": "mutation",
   "provider.remove": "mutation",
   "settings.update": "mutation",
   "auth.start": "mutation",
   "auth.answer": "mutation",
   "auth.cancel": "mutation",
-  "auth.status": "mutation",
-  "auth.open": "mutation",
+  "auth.status": "read",
+  "auth.open": "read",
   "project.create": "mutation",
   "project.refresh": "read",
   "project.remove": "mutation",
-  "project.hidden": "mutation",
+  "project.hidden": "read",
   "project.restore": "mutation",
   "coding.list": "read",
   "coding.read": "read",
@@ -44,12 +44,13 @@ export const requestPolicy = {
   "conversation.delete": "mutation",
   "conversation.update": "mutation",
   "conversation.watch": "read",
+  "conversation.history": "read",
   "conversation.trace": "read",
   "conversation.traceDetail": "read",
-  "conversation.send": "mutation",
+  "conversation.send": "start",
   "conversation.stop": "interrupt",
   "conversation.cancelQueued": "mutation",
   "conversation.promoteQueued": "mutation",
-  "conversation.resumeQueue": "mutation",
+  "conversation.resumeQueue": "start",
   "shell.respond": "interrupt",
-} as const satisfies Record<Method, "read" | "interrupt" | "mutation">;
+} as const satisfies Record<Method, "read" | "interrupt" | "mutation" | "start">;

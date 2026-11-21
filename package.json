@@ -18,7 +18,7 @@
   "scripts": {
     "dev": "npm run build:icons && electron-vite dev",
     "start": "electron-vite preview",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc",
     "lint": "biome check .",
     "format": "biome format --write .",
     "build:icons": "node --experimental-strip-types scripts/icons.ts",
@@ -27,9 +27,7 @@
     "check": "npm run lint && npm test",
     "package:dir": "npm run build && node --experimental-strip-types electron.package.ts",
     "package:deb": "npm run build && node --experimental-strip-types electron.package.ts --deb",
-    "package:mac": "npm run build && node --experimental-strip-types electron.package.ts --mac",
-    "package:win": "npm run build && node --experimental-strip-types electron.package.ts --win",
-    "package": "npm run package:dir"
+    "package:win": "npm run build && node --experimental-strip-types electron.package.ts --win"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "1.5.2",
@@ -42,8 +40,6 @@
     "@radix-ui/react-dropdown-menu": "2.2.1",
     "@radix-ui/react-tooltip": "1.4.1",
     "@resvg/resvg-js": "2.6.2",
-    "@swc/core": "1.16.20",
-    "@types/debug": "4.1.13",
     "@types/node": "22.19.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",

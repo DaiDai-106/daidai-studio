@@ -21,6 +21,6 @@ npm ci
 npm run dev
 ```
 
-本地打包按平台运行 `npm run package:win`、`npm run package:deb` 或 `npm run package:mac`。
+本地打包可运行 `npm run package:win` 或 `npm run package:deb`。macOS 安装包由 GitHub Actions 随版本标签发布。 [发布说明](spec/release.md)
 
 [更新日志](CHANGELOG.md) · [详细文档](spec/README.md)

@@ -4,26 +4,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { _electron as electron } from "playwright";
-import { openTestProject } from "./support.ts";
+import { launchElectron, openTestProject } from "./support.ts";
 
 test("switching conversations and quitting immediately persist the latest draft", {
   timeout: 45000,
 }, async () => {
   const profile = await mkdtemp(join(tmpdir(), "dai-drafts-"));
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] =>
-        entry[0] !== "ELECTRON_RUN_AS_NODE" && entry[1] !== undefined,
-    ),
-  );
-  const launch = () =>
-    electron.launch({
-      args: [process.cwd(), `--user-data-dir=${profile}`],
-      env,
-      chromiumSandbox: true,
-    });
-  let application = await launch();
+  let application = await launchElectron(profile);
   try {
     let page = await application.firstWindow();
     page.setDefaultTimeout(8000);
@@ -44,7 +31,7 @@ test("switching conversations and quitting immediately persist the latest draft"
     const exited = once(application.process(), "exit");
     await application.evaluate(({ app }) => app.quit());
     await exited;
-    application = await launch();
+    application = await launchElectron(profile);
     page = await application.firstWindow();
     page.setDefaultTimeout(8000);
     const workspace = await page.evaluate(() => window.desktop.application.getWorkspace());
@@ -58,10 +45,19 @@ test("switching conversations and quitting immediately persist the latest draft"
       await page.getByRole("textbox", { name: "消息内容" }).inputValue(),
       "退出前的草稿",
     );
+    const intro = page.getByRole("heading", { name: "从代码任务开始", exact: true });
+    await intro.waitFor();
     const restored = await page.evaluate(async () =>
       (await window.desktop.application.getWorkspace()).conversations.map((item) => item.draft),
     );
     assert.ok(restored.includes("切换前的草稿"));
+    await page.getByRole("tab", { name: "轨迹", exact: true }).click();
+    await page.getByRole("button", { name: "新建对话", exact: true }).first().click();
+    await intro.waitFor();
+    assert.equal(
+      await page.getByRole("tab", { name: "聊天", exact: true }).getAttribute("aria-selected"),
+      "true",
+    );
   } finally {
     await application.close();
     await rm(profile, { recursive: true, force: true });

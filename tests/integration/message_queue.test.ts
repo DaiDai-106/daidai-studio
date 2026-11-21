@@ -4,8 +4,7 @@ import { createServer, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { _electron as electron } from "playwright";
-import { openTestProject } from "./support.ts";
+import { launchElectron, openTestProject } from "./support.ts";
 
 test("运行中默认排队，箭头升级插话，可取消单条并在停止后继续", { timeout: 60000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "dai-queue-ui-"));
@@ -26,16 +25,7 @@ test("运行中默认排队，箭头升级插话，可取消单条并在停止�
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
   const address = server.address();
   assert.ok(address && typeof address === "object");
-  const app = await electron.launch({
-    args: [process.cwd(), `--user-data-dir=${join(root, "profile")}`],
-    env: Object.fromEntries(
-      Object.entries(process.env).filter(
-        (entry): entry is [string, string] =>
-          entry[0] !== "ELECTRON_RUN_AS_NODE" && entry[1] !== undefined,
-      ),
-    ),
-    chromiumSandbox: true,
-  });
+  const app = await launchElectron(join(root, "profile"));
   try {
     const page = await app.firstWindow();
     page.setDefaultTimeout(10000);

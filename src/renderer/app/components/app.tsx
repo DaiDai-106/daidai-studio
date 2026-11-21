@@ -106,7 +106,6 @@ export function App() {
               )
               .map((item) => item.projectId)}
             version={info?.version ?? "…"}
-            onSelectProject={workbench.selectProject}
             onOpen={() => setDialog({ type: "createProject" })}
             onRemove={workbench.removeProject}
             onSettings={setSettings}
@@ -164,6 +163,7 @@ export function App() {
             application={application}
             workbench={workbench}
             configuration={configuration}
+            staticPreviewAvailable={info?.staticPreviewAvailable ?? false}
             onConfigure={() => setSettings("ai")}
             hidden={settings !== null}
             blocked={dialog !== null}

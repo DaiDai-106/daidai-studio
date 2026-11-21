@@ -9,7 +9,8 @@ import {
   validateResult,
   validEvent,
 } from "../../contracts/application.ts";
-import type { BackendMessage } from "../../contracts/process.ts";
+import type { BackendMessage, BackendRequest } from "../../contracts/process.ts";
+import { requestPolicy } from "../../contracts/request_policy.ts";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -21,7 +22,7 @@ export function connectBackend(child: UtilityProcess, publish: (event: Applicati
     {
       resolve: (value: unknown) => void;
       reject: (error: Error) => void;
-      timer: ReturnType<typeof setTimeout>;
+      timer: ReturnType<typeof setTimeout> | undefined;
     }
   >();
 
@@ -51,14 +52,29 @@ export function connectBackend(child: UtilityProcess, publish: (event: Applicati
     pending.clear();
   });
 
-  function send(message: object, validate: (value: unknown) => void): Promise<unknown> {
+  function send(
+    method: Method,
+    args: Arguments<Method>,
+    validate: (value: unknown) => void,
+  ): Promise<unknown> {
     if (exited) return Promise.reject(new Error("应用后端已退出。"));
     return new Promise((resolve, reject) => {
       const id = randomUUID();
-      const timer = setTimeout(() => {
-        pending.delete(id);
-        reject(new Error("后端请求超时，请检查当前状态后再试。"));
-      }, REQUEST_TIMEOUT_MS);
+      const message: BackendRequest = {
+        type: "request",
+        version: 1,
+        id,
+        method,
+        args,
+        deadline: Date.now() + REQUEST_TIMEOUT_MS,
+      };
+      const timer =
+        requestPolicy[method] === "read"
+          ? setTimeout(() => {
+              pending.delete(id);
+              reject(new Error("后端查询超时，请重试。"));
+            }, REQUEST_TIMEOUT_MS)
+          : undefined;
       pending.set(id, {
         resolve: (value) => {
           try {
@@ -71,16 +87,20 @@ export function connectBackend(child: UtilityProcess, publish: (event: Applicati
         reject,
         timer,
       });
-      child.postMessage({ ...message, version: 1, id });
+      try {
+        child.postMessage(message);
+      } catch (error) {
+        pending.delete(id);
+        clearTimeout(timer);
+        reject(error);
+      }
     });
   }
 
   return {
     async request<K extends Method>(method: K, args: Arguments<K>): Promise<Results[K]> {
       validateRequest(method, args);
-      const value = await send({ type: "request", method, args }, (value) =>
-        validateResult(method, value),
-      );
+      const value = await send(method, args, (value) => validateResult(method, value));
       return value as Results[K];
     },
   };
