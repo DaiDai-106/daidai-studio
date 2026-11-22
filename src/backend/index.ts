@@ -11,10 +11,12 @@ if (!root) throw new Error("The application data directory is required.");
 
 const rootDev = process.argv[3];
 const rootIno = process.argv[4];
+const stepWorkerDirectory = process.argv[5];
 if (Boolean(rootDev) !== Boolean(rootIno)) throw new Error("应用数据根身份不完整。");
 let shutdown = false;
 const runtime = openApplication({
   dataRoot: root,
+  ...(stepWorkerDirectory ? { stepWorkerDirectory } : {}),
   ...(rootDev && rootIno ? { expectedRoot: { dev: rootDev, ino: rootIno } } : {}),
   publish: (event) => {
     parent.postMessage({ type: "event", event });

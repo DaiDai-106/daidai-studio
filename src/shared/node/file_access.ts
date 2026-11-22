@@ -51,6 +51,7 @@ export async function readFileResource(
   root: FileHandle,
   parts: readonly string[],
   maxBytes: number,
+  signal?: AbortSignal,
 ) {
   const parent = await openRelativeDirectory(root, parts.slice(0, -1));
   try {
@@ -61,7 +62,7 @@ export async function readFileResource(
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
     );
     try {
-      return await readBoundedFile(file, maxBytes);
+      return await readBoundedFile(file, maxBytes, signal);
     } finally {
       await file.close();
     }
@@ -70,17 +71,26 @@ export async function readFileResource(
   }
 }
 
-export async function readBoundedFile(file: FileHandle, maxBytes: number) {
+export async function readBoundedFile(file: FileHandle, maxBytes: number, signal?: AbortSignal) {
+  signal?.throwIfAborted();
   const info = await file.stat();
   if (!info.isFile() || info.size > maxBytes)
     throw new Error(`文件不是普通文件或超过 ${maxBytes / 1024 / 1024} MiB。`);
-  const data = Buffer.alloc(maxBytes + 1);
+  // 按已知尺寸分配。额外预留一个字节，检查读取期间是否增长。
+  let data = Buffer.allocUnsafe(info.size + 1);
   let length = 0;
-  while (length < data.length) {
-    const result = await file.read(data, length, data.length - length, length);
-    if (!result.bytesRead) break;
-    length += result.bytesRead;
+  for (;;) {
+    signal?.throwIfAborted();
+    const size = Math.min(data.length - length, 1024 * 1024);
+    const { bytesRead } = await file.read(data, length, size, length);
+    signal?.throwIfAborted();
+    if (!bytesRead) return data.subarray(0, length);
+    length += bytesRead;
+    if (length > maxBytes) throw new Error(`文件超过 ${maxBytes / 1024 / 1024} MiB。`);
+    if (length === data.length) {
+      const grown = Buffer.allocUnsafe(Math.min(data.length * 2, maxBytes + 1));
+      data.copy(grown);
+      data = grown;
+    }
   }
-  if (length > maxBytes) throw new Error(`文件超过 ${maxBytes / 1024 / 1024} MiB。`);
-  return data.subarray(0, length);
 }

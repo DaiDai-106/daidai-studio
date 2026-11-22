@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { app, type BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain, shell } from "electron";
+import {
+  app,
+  type BrowserWindow,
+  dialog,
+  type IpcMainInvokeEvent,
+  ipcMain,
+  type OpenDialogOptions,
+  shell,
+} from "electron";
 import { Value } from "typebox/value";
 import { type Arguments, type Method, validateRequest } from "../../contracts/application.ts";
 import type { Theme } from "../../contracts/desktop.ts";
@@ -10,6 +18,9 @@ import {
   PROJECT_CREATE_CHANNEL,
   PROJECT_DIRECTORY_CHANNEL,
   REQUEST_CHANNEL,
+  SCENE_EXPORT_CHANNEL,
+  SCENE_IMPORT_CHANNEL,
+  SCENE_STEP_MESSAGE_CHANNEL,
   SKILL_IMPORT_CHANNEL,
   THEME_CHANNEL,
   THEMES_CHANNEL,
@@ -68,6 +79,13 @@ export function registerDesktopIpc(context: DesktopIpcContext): void {
     return client;
   }
 
+  async function choosePath(options: OpenDialogOptions) {
+    const window = context.getWindow();
+    if (!window) throw new Error("应用窗口不可用。");
+    const { canceled, filePaths } = await dialog.showOpenDialog(window, options);
+    if (!canceled) return filePaths[0];
+  }
+
   ipcMain.handle(APP_INFO_CHANNEL, (event): AppInfo => {
     if (!isTrustedFrame(event, context.getWindow())) {
       throw new Error("App information is only available to the main application frame.");
@@ -116,7 +134,11 @@ export function registerDesktopIpc(context: DesktopIpcContext): void {
     if (method === "project.create")
       throw new Error("项目路径只能由主进程创建或通过系统文件夹选择器授权。");
     if (method === "skill.library.import")
-      throw new Error("文件和技能目录只能通过系统选择器或拖拽授权。");
+      throw new Error("技能目录只能通过系统选择器或拖拽授权。");
+    if (method === "scene.import" || method === "scene.importStep" || method === "scene.export")
+      throw new Error("模型路径必须通过系统选择器授权。");
+    if (method === "conversation.send" && (args as Arguments<"conversation.send">).stepPath)
+      throw new Error("请选择或拖入本机 STEP 文件。");
 
     if (method === "auth.open") {
       const { id } = args as { id: string };
@@ -131,16 +153,62 @@ export function registerDesktopIpc(context: DesktopIpcContext): void {
     return backend.request(method, args as Arguments<Method>);
   });
 
+  ipcMain.handle(SCENE_STEP_MESSAGE_CHANNEL, (event, input: Arguments<"conversation.send">) => {
+    const backend = trustedClient(event);
+    validateRequest("conversation.send", input);
+    if (!input.stepPath) throw new Error("请选择或拖入本机 STEP 文件。");
+    return backend.request("conversation.send", input);
+  });
+
+  ipcMain.handle(
+    SCENE_IMPORT_CHANNEL,
+    async (event, projectId: string, expectedRevision: number, format: unknown) => {
+      const backend = trustedClient(event);
+      if (format !== "urdf" && format !== "step" && format !== "step-source")
+        throw new Error("场景导入格式无效。");
+      const step = format !== "urdf";
+      const method = step ? "scene.importStep" : "scene.import";
+      validateRequest(method, { projectId, expectedRevision, path: "" });
+      const path = await choosePath({
+        title: format === "step-source" ? "补充原始 STEP" : step ? "导入 STEP" : "导入 URDF",
+        filters: [
+          step
+            ? { name: "STEP", extensions: ["step", "stp"] }
+            : { name: "URDF", extensions: ["urdf"] },
+        ],
+        properties: ["openFile"],
+      });
+      if (!path) return null;
+      return backend.request(method, {
+        projectId,
+        expectedRevision,
+        path,
+        ...(format === "step-source" ? { sourceOnly: true } : {}),
+      });
+    },
+  );
+
+  ipcMain.handle(
+    SCENE_EXPORT_CHANNEL,
+    async (event, projectId: string, expectedRevision: number) => {
+      const backend = trustedClient(event);
+      validateRequest("scene.export", { projectId, expectedRevision, directory: "" });
+      const directory = await choosePath({
+        title: "选择 URDF 导出目录",
+        properties: ["openDirectory", "createDirectory"],
+      });
+      if (!directory) return null;
+      return backend.request("scene.export", { projectId, expectedRevision, directory });
+    },
+  );
+
   ipcMain.handle(PROJECT_DIRECTORY_CHANNEL, async (event) => {
     trustedClient(event);
-    const window = context.getWindow();
-    if (!window) throw new Error("应用窗口不可用。");
-    const result = await dialog.showOpenDialog(window, {
+    const path = await choosePath({
       title: "选择项目文件夹",
       properties: ["openDirectory"],
     });
-    const path = result.filePaths[0];
-    if (result.canceled || !path) return null;
+    if (!path) return null;
     selectedDirectory = { token: randomUUID(), path, creating: false };
     return { token: selectedDirectory.token, path };
   });
@@ -153,7 +221,8 @@ export function registerDesktopIpc(context: DesktopIpcContext): void {
       typeof name !== "string" ||
       !name.trim() ||
       (directoryToken !== undefined && typeof directoryToken !== "string") ||
-      mode !== "coding"
+      (mode !== "coding" && mode !== "scene") ||
+      (mode === "scene" && directoryToken !== undefined)
     )
       throw new Error("无效的项目配置。");
 
@@ -185,14 +254,11 @@ export function registerDesktopIpc(context: DesktopIpcContext): void {
 
   ipcMain.handle(SKILL_IMPORT_CHANNEL, async (event) => {
     const backend = trustedClient(event);
-    const window = context.getWindow();
-    if (!window) throw new Error("应用窗口不可用。");
-    const result = await dialog.showOpenDialog(window, {
+    const path = await choosePath({
       title: "选择技能目录",
       properties: ["openDirectory"],
     });
-    const path = result.filePaths[0];
-    if (result.canceled || !path) return null;
+    if (!path) return null;
     return backend.request("skill.library.import", { path });
   });
 }

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { ApplicationEvent, Arguments, Method, Results } from "../../contracts/application.ts";
 import {
   APP_INFO_CHANNEL,
@@ -10,6 +10,9 @@ import {
   QUIT_FLUSH_READY_CHANNEL,
   QUIT_FLUSH_REGISTER_CHANNEL,
   REQUEST_CHANNEL,
+  SCENE_EXPORT_CHANNEL,
+  SCENE_IMPORT_CHANNEL,
+  SCENE_STEP_MESSAGE_CHANNEL,
   SKILL_IMPORT_CHANNEL,
   THEME_CHANNEL,
   THEMES_CHANNEL,
@@ -93,6 +96,14 @@ const desktop: DesktopBridge = {
     listHiddenProjects: () => call("project.hidden", {}),
     restoreProject: (id) => call("project.restore", { id }),
 
+    getScene: (projectId) => call("scene.get", { projectId }),
+    applyScene: (input) => call("scene.apply", input),
+    importScene: (projectId, expectedRevision, format) =>
+      ipcRenderer.invoke(SCENE_IMPORT_CHANNEL, projectId, expectedRevision, format),
+    cancelStep: (projectId) => call("scene.cancelStep", { projectId }),
+    exportUrdf: (projectId, expectedRevision) =>
+      ipcRenderer.invoke(SCENE_EXPORT_CHANNEL, projectId, expectedRevision),
+    readSceneAsset: (projectId, asset) => call("scene.asset", { projectId, asset }),
     listCodingFiles: (projectId, path, offset, snapshot) =>
       call("coding.list", { projectId, path, offset, ...(snapshot ? { snapshot } : {}) }),
     searchCodingFiles: (projectId, query) => call("coding.search", { projectId, query }),
@@ -120,14 +131,19 @@ const desktop: DesktopBridge = {
     readConversationHistory: (input) => call("conversation.history", input),
     getConversationTrace: (id) => call("conversation.trace", { id }),
     getTraceDetail: (id, entryId) => call("conversation.traceDetail", { id, entryId }),
-    sendMessage: (id, requestId, text, images, delivery) =>
-      call("conversation.send", {
+    async sendMessage(id, requestId, text, images, delivery, step) {
+      const input = {
         id,
         requestId,
         text,
         ...(images?.length ? { images } : {}),
         ...(delivery ? { delivery } : {}),
-      }),
+      };
+      if (!step) return call("conversation.send", input);
+      const stepPath = webUtils.getPathForFile(step);
+      if (!stepPath) throw new Error("请选择本机上的 STEP 文件。");
+      return ipcRenderer.invoke(SCENE_STEP_MESSAGE_CHANNEL, { ...input, stepPath });
+    },
     stopConversation: (id) => call("conversation.stop", { id }),
     cancelQueuedMessage: (id, messageId) => call("conversation.cancelQueued", { id, messageId }),
     promoteQueuedMessage: (id, messageId) => call("conversation.promoteQueued", { id, messageId }),

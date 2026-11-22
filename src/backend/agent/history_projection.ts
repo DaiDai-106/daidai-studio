@@ -1,5 +1,6 @@
 import { contentText } from "@earendil-works/pi-ai";
 import type { SessionEntry, SessionManager, SessionStats } from "@earendil-works/pi-coding-agent";
+import { splitStepMessage } from "../../shared/step_attachment.ts";
 import { projectPiHistory } from "./pi_projection.ts";
 import { type ModelContext, projectUsage } from "./pi_usage.ts";
 
@@ -13,13 +14,15 @@ function userText(entry: SessionEntry | undefined) {
 function indexBranch(branch: SessionEntry[]) {
   const starts: number[] = [];
   const markers = branch.flatMap((entry, index) => {
-    const text = userText(entry);
-    if (text === undefined) return [];
+    const message = userText(entry);
+    if (message === undefined) return [];
+    const { text, stepAttachment } = splitStepMessage(message);
+    const label = text.slice(0, 240).trim() || stepAttachment?.name || "图片消息";
     starts.push(index);
     return [
       {
         id: entry.id,
-        label: text.slice(0, 240).trim().replace(/\s+/g, " ").slice(0, 80) || "图片消息",
+        label: label.replace(/\s+/g, " ").slice(0, 80),
       },
     ];
   });

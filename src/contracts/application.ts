@@ -1,7 +1,6 @@
 import { MODEL_THINKING_LEVELS } from "@earendil-works/pi-ai/providers/model-schema";
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
-import { ConversationModeSchema } from "./capabilities.ts";
 import {
   CatalogTaskSchema,
   catalogCommands,
@@ -9,9 +8,18 @@ import {
   PluginModuleSchema,
   PluginScopeSchema,
 } from "./catalog.ts";
+import {
+  maxSceneAssetBytes,
+  SceneAssetSchema,
+  SceneOperationSchema,
+  SceneRevisionSchema,
+  SceneSnapshotSchema,
+  StepAttachmentSchema,
+} from "./scene.ts";
 import { id, object } from "./schema.ts";
 
 const text = (maxLength = 200) => Type.String({ maxLength });
+const ProjectModeSchema = Type.Enum(["coding", "scene"]);
 
 // Pi 1.5 的 schema 使用 pi-schema；应用 IPC 仍使用 TypeBox 校验。
 const ModelThinkingLevelSchema = Type.Enum(MODEL_THINKING_LEVELS);
@@ -187,7 +195,7 @@ const commands = {
   "auth.open": object({ id }),
   "project.create": object({
     name: Type.String({ minLength: 1, maxLength: 200 }),
-    mode: ConversationModeSchema,
+    mode: ProjectModeSchema,
     path: Type.String({ minLength: 1, maxLength: 4096 }),
   }),
   "project.refresh": object({ id }),
@@ -208,6 +216,30 @@ const commands = {
     path: text(4096),
     kind: Type.Union([Type.Literal("staged"), Type.Literal("unstaged"), Type.Literal("untracked")]),
   }),
+  "scene.get": object({ projectId: id }),
+  "scene.apply": object({
+    projectId: id,
+    expectedRevision: SceneRevisionSchema,
+    operation: SceneOperationSchema,
+  }),
+  "scene.import": object({
+    projectId: id,
+    expectedRevision: SceneRevisionSchema,
+    path: text(4096),
+  }),
+  "scene.importStep": object({
+    projectId: id,
+    expectedRevision: SceneRevisionSchema,
+    path: text(4096),
+    sourceOnly: Type.Optional(Type.Boolean()),
+  }),
+  "scene.cancelStep": object({ projectId: id }),
+  "scene.export": object({
+    projectId: id,
+    directory: text(4096),
+    expectedRevision: Type.Optional(SceneRevisionSchema),
+  }),
+  "scene.asset": object({ projectId: id, asset: SceneAssetSchema }),
   "extension.ui.respond": object({
     requestId: id,
     cancelled: Type.Boolean(),
@@ -249,6 +281,7 @@ const commands = {
     delivery: Type.Optional(DeliveryModeSchema),
     text: Type.String({ maxLength: 100000 }),
     images: Type.Optional(Type.Array(ChatImageSchema, { maxItems: 3 })),
+    stepPath: Type.Optional(Type.String({ minLength: 1, maxLength: 4096 })),
   }),
   "conversation.stop": object({ id }),
   "conversation.cancelQueued": object({ id, messageId: id }),
@@ -277,7 +310,7 @@ const ProviderInfoSchema = object({
 const ProjectInfoSchema = object({
   id,
   name: text(4096),
-  mode: ConversationModeSchema,
+  mode: ProjectModeSchema,
   path: text(4096),
   available: Type.Union([Type.Boolean(), Type.Null()]),
 });
@@ -287,7 +320,7 @@ const ConversationInfoSchema = object({
   createdAt: Type.Integer({ minimum: 0 }),
   projectId: id,
   title: text(),
-  mode: ConversationModeSchema,
+  mode: ProjectModeSchema,
   modelId: text(500),
   thinkingLevel: Type.Optional(ModelThinkingLevelSchema),
   accessMode: Type.Optional(AccessModeSchema),
@@ -315,6 +348,7 @@ const MessageInfoSchema = object({
   ]),
   text: text(4_000_000),
   images: Type.Optional(Type.Array(ChatImageSchema, { maxItems: 3 })),
+  stepAttachment: Type.Optional(StepAttachmentSchema),
   failed: Type.Boolean(),
   response: Type.Optional(ResponseSchema),
   blocks: Type.Optional(Type.Array(MessageBlockSchema)),
@@ -398,6 +432,7 @@ const ConversationViewSchema = object({
         text: text(1000),
         delivery: DeliveryModeSchema,
         imageCount: Type.Integer({ minimum: 0, maximum: 3 }),
+        stepAttachment: Type.Optional(StepAttachmentSchema),
         delivering: Type.Boolean(),
         paused: Type.Boolean(),
       }),
@@ -515,6 +550,13 @@ const resultSchemas = {
     truncated: Type.Boolean(),
   }),
   "coding.diff": object({ patch: text(4_194_304), untracked: Type.Boolean() }),
+  "scene.get": SceneSnapshotSchema,
+  "scene.apply": SceneSnapshotSchema,
+  "scene.import": SceneSnapshotSchema,
+  "scene.importStep": SceneSnapshotSchema,
+  "scene.cancelStep": Type.Null(),
+  "scene.export": object({ path: text(4096) }),
+  "scene.asset": Type.String({ maxLength: 4 * Math.ceil(maxSceneAssetBytes / 3) }),
   "extension.ui.respond": Type.Null(),
   "skill.library.list": Type.Array(ManagedSkillSchema),
   "skill.library.read": Type.String({ maxLength: 1_000_000 }),
@@ -555,6 +597,12 @@ const EventSchema = Type.Union([
   }),
   object({ type: Type.Literal("extension.ui.request"), request: ExtensionUiRequestSchema }),
   object({ type: Type.Literal("extension.ui.dismissed"), requestId: id, conversationId: id }),
+  object({
+    type: Type.Literal("scene.document"),
+    projectId: id,
+    snapshot: SceneSnapshotSchema,
+    replaced: Type.Optional(Type.Literal(true)),
+  }),
   object({ type: Type.Literal("workspace") }),
   object({ type: Type.Literal("conversationDeleted"), id }),
   object({ type: Type.Literal("conversation"), view: ConversationViewSchema }),

@@ -6,16 +6,11 @@ import type {
   AccessMode,
   ChatImage,
   DeliveryMode,
+  ProjectInfo,
   ThinkingLevel,
 } from "../../contracts/application.ts";
-import type { ConversationMode } from "../../contracts/capabilities.ts";
 
-interface StoredProject {
-  id: string;
-  name: string;
-  mode: ConversationMode;
-  path: string;
-}
+type StoredProject = Omit<ProjectInfo, "available">;
 
 export interface StoredConversation {
   id: string;
@@ -58,6 +53,7 @@ export interface QueuedMessage {
   text: string;
   delivery: DeliveryMode;
   images?: ChatImage[];
+  stepAttachmentId?: string;
 }
 
 /** Dai 自身的数据位于数据根目录；项目路径只是工具的工作目录。 */
@@ -101,7 +97,7 @@ export function openProjectStore(dataRoot: string) {
   function project(id: string): StoredProject | undefined {
     return db
       .prepare(
-        "SELECT id, name, mode, path FROM projects WHERE id = ? AND hidden = 0 AND mode = 'coding'",
+        "SELECT id, name, mode, path FROM projects WHERE id = ? AND hidden = 0 AND mode IN ('coding', 'scene')",
       )
       .get(id) as StoredProject | undefined;
   }
@@ -109,7 +105,7 @@ export function openProjectStore(dataRoot: string) {
   function listProjects(hidden: boolean): StoredProject[] {
     return db
       .prepare(
-        "SELECT id, name, mode, path FROM projects WHERE hidden = ? AND mode = 'coding' ORDER BY created_at DESC, rowid DESC",
+        "SELECT id, name, mode, path FROM projects WHERE hidden = ? AND mode IN ('coding', 'scene') ORDER BY created_at DESC, rowid DESC",
       )
       .all(Number(hidden)) as unknown as StoredProject[];
   }
@@ -123,7 +119,7 @@ export function openProjectStore(dataRoot: string) {
   function conversation(id: string): StoredConversation | undefined {
     const row = db
       .prepare(`SELECT ${conversationColumns} FROM conversations c
-        JOIN projects p ON p.id = c.project_id AND p.mode = 'coding' WHERE c.id = ?`)
+        JOIN projects p ON p.id = c.project_id AND p.mode IN ('coding', 'scene') WHERE c.id = ?`)
       .get(id) as ConversationRow | undefined;
     return row && decodeConversation(row);
   }
@@ -135,10 +131,10 @@ export function openProjectStore(dataRoot: string) {
   }
 
   return {
-    createProject(input: { name: string; mode: ConversationMode; path: string }): StoredProject {
+    createProject(input: Omit<StoredProject, "id">): StoredProject {
       const name = input.name.trim();
       if (!name || name.length > 200) throw new Error("项目名称无效。");
-      if (input.mode !== "coding") throw new Error("项目模式无效。");
+      if (input.mode !== "coding" && input.mode !== "scene") throw new Error("项目模式无效。");
       if (!isAbsolute(input.path)) throw new Error("项目目录必须是绝对路径。");
       const path = realpathSync(input.path);
       if (!statSync(path).isDirectory()) throw new Error("请选择本地项目目录。");
@@ -149,6 +145,14 @@ export function openProjectStore(dataRoot: string) {
       return result;
     },
     getProject: project,
+    hasLegacyScene(projectId: string) {
+      const table = db
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'scenes'")
+        .get();
+      return Boolean(
+        table && db.prepare("SELECT 1 FROM scenes WHERE project_id = ?").get(projectId),
+      );
+    },
     listProjects: () => listProjects(false),
     listHiddenProjects: () => listProjects(true),
 
@@ -160,7 +164,7 @@ export function openProjectStore(dataRoot: string) {
     restoreProject(id: string) {
       const restored = db
         .prepare(
-          "UPDATE projects SET hidden = 0 WHERE id = ? AND mode = 'coding' RETURNING id, name, mode, path",
+          "UPDATE projects SET hidden = 0 WHERE id = ? AND mode IN ('coding', 'scene') RETURNING id, name, mode, path",
         )
         .get(id) as StoredProject | undefined;
       if (!restored) throw new Error("项目不存在。");
@@ -182,7 +186,7 @@ export function openProjectStore(dataRoot: string) {
     }[] {
       return db
         .prepare(`SELECT c.project_id AS projectId, c.session_file AS sessionFile, c.has_messages AS hasMessages
-        FROM conversations c JOIN projects p ON p.id = c.project_id WHERE p.mode = 'coding'`)
+        FROM conversations c JOIN projects p ON p.id = c.project_id WHERE p.mode IN ('coding', 'scene')`)
         .all() as {
         projectId: string;
         sessionFile: string | null;
@@ -197,14 +201,14 @@ export function openProjectStore(dataRoot: string) {
           .all(id) as { body: string }[]
       ).map((row) => JSON.parse(row.body) as QueuedMessage);
     },
-    queueMessage(id: string, message: QueuedMessage) {
+    queueMessage(id: string, message: QueuedMessage, draft: string) {
       requireConversation(id);
       db.exec("BEGIN");
       try {
         db.prepare(
           "INSERT INTO conversation_queue (conversation_id, id, body) VALUES (?, ?, ?)",
         ).run(id, message.id, JSON.stringify(message));
-        db.prepare("UPDATE conversations SET draft = '' WHERE id = ?").run(id);
+        db.prepare("UPDATE conversations SET draft = '' WHERE id = ? AND draft = ?").run(id, draft);
         db.exec("COMMIT");
       } catch (error) {
         if (db.isTransaction) db.exec("ROLLBACK");
@@ -227,7 +231,7 @@ export function openProjectStore(dataRoot: string) {
     listConversationPage(cursor?: { createdAt: number; id: string }, limit = 100) {
       const rows = db
         .prepare(`SELECT ${conversationColumns} FROM conversations c
-          JOIN projects p ON p.id = c.project_id AND p.hidden = 0 AND p.mode = 'coding'
+          JOIN projects p ON p.id = c.project_id AND p.hidden = 0 AND p.mode IN ('coding', 'scene')
           ${cursor ? "WHERE (c.created_at, c.id) < (?, ?)" : ""}
           ORDER BY c.created_at DESC, c.id DESC LIMIT ?`)
         .all(

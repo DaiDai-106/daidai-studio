@@ -26,14 +26,16 @@ export function launchElectron(profile: string, env = testElectronEnvironment())
 export async function launchTestApp(context: TestContext) {
   const profile = await mkdtemp(join(tmpdir(), "dai-ui-"));
   let application: ElectronApplication | undefined;
+  let child: ReturnType<ElectronApplication["process"]> | undefined;
   context.after(async () => {
     try {
-      if (application?.process().exitCode === null) await application.close();
+      if (child?.exitCode === null) await application?.close();
     } finally {
       await rm(profile, { recursive: true, force: true });
     }
   });
   application = await launchElectron(profile);
+  child = application.process();
   return { application, page: await application.firstWindow(), profile };
 }
 

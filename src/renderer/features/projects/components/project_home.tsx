@@ -1,6 +1,8 @@
 import type { ProjectInfo as Project } from "../../../../contracts/application.ts";
+import { pluginModules } from "../../../../contracts/catalog.ts";
 import { DaiMascot } from "../../../shared/components/dai_mascot.tsx";
 import { Icon } from "../../../shared/components/icon.tsx";
+import { ProjectModeIcon } from "./project_mode_icon.tsx";
 import "../styles/project_home.css";
 
 export function ProjectHome({
@@ -42,13 +44,16 @@ export function ProjectHome({
                   <button
                     type="button"
                     aria-label={`打开项目 ${item.name}`}
+                    aria-description={pluginModules[item.mode]}
                     onClick={() => onSelect(item.id)}
                   >
-                    <span className="project-home-project-icon">
-                      <Icon name="folder" size={18} />
-                    </span>
+                    <ProjectModeIcon
+                      mode={item.mode}
+                      size={18}
+                      className="project-home-project-icon"
+                    />
                     <span className="project-home-project-name">{item.name}</span>
-                    <small>Coding</small>
+                    <small>{pluginModules[item.mode]}</small>
                     <Icon name="chevron" size={16} />
                   </button>
                 </li>

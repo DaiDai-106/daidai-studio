@@ -21,6 +21,7 @@ import { relocateCatalog } from "./extensions/catalog_storage.ts";
 import { createPackageService, relocateModulePackages } from "./extensions/package_service.ts";
 import { createSkillHandlers } from "./extensions/skill_handlers.ts";
 import { openProjectStore } from "./projects/store.ts";
+import { createSceneService } from "./scene/service.ts";
 import { createSettingsService } from "./settings/service.ts";
 import type { Handlers } from "./types.ts";
 
@@ -30,6 +31,7 @@ const queueTimeout = () => new Error("后端请求排队超时，未执行。");
 export async function openApplication(options: {
   dataRoot: string;
   expectedRoot?: DataRootIdentity;
+  stepWorkerDirectory?: string;
   publish: (event: ApplicationEvent) => void;
 }) {
   const { publish } = options;
@@ -53,6 +55,12 @@ export async function openApplication(options: {
   const store = openProjectStore(dataRoot);
   const coding = createCodingFileService(store);
   const codingGit = createCodingGitService(coding);
+  const scene = createSceneService({
+    dataRoot,
+    store,
+    publish,
+    ...(options.stepWorkerDirectory ? { stepWorkerDirectory: options.stepWorkerDirectory } : {}),
+  });
   let settings: Awaited<ReturnType<typeof createSettingsService>>;
   try {
     settings = await createSettingsService({ dataRoot, publish });
@@ -65,6 +73,7 @@ export async function openApplication(options: {
   const conversations = createConversations({
     store,
     codingFiles: coding,
+    scene,
     dataRoot,
     settings,
     publish,
@@ -139,11 +148,12 @@ export async function openApplication(options: {
           throw new Error("会话分页游标无效。");
         }
       }
+      const settingsInfo = await settings.info();
       // 启动仅返回注册信息；选择项目后由 project.refresh 检查目录。
       const projects = store.listProjects().map((project) => ({ ...project, available: null }));
       const page = store.listConversationPage(position);
       return {
-        settings: await settings.info(),
+        settings: settingsInfo,
         projects,
         conversations: page.items.map(conversations.metadata),
         nextCursor: page.next ? JSON.stringify(page.next) : null,
@@ -174,6 +184,7 @@ export async function openApplication(options: {
     async "project.remove"({ id }) {
       await conversations.invalidate(id);
       store.hideProject(id);
+      scene.forget(id);
       changed();
       return null;
     },
@@ -254,6 +265,19 @@ export async function openApplication(options: {
       return null;
     },
 
+    "scene.get": ({ projectId }) => scene.get(projectId),
+    "scene.apply": ({ projectId, expectedRevision, operation }) =>
+      scene.apply(projectId, expectedRevision, operation),
+    "scene.import": ({ projectId, expectedRevision, path }) =>
+      scene.importUrdf(projectId, expectedRevision, path),
+    "scene.importStep": ({ projectId, expectedRevision, path, sourceOnly }) =>
+      scene.importStep(projectId, expectedRevision, path, { sourceOnly }),
+    "scene.cancelStep": async ({ projectId }) => scene.cancelStep(projectId),
+    "scene.export": ({ projectId, directory, expectedRevision }) =>
+      scene.exportUrdf(projectId, directory, expectedRevision),
+    "scene.asset": async ({ projectId, asset }) =>
+      (await scene.readAsset(projectId, asset)).toString("base64"),
+
     async "extension.ui.respond"(input) {
       extensionUi.respond(input);
       return null;
@@ -309,6 +333,7 @@ export async function openApplication(options: {
         await mutations;
         const errors: unknown[] = [];
         for (const cleanup of [
+          () => scene.close(),
           () => catalog.close(),
           () => conversations.close(),
           () => settings.close(),

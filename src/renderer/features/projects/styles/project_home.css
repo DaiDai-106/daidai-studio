@@ -103,10 +103,12 @@
 }
 .project-home-project-icon,
 .project-home-empty-icon {
-  display: grid;
-  place-items: center;
   flex: 0 0 32px;
   height: 32px;
+}
+.project-home-empty-icon {
+  display: grid;
+  place-items: center;
   color: var(--muted);
 }
 .project-home-project-name {

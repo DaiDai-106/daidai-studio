@@ -14,11 +14,11 @@ import type {
   SettingsInfo,
   WorkspaceInfo,
 } from "./application.ts";
-import type { ConversationMode } from "./capabilities.ts";
+import type { SceneImportFormat } from "./scene.ts";
 
 export type CreateProjectInput = {
   name: string;
-  mode: ConversationMode;
+  mode: ProjectInfo["mode"];
   directoryToken?: string;
 };
 
@@ -63,6 +63,17 @@ export interface ApplicationBridge {
   removeProject(id: string): Promise<null>;
   listHiddenProjects(): Promise<ProjectInfo[]>;
   restoreProject(id: string): Promise<ProjectInfo>;
+
+  getScene(projectId: string): Promise<Results["scene.get"]>;
+  applyScene(input: Arguments<"scene.apply">): Promise<Results["scene.apply"]>;
+  importScene(
+    projectId: string,
+    expectedRevision: number,
+    format: SceneImportFormat,
+  ): Promise<Results["scene.import"] | null>;
+  cancelStep(projectId: string): Promise<null>;
+  exportUrdf(projectId: string, expectedRevision: number): Promise<Results["scene.export"] | null>;
+  readSceneAsset(projectId: string, asset: string): Promise<Results["scene.asset"]>;
 
   listCodingFiles(
     projectId: string,
@@ -110,6 +121,7 @@ export interface ApplicationBridge {
     text: string,
     images?: import("./application.ts").ChatImage[],
     delivery?: import("./application.ts").DeliveryMode,
+    step?: File,
   ): Promise<{ submissionId: string }>;
   stopConversation(id: string): Promise<null>;
   cancelQueuedMessage(id: string, messageId: string): Promise<null>;

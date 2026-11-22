@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, writeFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import {
+  constants,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmdirSync,
+  writeFileSync,
+} from "node:fs";
+import { cp, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import {
@@ -149,10 +157,10 @@ export function createPackageService({
     { projectTrusted: true },
   );
   // SDK 的 project 作用域对应 Dai 模块，cwd 不指向用户项目。
-  function packageManager(settingsManager: SettingsManager) {
+  function packageManager(settingsManager: SettingsManager, root = packageRoot) {
     const manager = new DefaultPackageManager({
-      cwd: host === "pi" ? moduleRoot : packageRoot,
-      agentDir: packageRoot,
+      cwd: host === "pi" ? join(root, "modules", moduleId) : root,
+      agentDir: root,
       settingsManager,
     });
     if (progress)
@@ -282,13 +290,75 @@ export function createPackageService({
     };
   }
 
-  async function validateSource(source: string, scope: Scope) {
-    const path = manager.getInstalledPath(source, scope === "global" ? "user" : "project");
-    const { manifestError } = await readManifest(path ?? "");
+  async function validateSource(source: string, scope: Scope, installer = manager) {
+    const path = installer.getInstalledPath(source, scope === "global" ? "user" : "project");
+    const { manifest, manifestError } = await readManifest(path ?? "");
     if (manifestError) throw new Error(manifestError);
+    return manifest;
   }
 
   const beforeChange = () => (host === "pi" ? beforeAgentChange?.() : undefined);
+
+  async function stageInstall(
+    source: string,
+    scope: Scope,
+    prepare: (root: string) => Promise<void>,
+    commit?: () => Promise<void>,
+  ) {
+    await beforeChange();
+    if (isAbsolute(source)) {
+      await prepare(packageRoot);
+      await commit?.();
+      return;
+    }
+
+    // npm 更新会修改共享的依赖树和锁文件，一起交给 SDK 在临时目录处理。
+    const kind = source.startsWith("npm:") ? "npm" : "git";
+    const parts = scope === "global" ? [kind] : ["modules", moduleId, ".pi", kind];
+    const live = join(packageRoot, ...parts);
+    await mkdir(packageRoot, { recursive: true, mode: 0o700 });
+    const temporary = await mkdtemp(join(packageRoot, ".dai-package-"));
+    const staged = join(temporary, ...parts);
+    const backup = join(temporary, "previous");
+    let movedPrevious = false;
+    let installed = false;
+    let keepBackup = false;
+    try {
+      await mkdir(dirname(staged), { recursive: true });
+      if (host === "pi") await mkdir(join(temporary, "modules", moduleId), { recursive: true });
+      if (existsSync(live))
+        await cp(live, staged, {
+          recursive: true,
+          verbatimSymlinks: true,
+          mode: constants.COPYFILE_FICLONE,
+        });
+      await prepare(temporary);
+      if (existsSync(staged)) {
+        await mkdir(dirname(live), { recursive: true });
+        if (existsSync(live)) {
+          renameSync(live, backup);
+          movedPrevious = true;
+        }
+        renameSync(staged, live);
+        installed = true;
+      }
+      await commit?.();
+    } catch (error) {
+      try {
+        if (installed) renameSync(live, staged);
+        if (movedPrevious) renameSync(backup, live);
+      } catch (restore) {
+        keepBackup = true;
+        throw new AggregateError([error, restore], `插件恢复失败，原文件保留在 ${temporary}。`);
+      }
+      throw error;
+    } finally {
+      if (!keepBackup)
+        await rm(temporary, { recursive: true, force: true, maxRetries: 3 }).catch((error) =>
+          console.error("Failed to clean staged package files.", error),
+        );
+    }
+  }
 
   return {
     inspect: () => run(() => Promise.all(configured().map(describe))),
@@ -315,27 +385,37 @@ export function createPackageService({
           (!previous?.installedPath || !targetPath || previous.installedPath !== targetPath)
         )
           throw new Error("市场中的安装来源已变化，请在详情中检查后手动安装。");
-        await beforeChange();
-        await manager.install(normalized, options);
-        await validateSource(normalized, scope);
-        if (
-          replacement &&
-          (
-            await describe({
-              source: normalized,
-              scope,
-              installedPath: targetPath ?? "",
-              enabled: previous?.enabled ?? true,
-            })
-          ).version !== replacement.version
-        )
-          throw new Error("安装后的版本与所选版本不一致，请检查已安装列表。");
-        manager.addSourceToSettings(normalized, options);
-        await flush();
-        // 安装与启用共用同一次队列操作；新会话不能在两步之间读取旧的停用状态。
-        if (replacement && replacement.source !== normalized)
-          saveEnabled(replacement.source, scope, true);
-        saveEnabled(normalized, scope, previous?.enabled ?? true);
+        await stageInstall(
+          normalized,
+          scope,
+          async (root) => {
+            const installer = packageManager(settings, root);
+            await installer.install(normalized, options);
+            const manifest = await validateSource(normalized, scope, installer);
+            if (replacement && manifest.version !== replacement.version)
+              throw new Error("安装后的版本与所选版本不一致，请检查已安装列表。");
+          },
+          async () => {
+            const path = scope === "global" ? globalSettings : moduleSettings;
+            const files = [path, disabledPath].flatMap((file) =>
+              file ? [{ file, original: readText(file) }] : [],
+            );
+            try {
+              manager.addSourceToSettings(normalized, options);
+              await flush();
+              if (replacement && replacement.source !== normalized)
+                saveEnabled(replacement.source, scope, true);
+              saveEnabled(normalized, scope, previous?.enabled ?? true);
+            } catch (error) {
+              for (const { file, original } of files) {
+                if (readText(file) === original) continue;
+                if (original === undefined) await rm(file, { force: true });
+                else writeText(file, original);
+              }
+              throw error;
+            }
+          },
+        );
       });
     },
 
@@ -409,9 +489,11 @@ export function createPackageService({
           { projectTrusted: true },
         );
         if (scope === "module") scoped.setProjectPackages([normalized]);
-        await beforeChange();
-        await packageManager(scoped).update(normalized);
-        await validateSource(normalized, scope);
+        await stageInstall(normalized, scope, async (root) => {
+          const installer = packageManager(scoped, root);
+          await installer.update(normalized);
+          await validateSource(normalized, scope, installer);
+        });
       });
     },
   };

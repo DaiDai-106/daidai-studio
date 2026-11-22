@@ -26,7 +26,7 @@ const pages = [
     label: "插件与技能",
     icon: "tool",
     group: "能力",
-    keywords: "插件 市场 扩展 Skills 命令 公司 Pi",
+    keywords: "插件 市场 扩展 Skills 命令 公司 Pi 内置模块 场景 STEP URDF",
   },
   { id: "data", label: "本地数据", icon: "archive", group: "系统", keywords: "归档 记录 存储" },
   { id: "dashboard", label: "Dashboard", icon: "axes", group: "系统", keywords: "用量 token 统计" },

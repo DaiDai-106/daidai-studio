@@ -6,7 +6,7 @@ const CatalogSourceIdSchema = Type.Enum(["pi", "company"]);
 const PluginHostSchema = Type.Enum(["pi", "desktop"]);
 export type PluginHost = Static<typeof PluginHostSchema>;
 const CatalogResourceSchema = Type.Enum(["extension", "skill", "prompt", "theme", "desktop-theme"]);
-// 模块标识独立于项目模式；当前界面仅开放 Coding，后续模块可直接复用。
+// 模块标识独立于项目模式，插件可预先分配到尚未开放的模块。
 export const pluginModules = {
   coding: "Coding",
   scene: "场景搭建",

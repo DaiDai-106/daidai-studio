@@ -42,6 +42,13 @@ test("Pi package and standard skills can be managed and restored in the settings
     page.setDefaultTimeout(10000);
     await openTestProject(app, page, profile);
     await page.getByRole("button", { name: "插件与技能", exact: true }).click();
+    await page.getByRole("tab", { name: "内置模块", exact: true }).click();
+    const builtins = page.getByRole("tabpanel", { name: "内置模块", exact: true });
+    await builtins.getByText("Coding", { exact: true }).waitFor();
+    await builtins.getByText("场景搭建", { exact: true }).waitFor();
+    await builtins.getByText(/导入 STEP 或 URDF/).waitFor();
+    await page.getByRole("tab", { name: "发现插件", exact: true }).click();
+    await builtins.waitFor({ state: "hidden" });
     await page.getByRole("button", { name: "手动安装", exact: true }).click();
     await page.getByLabel("包来源").fill(source);
     const scope = page.getByRole("button", { name: "使用范围", exact: true });

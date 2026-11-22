@@ -1,7 +1,6 @@
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
   AccessMode,
-  ChatImage,
   ConversationInfo,
   ConversationView,
   ModelChoice as Model,
@@ -9,6 +8,7 @@ import type {
   ThinkingLevel,
 } from "../../../../contracts/application.ts";
 import type { ApplicationBridge } from "../../../../contracts/bridge.ts";
+import { pluginModules } from "../../../../contracts/catalog.ts";
 import {
   formatFileReference,
   referenceDraft,
@@ -23,11 +23,12 @@ import {
 } from "../../coding/components/file_reference_picker.tsx";
 import { FileReferenceTags } from "../../coding/components/file_reference_tags.tsx";
 import { fileMention } from "../../coding/logic/file_mention.ts";
+import type { useAttachmentDrafts } from "../logic/use_attachment_drafts.ts";
 import { type ChatPosition, useConversationHistory } from "../logic/use_conversation_history.ts";
-import { useImageDrafts } from "../logic/use_image_drafts.ts";
 import { ConversationNavigation, type ConversationScrollPin } from "./conversation_navigation.tsx";
 import { ConversationTrace } from "./conversation_trace.tsx";
 import { ConversationTranscript } from "./conversation_transcript.tsx";
+import { StepAttachmentTag } from "./step_attachment_tag.tsx";
 import { ConversationUsage } from "./usage_details.tsx";
 
 interface Props {
@@ -35,6 +36,8 @@ interface Props {
   conversation: ConversationInfo;
   isNewConversation: boolean;
   models: Model[];
+  activeModel: Model | undefined;
+  attachments: ReturnType<typeof useAttachmentDrafts>;
   compact: boolean;
   projectId: string;
   onDraft: (value: string) => void;
@@ -42,7 +45,6 @@ interface Props {
   onThinking: (level: ThinkingLevel) => void;
   onAccessMode: (mode: AccessMode) => void;
   accessPending: boolean;
-  onSend: (images: ChatImage[]) => Promise<boolean>;
   onCancelQueued: (messageId: string) => void;
   onPromoteQueued: (messageId: string) => void;
   onResumeQueue: () => void;
@@ -100,10 +102,13 @@ function restoreChatPosition(
 export function ChatPanel(props: Props) {
   const [view, setView] = useState<"chat" | "trace">("chat");
   const [mention, setMention] = useState<ReturnType<typeof fileMention>>(null);
-  const referenceOpen = mention !== null;
+  const coding = props.conversation.mode === "coding";
+  const referenceOpen = coding && mention !== null;
   const [activeOption, setActiveOption] = useState<string | undefined>(undefined);
   const referencePicker = useRef<FileReferencePickerHandle>(null);
-  const draftParts = splitReferenceDraft(props.conversation.draft, true);
+  const draftParts = coding
+    ? splitReferenceDraft(props.conversation.draft, true)
+    : { text: props.conversation.draft, references: [] };
   const history = useConversationHistory(props.stream, props.readHistory);
   const pauseHistory = history.pause;
   const messages = history.messages ?? emptyMessages;
@@ -124,12 +129,10 @@ export function ChatPanel(props: Props) {
   const lastScrollTop = useRef(0);
   const appliedScroll = useRef<typeof history.scroll>(undefined);
   const picker = useRef<HTMLInputElement>(null);
-  const activeModel = props.models.find((model) => model.id === props.conversation.modelId);
-  const { images, imageError, addImages, removeImage, send } = useImageDrafts(
-    props.conversation.id,
-    activeModel?.supportsImages ?? false,
-    props.onSend,
-  );
+  const { activeModel } = props;
+  const supportsStep = props.conversation.mode === "scene";
+  const { images, step, attachmentError, addFiles, removeImage, removeStep, send } =
+    props.attachments;
   const thinkingLevels = activeModel?.thinkingLevels ?? ["off" as const];
   const thinkingLevel = thinkingLevels.includes(props.conversation.thinkingLevel ?? "off")
     ? (props.conversation.thinkingLevel ?? "off")
@@ -357,11 +360,13 @@ export function ChatPanel(props: Props) {
             <div className="welcome-symbol">
               <Icon name="file" size={30} />
             </div>
-            <h1>从代码任务开始</h1>
+            <h1>{coding ? "从代码任务开始" : "从场景任务开始"}</h1>
             <p>
-              {activeModel
-                ? "描述需要分析、编写或修改的代码。"
-                : "配置并选择模型后，开始讨论代码任务。"}
+              {coding
+                ? activeModel
+                  ? "描述需要分析、编写或修改的代码。"
+                  : "配置并选择模型后，开始讨论代码任务。"
+                : "在场景工作区导入 URDF，然后与助手讨论模型和关节。"}
             </p>
           </div>
         ) : null}
@@ -396,7 +401,8 @@ export function ChatPanel(props: Props) {
                           : "完成后发送"}
                   </span>
                   <span className="queued-message-text" title={message.text}>
-                    {message.text || "图片消息"}
+                    {message.text || message.stepAttachment?.name || "图片消息"}
+                    {message.text && message.stepAttachment && `（${message.stepAttachment.name}）`}
                     {message.imageCount > 0 && `（${message.imageCount} 张图片）`}
                   </span>
                   {props.stream?.busy &&
@@ -405,14 +411,14 @@ export function ChatPanel(props: Props) {
                     message.delivery === "followUp" && (
                       <IconButton
                         icon="arrow"
-                        label={`改为插话：${message.text || "图片消息"}`}
+                        label={`改为插话：${message.text || message.stepAttachment?.name || "图片消息"}`}
                         onClick={() => props.onPromoteQueued(message.id)}
                       />
                     )}
                   <button
                     type="button"
                     disabled={message.delivering}
-                    aria-label={`取消待处理消息：${message.text || "图片消息"}`}
+                    aria-label={`取消待处理消息：${message.text || message.stepAttachment?.name || "图片消息"}`}
                     onClick={() => props.onCancelQueued(message.id)}
                   >
                     取消
@@ -463,11 +469,11 @@ export function ChatPanel(props: Props) {
             const files = Array.from(event.dataTransfer.files);
             if (files.length) {
               event.preventDefault();
-              void addImages(files);
+              void addFiles(files);
             }
           }}
         >
-          {!!images.length && (
+          {(!!images.length || step) && (
             <div className="composer-images">
               {images.map((image, index) => (
                 <div className="composer-image" key={image.data}>
@@ -484,11 +490,12 @@ export function ChatPanel(props: Props) {
                   </button>
                 </div>
               ))}
+              {step && <StepAttachmentTag name={step.name} onRemove={removeStep} />}
             </div>
           )}
-          {imageError && (
+          {attachmentError && (
             <p className="error" role="alert">
-              {imageError}
+              {attachmentError}
             </p>
           )}
           {draftParts.references.length > 0 && (
@@ -507,15 +514,15 @@ export function ChatPanel(props: Props) {
           <textarea
             ref={props.inputRef}
             aria-label="消息内容"
-            placeholder="描述你的代码任务…"
+            placeholder={coding ? "描述你的代码任务…" : "拖入 STEP 或描述你的场景任务…"}
             aria-controls={referenceOpen ? "file-reference-options" : undefined}
             aria-activedescendant={referenceOpen ? activeOption : undefined}
-            aria-autocomplete="list"
+            aria-autocomplete={coding ? "list" : undefined}
             value={draftParts.text}
             onChange={(event) => {
               props.onDraft(referenceDraft(event.target.value, draftParts.references));
               setMention(
-                draftParts.references.length < 5
+                coding && draftParts.references.length < 5
                   ? fileMention(event.target.value, event.target.selectionStart)
                   : null,
               );
@@ -524,7 +531,7 @@ export function ChatPanel(props: Props) {
               const files = Array.from(event.clipboardData.files);
               if (files.length) {
                 event.preventDefault();
-                void addImages(files);
+                void addFiles(files);
               }
             }}
             onBlur={(event) => {
@@ -562,31 +569,41 @@ export function ChatPanel(props: Props) {
             <input
               ref={picker}
               type="file"
-              accept="image/png,image/jpeg,image/webp"
+              accept={
+                supportsStep
+                  ? "image/png,image/jpeg,image/webp,.step,.stp"
+                  : "image/png,image/jpeg,image/webp"
+              }
               multiple
               hidden
               onChange={(event) => {
-                void addImages(Array.from(event.target.files ?? []));
+                void addFiles(Array.from(event.target.files ?? []));
                 event.target.value = "";
               }}
             />
+            {coding && (
+              <IconButton
+                icon="file"
+                label="引用项目文件"
+                disabled={draftParts.references.length >= 5}
+                onClick={() => {
+                  const input = props.inputRef.current;
+                  const caret = input?.selectionStart ?? draftParts.text.length;
+                  setMention(
+                    fileMention(draftParts.text, caret) ?? { start: caret, end: caret, query: "" },
+                  );
+                  input?.focus();
+                }}
+              />
+            )}
             <IconButton
-              icon="file"
-              label="引用项目文件"
-              disabled={draftParts.references.length >= 5}
-              onClick={() => {
-                const input = props.inputRef.current;
-                const caret = input?.selectionStart ?? draftParts.text.length;
-                setMention(
-                  fileMention(draftParts.text, caret) ?? { start: caret, end: caret, query: "" },
-                );
-                input?.focus();
-              }}
+              icon={supportsStep ? "file" : "image"}
+              label={supportsStep ? "添加附件" : "添加图片"}
+              onClick={() => picker.current?.click()}
             />
-            <IconButton icon="image" label="添加图片" onClick={() => picker.current?.click()} />
             <span className="composer-picker mode-button" title="项目模式">
               <Icon name="chat" size={16} />
-              <span>Coding</span>
+              <span>{pluginModules[props.conversation.mode]}</span>
             </span>
             <div className="composer-spacer" />
             <div className="thinking-picker access-picker">
@@ -596,7 +613,7 @@ export function ChatPanel(props: Props) {
                 disabled={!!props.stream?.busy || props.accessPending}
                 options={[
                   { value: "ask", label: "请求批准" },
-                  { value: "full", label: "完全访问" },
+                  { value: "full", label: coding ? "完全访问" : "免确认调整场景" },
                 ]}
                 onValueChange={props.onAccessMode}
               />
@@ -645,7 +662,9 @@ export function ChatPanel(props: Props) {
               type="button"
               className="send-button"
               aria-label="发送消息"
-              disabled={props.accessPending || (!props.conversation.draft.trim() && !images.length)}
+              disabled={
+                props.accessPending || (!props.conversation.draft.trim() && !images.length && !step)
+              }
               onClick={() => void send()}
             >
               <Icon name="arrow" size={20} />

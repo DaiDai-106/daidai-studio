@@ -3,8 +3,8 @@ import { stat } from "node:fs/promises";
 import { devNull } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
+import { projectPathParts, withProjectDirectory } from "../projects/project_access.ts";
 import type { createCodingFileService } from "./file_service.ts";
-import { projectPathParts, withProjectDirectory } from "./project_access.ts";
 
 const execute = promisify(execFile);
 const MAX_FILES = 200;

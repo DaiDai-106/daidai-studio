@@ -1,60 +1,108 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import type {
   ConversationView,
   TraceDetail,
   TraceRecord,
 } from "../../../../contracts/application.ts";
+import { Icon, type IconName } from "../../../shared/components/icon.tsx";
 import { errorMessage } from "../../../shared/logic/error_message.ts";
 import { ToolDetails } from "./tool_messages.tsx";
 import "../styles/trace.css";
 
 const labels = { system: "系统", user: "用户", assistant: "助手", tool: "工具", event: "事件" };
 
-function ModelInput({ context }: { context: NonNullable<TraceDetail["context"]> }) {
+function InputGroup({
+  title,
+  icon,
+  count,
+  children,
+}: {
+  title: string;
+  icon: IconName;
+  count: number;
+  children: ReactNode;
+}) {
+  return (
+    <section className="trace-input-group" aria-label={title}>
+      <h4>
+        <Icon name={icon} size={15} />
+        {title}
+        <span className="trace-input-count">{count}</span>
+      </h4>
+      {children}
+    </section>
+  );
+}
+
+function InputEntry({
+  name,
+  text,
+  description,
+  truncated,
+  plain,
+}: {
+  name: string;
+  text: string;
+  description?: string;
+  truncated?: boolean;
+  plain?: boolean;
+}) {
+  return (
+    <details className="trace-input-entry">
+      <summary>
+        {plain ? <span className="trace-input-name">{name}</span> : <code>{name}</code>}
+        <Icon name="chevron" size={14} />
+      </summary>
+      {description && <p>{description}</p>}
+      <pre>{text}</pre>
+      {truncated && <p className="trace-note">定义预览已截断。</p>}
+    </details>
+  );
+}
+
+function ModelInput({
+  context: { recorded, content, sections, injections, tools },
+}: {
+  context: NonNullable<TraceDetail["context"]>;
+}) {
   return (
     <details className="trace-context">
-      <summary>本次模型输入 · 系统提示、插件注入与工具定义</summary>
-      {!context.recorded ? (
-        <p className="trace-note">这段历史没有记录系统提示或工具定义。</p>
-      ) : (
-        <>
-          <details>
-            <summary>完整系统提示</summary>
-            <pre>{context.content || "未记录系统提示正文。"}</pre>
-          </details>
-          <section aria-label="系统分段与插件注入">
-            <h4>系统分段与插件注入 · {context.sections.length}</h4>
-            {context.sections.map((section) => (
-              <details key={section.name}>
-                <summary>{section.name}</summary>
-                <pre>{section.text}</pre>
-              </details>
+      <summary>
+        <span className="trace-input-icon">
+          <Icon name="sliders" size={16} />
+        </span>
+        <strong>本次模型输入</strong>
+        {recorded && <span className="trace-input-meta">{tools.length} 个工具</span>}
+        <Icon name="chevron" size={15} />
+      </summary>
+      <div className="trace-input-layout">
+        <div className="trace-input-prompts">
+          {recorded ? (
+            <InputGroup title="系统分段与插件注入" icon="file" count={sections.length}>
+              <InputEntry name="完整系统提示" text={content || "未记录系统提示正文。"} plain />
+              {sections.map((section) => (
+                <InputEntry key={section.name} {...section} />
+              ))}
+            </InputGroup>
+          ) : (
+            <p className="trace-note">这段历史没有记录系统提示或工具定义。</p>
+          )}
+          {injections.length > 0 && (
+            <InputGroup title="插件消息与上下文注入" icon="tool" count={injections.length}>
+              {injections.map(({ id, ...entry }) => (
+                <InputEntry key={id} {...entry} />
+              ))}
+            </InputGroup>
+          )}
+        </div>
+        {recorded && tools.length > 0 && (
+          <InputGroup title="本次可用工具定义" icon="box" count={tools.length}>
+            {tools.map(({ parameters, ...entry }) => (
+              <InputEntry key={entry.name} {...entry} text={parameters} />
             ))}
-          </section>
-          <section aria-label="本次可用工具定义">
-            <h4>本次可用工具定义 · {context.tools.length}</h4>
-            {context.tools.map((tool) => (
-              <details key={tool.name}>
-                <summary>{tool.name}</summary>
-                <p>{tool.description}</p>
-                <pre>{tool.parameters}</pre>
-                {tool.truncated && <p className="trace-note">定义预览已截断。</p>}
-              </details>
-            ))}
-          </section>
-        </>
-      )}
-      {context.injections.length > 0 && (
-        <section aria-label="插件消息与上下文注入">
-          <h4>插件消息与上下文注入 · {context.injections.length}</h4>
-          {context.injections.map((item) => (
-            <details key={item.id}>
-              <summary>{item.name}</summary>
-              <pre>{item.text}</pre>
-            </details>
-          ))}
-        </section>
-      )}
+          </InputGroup>
+        )}
+      </div>
     </details>
   );
 }

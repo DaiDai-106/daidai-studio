@@ -6,6 +6,7 @@ import {
   type MessageInfo,
   type ResponseInfo,
 } from "../../contracts/application.ts";
+import { splitStepMessage } from "../../shared/step_attachment.ts";
 import { type ModelContext, projectUsage } from "./pi_usage.ts";
 import { displayArguments } from "./presentation.ts";
 
@@ -58,10 +59,12 @@ export function projectPiHistory(
         continue;
       }
       if (message.role === "user") {
+        const content = displayContent(message.content);
         messages.push({
           id: entry.id,
           role: "user",
-          ...displayContent(message.content),
+          ...content,
+          ...splitStepMessage(content.text),
           failed: false,
           timestamp: message.timestamp,
         });

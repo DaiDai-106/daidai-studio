@@ -22,23 +22,25 @@ export function createExtensionUi(publish: (event: ApplicationEvent) => void) {
     publish({ type: "workspace" });
   }
 
+  function settle(item: Pending, value?: string) {
+    item.signal?.removeEventListener("abort", item.abort);
+    if (item.timer) clearTimeout(item.timer);
+    item.resolve(value);
+  }
+
+  function dismiss({ requestId, conversationId }: ExtensionUiRequest) {
+    publish({ type: "extension.ui.dismissed", requestId, conversationId });
+    visible(conversationId);
+  }
+
   function remove(item: Pending, value?: string) {
     const queue = queues.get(item.request.conversationId);
     const index = queue?.indexOf(item) ?? -1;
     if (!queue || index < 0) return;
     queue.splice(index, 1);
     if (!queue.length) queues.delete(item.request.conversationId);
-    item.signal?.removeEventListener("abort", item.abort);
-    if (item.timer) clearTimeout(item.timer);
-    item.resolve(value);
-    if (index === 0) {
-      publish({
-        type: "extension.ui.dismissed",
-        requestId: item.request.requestId,
-        conversationId: item.request.conversationId,
-      });
-      visible(item.request.conversationId);
-    }
+    settle(item, value);
+    if (index === 0) dismiss(item.request);
   }
 
   function ask(
@@ -83,21 +85,11 @@ export function createExtensionUi(publish: (event: ApplicationEvent) => void) {
   function cancelConversation(conversationId: string) {
     cancelled.add(conversationId);
     const queue = queues.get(conversationId);
-    if (!queue) return;
+    const first = queue?.[0];
+    if (!first) return;
     queues.delete(conversationId);
-    for (const item of queue) {
-      item.signal?.removeEventListener("abort", item.abort);
-      if (item.timer) clearTimeout(item.timer);
-      item.resolve(undefined);
-    }
-    const first = queue[0];
-    if (first)
-      publish({
-        type: "extension.ui.dismissed",
-        requestId: first.request.requestId,
-        conversationId,
-      });
-    publish({ type: "workspace" });
+    for (const item of queue) settle(item);
+    dismiss(first.request);
   }
 
   function context(conversationId: string): ExtensionUIContext {

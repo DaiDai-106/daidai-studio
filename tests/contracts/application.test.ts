@@ -7,9 +7,7 @@ test("项目模式在创建时由严格的请求契约校验", () => {
   assert.throws(() =>
     validateRequest("project.create", { name: "旧项目", mode: "robot", path: "/tmp/project" }),
   );
-  assert.throws(() =>
-    validateRequest("project.create", { name: "旧项目", mode: "scene", path: "/tmp/project" }),
-  );
+  validateRequest("project.create", { name: "场景", mode: "scene", path: "/tmp/project" });
   assert.throws(() =>
     validateRequest("project.create", { name: "机器人", mode: "unknown", path: "/tmp/project" }),
   );

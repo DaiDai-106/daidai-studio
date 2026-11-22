@@ -3,16 +3,19 @@ import { contentText } from "@earendil-works/pi-ai";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type {
   ApplicationEvent,
+  Arguments,
   ConversationInfo,
   ConversationView,
-  DeliveryMode,
 } from "../../contracts/application.ts";
 import type { PackageLoad, PluginModule } from "../../contracts/catalog.ts";
+import type { StepAttachment } from "../../contracts/scene.ts";
+import { attachStepToMessage, splitStepMessage } from "../../shared/step_attachment.ts";
 import { createCodingFileService } from "../coding/file_service.ts";
 import { resolveFileReferences } from "../coding/references.ts";
 import { createPackageService } from "../extensions/package_service.ts";
 import { createSkillService } from "../extensions/skill_service.ts";
 import type { openProjectStore, QueuedMessage, StoredConversation } from "../projects/store.ts";
+import type { createSceneService } from "../scene/service.ts";
 import type { createSettingsService } from "../settings/service.ts";
 import { conversationTitle } from "./conversation_title.ts";
 import type { createExtensionUi } from "./extension_ui.ts";
@@ -20,6 +23,7 @@ import { createHistoryProjection } from "./history_projection.ts";
 import { createPiAgent } from "./pi_agent.ts";
 import { createPiHistory } from "./pi_history.ts";
 import { projectTrace, traceDetail } from "./pi_trace.ts";
+import { createSceneTools } from "./scene_tools.ts";
 import type { createShellApproval } from "./shell_approval.ts";
 
 type Settings = Awaited<ReturnType<typeof createSettingsService>>;
@@ -33,6 +37,7 @@ type ConversationRun = {
 type ConversationRuntime = {
   session?: AgentSession;
   run?: ConversationRun;
+  preparing?: { controller: AbortController; done: Promise<void> };
   queue?: QueuedMessage[];
   eligible?: Set<string>;
   delivery?: { id: string; text?: string | undefined; consumed?: boolean };
@@ -50,6 +55,7 @@ export function createConversations(options: {
   store: ReturnType<typeof openProjectStore>;
   settings: Settings;
   codingFiles?: ReturnType<typeof createCodingFileService>;
+  scene?: ReturnType<typeof createSceneService>;
   publish: (event: ApplicationEvent) => void;
   shellApproval?: ReturnType<typeof createShellApproval>;
   extensionUi?: ReturnType<typeof createExtensionUi>;
@@ -57,6 +63,7 @@ export function createConversations(options: {
   const { dataRoot, store, settings, publish } = options;
   const history = createPiHistory(store, dataRoot);
   const sessions = new Map<string, ConversationRuntime>();
+  const isBusy = (state?: ConversationRuntime) => Boolean(state?.run || state?.preparing);
   function runtime(id: string) {
     const existing = sessions.get(id);
     if (existing) return existing;
@@ -75,6 +82,12 @@ export function createConversations(options: {
     state.queue = queued(id, state).filter((item) => item.id !== messageId);
     state.eligible?.delete(messageId);
     if (state.delivery?.id === messageId) delete state.delivery;
+  }
+
+  async function discardStepAttachment(projectId: string, id: string) {
+    await options.scene
+      ?.removeStepAttachment(projectId, id)
+      .catch((error) => console.error("Failed to discard an unsent STEP attachment.", error));
   }
   function nextQueued(id: string, state: ConversationRuntime, allowFollowUp = true) {
     const available = queued(id, state).filter((item) => state.eligible?.has(item.id));
@@ -100,11 +113,7 @@ export function createConversations(options: {
     state.delivery = { id: item.id };
     emit(id);
     try {
-      const text = await resolveFileReferences(
-        codingFiles,
-        requireConversation(id).projectId,
-        item.text,
-      );
+      const text = await resolveMessage(requireConversation(id).projectId, item.text);
       if (run.stopped) return;
       const disposition = await session[item.delivery](text, imagesFor(item.images));
       const texts =
@@ -141,7 +150,8 @@ export function createConversations(options: {
       accessMode: conversation.accessMode,
       draft: conversation.draft,
       archived: conversation.archived,
-      interrupted: conversation.interrupted,
+      // 正在运行时也会落盘恢复标记，仅在没有运行时显示中断提示。
+      interrupted: conversation.interrupted && !isBusy(sessions.get(conversation.id)),
     };
   }
 
@@ -149,6 +159,12 @@ export function createConversations(options: {
     const record = store.getConversation(id);
     if (!record) throw new Error("会话不存在。");
     return record;
+  }
+
+  function resolveMessage(projectId: string, text: string) {
+    return store.getProject(projectId)?.mode === "coding"
+      ? resolveFileReferences(codingFiles, projectId, text)
+      : text;
   }
 
   // 聊天和轨迹始终读取同一个运行时分支；空闲历史通过现有 SessionManager 缓存恢复。
@@ -174,15 +190,19 @@ export function createConversations(options: {
       history: projected.history,
       historyKey: projected.historyKey,
       partial: state.partial ?? "",
-      queuedMessages: queued(id, state).map((item) => ({
-        id: item.id,
-        text: item.text.slice(0, 1000),
-        delivery: item.delivery,
-        imageCount: item.images?.length ?? 0,
-        delivering: state.delivery?.id === item.id,
-        paused: !state.eligible?.has(item.id),
-      })),
-      busy: !!state.run,
+      queuedMessages: queued(id, state).map((item) => {
+        const { text, stepAttachment } = splitStepMessage(item.text);
+        return {
+          id: item.id,
+          text: text.slice(0, 1000),
+          ...(stepAttachment ? { stepAttachment } : {}),
+          delivery: item.delivery,
+          imageCount: item.images?.length ?? 0,
+          delivering: state.delivery?.id === item.id,
+          paused: !state.eligible?.has(item.id),
+        };
+      }),
+      busy: isBusy(state),
       error: state.error ?? "",
       ...(blocks ? { partialBlocks: blocks } : {}),
       ...(state.run
@@ -239,6 +259,9 @@ export function createConversations(options: {
     if (!model) throw new Error("请先在设置中配置并选择模型。");
 
     const skills = await userSkills.list();
+    const fullAccess = () => store.getConversation(id)?.accessMode === "full";
+    const scene = project.mode === "scene";
+    if (scene && !options.scene) throw new Error("场景工具不可用。");
     const session = await createPiAgent({
       conversationId: id,
       onPackageLoad: (entries) => options.onPackageLoad?.(project.mode, entries),
@@ -252,15 +275,14 @@ export function createConversations(options: {
         state.run?.acceptSubmission?.();
       },
       ...(options.extensionUi ? { uiContext: options.extensionUi.context(id) } : {}),
-      fullAccess: () => store.getConversation(id)?.accessMode === "full",
-      ...(options.shellApproval
-        ? {
-            shellApproval: options.shellApproval.extension(
-              id,
-              () => store.getConversation(id)?.accessMode === "full",
-            ),
-          }
-        : {}),
+      ...(scene && options.scene
+        ? { sceneTools: createSceneTools(options.scene, project.id, fullAccess) }
+        : {
+            fullAccess,
+            ...(options.shellApproval
+              ? { shellApproval: options.shellApproval.extension(id, fullAccess) }
+              : {}),
+          }),
       model,
       skillPaths: skills.skills.map((skill) => skill.filePath),
     });
@@ -367,9 +389,12 @@ export function createConversations(options: {
     const state = sessions.get(id);
     if (!state) return;
     const run = state.run;
+    const preparing = state.preparing;
+    preparing?.controller.abort(cancelledSend());
     try {
       await requestStop(id, run, run ? state.session : undefined);
       await run?.done;
+      await preparing?.done;
     } finally {
       cancelProgress(state);
       const session = state.session;
@@ -384,6 +409,142 @@ export function createConversations(options: {
     }
   }
 
+  async function submitMessage(
+    input: Omit<Arguments<"conversation.send">, "stepPath"> & {
+      queuedId?: string;
+      stepAttachmentId?: string;
+    },
+    conversation: StoredConversation,
+    state: ConversationRuntime,
+  ): Promise<{ submissionId: string }> {
+    const { id } = conversation;
+    if (state.run) {
+      if (!input.delivery) throw new Error("此会话正在运行，请选择插话或完成后发送。");
+      if (state.run.stopped) throw new Error("会话正在停止，请稍后再发送。");
+      const queue = queued(id, state);
+      if (queue.length >= 20) throw new Error("最多保留 20 条待处理消息。");
+      const item = {
+        id: input.requestId,
+        text: input.text,
+        delivery: input.delivery,
+        ...(input.images?.length ? { images: input.images } : {}),
+        ...(input.stepAttachmentId ? { stepAttachmentId: input.stepAttachmentId } : {}),
+      };
+      store.queueMessage(id, item, conversation.draft);
+      queue.push(item);
+      state.eligible ??= new Set();
+      state.eligible.add(input.requestId);
+      emit(id);
+      return { submissionId: input.requestId };
+    }
+    let message = input.text;
+    options.extensionUi?.beginConversation(id);
+    const finished = Promise.withResolvers<void>();
+    // 启动、执行和清理共用同一个占位，退出可以等待整个生命周期。
+    const run: ConversationRun = { done: finished.promise, stopped: false };
+    state.run = run;
+    function finishRun() {
+      cancelProgress(state);
+      delete state.run;
+      delete state.eligible;
+      delete state.delivery;
+      delete state.partial;
+      delete state.partialBlocks;
+      delete state.tools;
+      finished.resolve();
+      emit(id);
+      publish({ type: "workspace" });
+    }
+    function checkStartup() {
+      if (run.stopped) throw cancelledSend();
+    }
+
+    let session: AgentSession;
+    try {
+      publish({ type: "workspace" });
+      if (input.queuedId) state.delivery = { id: input.queuedId };
+      message = await resolveMessage(conversation.projectId, message);
+      checkStartup();
+      session = await agent(id);
+      checkStartup();
+      delete state.error;
+      emit(id);
+    } catch (error) {
+      finishRun();
+      throw error;
+    }
+    const submission = Promise.withResolvers<{ submissionId: string }>();
+    run.acceptSubmission = () => {
+      const current = requireConversation(id);
+      store.updateConversation(id, {
+        interrupted: true,
+        // 插件等待确认时用户可能已经编辑了下一条草稿。
+        ...(!input.queuedId && current.draft === conversation.draft ? { draft: "" } : {}),
+        ...(!current.hasMessages && current.title === "新会话"
+          ? { title: conversationTitle(input.text) }
+          : {}),
+      });
+      delete run.acceptSubmission;
+      submission.resolve({ submissionId: input.requestId });
+      publish({ type: "workspace" });
+    };
+    void Promise.resolve()
+      .then(async () => {
+        try {
+          let queuedId = input.queuedId;
+          let images = input.images;
+          while (!run.stopped && !state.error) {
+            await session.prompt(message, {
+              ...(images ? { images: imagesFor(images) ?? [] } : {}),
+              preflightResult: (disposition) => {
+                if (disposition !== "handled") return;
+                checkStartup();
+                run.acceptSubmission?.();
+                if (queuedId) removeQueued(id, queuedId);
+              },
+            });
+            if (run.acceptSubmission) throw new Error("Pi 未接受消息。");
+            const outcome = session.messages.at(-1);
+            if (
+              outcome?.role === "assistant" &&
+              (outcome.stopReason === "error" || outcome.stopReason === "aborted")
+            )
+              break;
+            // 覆盖发送恰好落在最后一个 turn_end 之后的竞态，不启动并行运行。
+            const next = nextQueued(id, state);
+            if (!next || run.stopped || state.error) break;
+            queuedId = next.id;
+            images = next.images;
+            state.delivery = { id: queuedId };
+            emit(id);
+            message = await resolveMessage(conversation.projectId, next.text);
+          }
+          if (run.acceptSubmission) throw cancelledSend();
+        } catch (error) {
+          if (run.acceptSubmission) submission.reject(run.stopped ? cancelledSend() : error);
+          else if (!run.stopped)
+            state.error = (error instanceof Error ? error.message : "会话执行失败。").slice(
+              0,
+              10_000,
+            );
+        } finally {
+          try {
+            session.clearQueue();
+            if (!run.acceptSubmission) store.updateConversation(id, { interrupted: false });
+          } catch (error) {
+            state.error = (error instanceof Error ? error.message : "会话收尾失败。").slice(
+              0,
+              10_000,
+            );
+          } finally {
+            finishRun();
+          }
+        }
+      })
+      .catch(() => console.error("Failed to publish final conversation state."));
+    return submission.promise;
+  }
+
   return {
     metadata,
     async create(projectId: string) {
@@ -393,7 +554,7 @@ export function createConversations(options: {
     },
 
     fork(id: string) {
-      if (sessions.get(id)?.run) throw new Error("请先停止当前会话再分叉。");
+      if (isBusy(sessions.get(id))) throw new Error("请先停止当前会话再分叉。");
       const result = metadata(history.fork(id));
       publish({ type: "workspace" });
       return result;
@@ -422,7 +583,7 @@ export function createConversations(options: {
       const project = store.getProject(old.projectId);
       if (!project) throw new Error("会话模式由项目决定，不能单独更改。");
       if (
-        sessions.get(input.id)?.run &&
+        isBusy(sessions.get(input.id)) &&
         (input.modelId !== undefined ||
           input.thinkingLevel !== undefined ||
           input.accessMode !== undefined ||
@@ -449,160 +610,81 @@ export function createConversations(options: {
       return projectHistory.read(managerFor(id), turnId, before);
     },
     busyIds() {
-      return [...sessions].flatMap(([id, state]) => (state.run ? [id] : []));
+      return [...sessions].flatMap(([id, state]) => (isBusy(state) ? [id] : []));
     },
 
-    async send(input: {
-      id: string;
-      requestId: string;
-      text: string;
-      images?: import("../../contracts/application.ts").ChatImage[];
-      delivery?: DeliveryMode;
-      queuedId?: string;
-    }) {
-      if (!input.text.trim() && !input.images?.length) throw new Error("请输入消息。");
+    async send(input: Arguments<"conversation.send">): Promise<{ submissionId: string }> {
+      if (!input.text.trim() && !input.images?.length && !input.stepPath)
+        throw new Error("请输入消息。");
       const id = input.id;
       const conversation = requireConversation(id);
       const state = runtime(id);
-      if (state.run) {
-        if (!input.delivery) throw new Error("此会话正在运行，请选择插话或完成后发送。");
-        if (state.run.stopped) throw new Error("会话正在停止，请稍后再发送。");
-        const queue = queued(id, state);
-        if (queue.length >= 20) throw new Error("最多保留 20 条待处理消息。");
-        const item = {
-          id: input.requestId,
-          text: input.text,
-          delivery: input.delivery,
-          ...(input.images?.length ? { images: input.images } : {}),
-        };
-        store.queueMessage(id, item);
-        queue.push(item);
-        state.eligible ??= new Set();
-        state.eligible.add(input.requestId);
-        emit(id);
-        return { submissionId: input.requestId };
-      }
-      let message = input.text;
-      options.extensionUi?.beginConversation(id);
-      const finished = Promise.withResolvers<void>();
-      // 启动、执行和清理共用同一个占位，退出可以等待整个生命周期。
-      const run: ConversationRun = { done: finished.promise, stopped: false };
-      state.run = run;
-      function finishRun() {
-        cancelProgress(state);
-        delete state.run;
-        delete state.eligible;
-        delete state.delivery;
-        delete state.partial;
-        delete state.partialBlocks;
-        delete state.tools;
-        finished.resolve();
-        emit(id);
-        publish({ type: "workspace" });
-      }
-      function checkStartup() {
-        if (run.stopped) throw cancelledSend();
-      }
-
-      let session: AgentSession;
-      try {
-        publish({ type: "workspace" });
-        if (input.queuedId) state.delivery = { id: input.queuedId };
-        message = await resolveFileReferences(codingFiles, conversation.projectId, message);
-        checkStartup();
-        session = await agent(id);
-        checkStartup();
-        delete state.error;
-        emit(id);
-      } catch (error) {
-        finishRun();
-        throw error;
-      }
-      const submission = Promise.withResolvers<{ submissionId: string }>();
-      run.acceptSubmission = () => {
-        const current = requireConversation(id);
-        store.updateConversation(id, {
-          interrupted: true,
-          // 插件等待确认时用户可能已经编辑了下一条草稿。
-          ...(!input.queuedId && current.draft === conversation.draft ? { draft: "" } : {}),
-          ...(!current.hasMessages && current.title === "新会话"
-            ? { title: conversationTitle(input.text) }
-            : {}),
-        });
-        delete run.acceptSubmission;
-        submission.resolve({ submissionId: input.requestId });
-        publish({ type: "workspace" });
-      };
-      void Promise.resolve()
-        .then(async () => {
-          try {
-            let queuedId = input.queuedId;
-            let images = input.images;
-            while (!run.stopped && !state.error) {
-              await session.prompt(message, {
-                ...(images ? { images: imagesFor(images) ?? [] } : {}),
-                preflightResult: (disposition) => {
-                  if (disposition !== "handled") return;
-                  checkStartup();
-                  run.acceptSubmission?.();
-                  if (queuedId) removeQueued(id, queuedId);
-                },
-              });
-              if (run.acceptSubmission) throw new Error("Pi 未接受消息。");
-              const outcome = session.messages.at(-1);
-              if (
-                outcome?.role === "assistant" &&
-                (outcome.stopReason === "error" || outcome.stopReason === "aborted")
-              )
-                break;
-              // 覆盖发送恰好落在最后一个 turn_end 之后的竞态，不启动并行运行。
-              const next = nextQueued(id, state);
-              if (!next || run.stopped || state.error) break;
-              queuedId = next.id;
-              images = next.images;
-              state.delivery = { id: queuedId };
-              emit(id);
-              message = await resolveFileReferences(codingFiles, conversation.projectId, next.text);
-            }
-            if (run.acceptSubmission) throw cancelledSend();
-          } catch (error) {
-            if (run.acceptSubmission) submission.reject(run.stopped ? cancelledSend() : error);
-            else if (!run.stopped)
-              state.error = (error instanceof Error ? error.message : "会话执行失败。").slice(
-                0,
-                10_000,
-              );
-          } finally {
-            try {
-              session.clearQueue();
-              if (!run.acceptSubmission) store.updateConversation(id, { interrupted: false });
-            } catch (error) {
-              state.error = (error instanceof Error ? error.message : "会话收尾失败。").slice(
-                0,
-                10_000,
-              );
-            } finally {
-              finishRun();
-            }
+      if (state.preparing) throw new Error("正在读取 STEP 附件。");
+      if (input.stepPath) {
+        const scene = options.scene;
+        if (!scene || store.getProject(conversation.projectId)?.mode !== "scene")
+          throw new Error("只有场景对话可以附加 STEP 文件。");
+        const active = state.run;
+        if (active?.stopped) throw cancelledSend();
+        if (active && !input.delivery) throw new Error("此会话正在运行，请选择插话或完成后发送。");
+        const { stepPath, ...message } = input;
+        const controller = new AbortController();
+        const done = Promise.withResolvers<void>();
+        const preparing = { controller, done: done.promise };
+        state.preparing = preparing;
+        let attachment: StepAttachment | undefined;
+        try {
+          emit(id);
+          publish({ type: "workspace" });
+          attachment = await scene.saveStepAttachment(
+            conversation.projectId,
+            stepPath,
+            controller.signal,
+          );
+          controller.signal.throwIfAborted();
+          delete state.preparing;
+          return await submitMessage(
+            {
+              ...message,
+              text: attachStepToMessage(message.text, attachment),
+              stepAttachmentId: attachment.id,
+            },
+            conversation,
+            state,
+          );
+        } catch (error) {
+          if (attachment) await discardStepAttachment(conversation.projectId, attachment.id);
+          throw error;
+        } finally {
+          done.resolve();
+          if (state.preparing === preparing) {
+            delete state.preparing;
+            emit(id);
+            publish({ type: "workspace" });
           }
-        })
-        .catch(() => console.error("Failed to publish final conversation state."));
-      return submission.promise;
+        }
+      }
+      return submitMessage(input, conversation, state);
     },
 
     async stop(id: string) {
       requireConversation(id);
       const state = sessions.get(id);
+      const preparing = state?.preparing;
+      preparing?.controller.abort(cancelledSend());
       await requestStop(id, state?.run, state?.session);
+      await preparing?.done;
       return null;
     },
 
-    cancelQueued(id: string, messageId: string) {
-      requireConversation(id);
-      if (sessions.get(id)?.delivery?.id === messageId)
-        throw new Error("这条消息正在投递，无法取消。");
+    async cancelQueued(id: string, messageId: string) {
+      const { projectId } = requireConversation(id);
+      const state = runtime(id);
+      if (state.delivery?.id === messageId) throw new Error("这条消息正在投递，无法取消。");
+      const attachment = queued(id, state).find((item) => item.id === messageId)?.stepAttachmentId;
       removeQueued(id, messageId);
       emit(id);
+      if (attachment) await discardStepAttachment(projectId, attachment);
       return null;
     },
 
@@ -621,9 +703,9 @@ export function createConversations(options: {
     },
 
     async resumeQueue(id: string) {
-      requireConversation(id);
+      const conversation = requireConversation(id);
       const state = runtime(id);
-      if (state.run) throw new Error("请先等待当前运行结束。");
+      if (isBusy(state)) throw new Error("请先等待当前运行结束。");
       state.eligible = new Set(queued(id, state).map((item) => item.id));
       const first = nextQueued(id, state);
       if (!first) {
@@ -631,13 +713,17 @@ export function createConversations(options: {
         return null;
       }
       try {
-        await this.send({
-          id,
-          requestId: first.id,
-          text: first.text,
-          ...(first.images ? { images: first.images } : {}),
-          queuedId: first.id,
-        });
+        await submitMessage(
+          {
+            id,
+            requestId: first.id,
+            text: first.text,
+            ...(first.images ? { images: first.images } : {}),
+            queuedId: first.id,
+          },
+          conversation,
+          state,
+        );
       } catch (error) {
         delete state.eligible;
         throw error;
@@ -646,14 +732,18 @@ export function createConversations(options: {
     },
 
     async remove(id: string) {
-      requireConversation(id);
-      if (sessions.get(id)?.run) throw new Error("请先停止当前会话再删除。");
+      const { projectId } = requireConversation(id);
+      if (isBusy(sessions.get(id))) throw new Error("请先停止当前会话再删除。");
       await release(id);
+      const pending = store.queuedMessages(id);
       history.forget(id);
       store.deleteConversation(id);
       sessions.delete(id);
       publish({ type: "conversationDeleted", id });
       publish({ type: "workspace" });
+      for (const { stepAttachmentId } of pending) {
+        if (stepAttachmentId) await discardStepAttachment(projectId, stepAttachmentId);
+      }
       return null;
     },
 
@@ -666,9 +756,9 @@ export function createConversations(options: {
         );
       };
       const affected = [...sessions].filter(
-        ([id, state]) => (state.run || state.session) && matches(id),
+        ([id, state]) => (isBusy(state) || state.session) && matches(id),
       );
-      if (affected.some(([, state]) => state.run)) throw new Error("请先停止相关会话。");
+      if (affected.some(([, state]) => isBusy(state))) throw new Error("请先停止相关会话。");
       projectHistory.clear();
       for (const [id] of affected) await release(id);
     },

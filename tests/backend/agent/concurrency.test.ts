@@ -66,6 +66,8 @@ test("并发发送先占位；执行中拒绝变更包和技能，避免半成�
     });
     const project = store.createProject({ name: "场景", mode: "coding", path: root });
     const conversation = await conversations.create(project.id);
+    const interrupted = store.updateConversation(conversation.id, { interrupted: true });
+    assert.equal(conversations.metadata(interrupted).interrupted, true);
     const first = conversations.send({ id: conversation.id, requestId: "a", text: "第一条" });
     // 界面可在 Agent 初始化期间读视图，绑定会话文件只由发送路径写入。
     conversations.watch(conversation.id);
@@ -76,8 +78,12 @@ test("并发发送先占位；执行中拒绝变更包和技能，避免半成�
       /正在运行/,
     );
     await first;
-    assert.equal(store.getConversation(conversation.id)?.title, "初始化期间手动命名");
-    const initialSessionFile = store.getConversation(conversation.id)?.sessionFile;
+    const running = store.getConversation(conversation.id);
+    assert.ok(running);
+    assert.equal(running.title, "初始化期间手动命名");
+    assert.equal(running.interrupted, true);
+    assert.equal(conversations.metadata(running).interrupted, false);
+    const initialSessionFile = running.sessionFile;
     assert.ok(initialSessionFile);
     conversations.watch(conversation.id);
     assert.equal(store.getConversation(conversation.id)?.sessionFile, initialSessionFile);

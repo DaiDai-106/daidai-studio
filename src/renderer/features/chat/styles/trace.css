@@ -105,15 +105,121 @@
   font: 12px / 1.65 monospace;
   user-select: text;
 }
-.trace-detail details {
+.trace-context {
+  min-width: 0;
   margin-top: 10px;
+  border: 1px solid color-mix(in srgb, var(--trace-color) 22%, var(--border));
+  border-radius: 9px;
+  background: var(--surface);
 }
-.trace-detail summary {
-  padding: 7px 0;
-  cursor: pointer;
+.trace-context summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  list-style: none;
+}
+.trace-context > summary {
+  min-height: 48px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--trace-color) 6%, var(--surface));
+  font-size: 13px;
+}
+.trace-context summary:focus-visible {
+  outline-offset: -2px;
+}
+.trace-context summary > svg {
+  flex: none;
+  color: var(--muted);
+}
+.trace-context:where([open]) > summary > svg,
+.trace-context :where(details[open]) > summary > svg {
+  transform: rotate(90deg);
+}
+.trace-input-icon {
+  display: grid;
+  flex: 0 0 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--trace-color) 16%, var(--surface));
+  color: color-mix(in srgb, var(--trace-color) 56%, var(--text));
+}
+.trace-context summary > :where(strong, code, .trace-input-name) {
+  flex: 1;
+  min-width: 0;
   overflow-wrap: anywhere;
 }
-.trace-detail h4 {
+.trace-input-meta,
+.trace-input-count {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.trace-input-layout,
+.trace-input-prompts {
+  display: grid;
+  align-items: start;
+  gap: 10px;
+  min-width: 0;
+}
+.trace-input-layout {
+  padding: 10px;
+  border-top: 1px solid var(--border);
+}
+.trace-input-prompts > :where(.trace-note) {
+  margin: 2px 0;
+}
+.trace-input-group {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.trace-input-group > h4 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 7px 7px 0 0;
+  background: var(--subtle);
+  font-size: 12px;
+}
+.trace-input-group > h4 > svg {
+  flex: none;
+  color: color-mix(in srgb, var(--trace-color) 54%, var(--text));
+}
+.trace-input-count {
+  margin-inline-start: auto;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--surface);
+}
+.trace-input-entry {
+  border-top: 1px solid var(--border);
+}
+.trace-input-entry > summary {
+  min-height: 33px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.trace-context summary:where(:hover) {
+  background: color-mix(in srgb, var(--trace-color) 12%, var(--surface));
+}
+.trace-input-entry > summary > code {
+  color: color-mix(in srgb, var(--trace-color) 40%, var(--text));
+  font-family: ui-monospace, monospace;
+}
+.trace-input-entry > :is(p, pre) {
+  margin: 0 8px 8px;
+}
+.trace-input-entry > pre {
+  background: var(--subtle);
+}
+.trace-call > h4 {
   margin: 14px 0 6px;
   font-size: 13px;
 }
@@ -133,6 +239,11 @@
   padding: 12px;
   border: 1px dashed var(--border);
   border-radius: 9px;
+}
+@container (min-width: 720px) {
+  .trace-input-layout:has(> .trace-input-group) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  }
 }
 @container (max-width: 600px) {
   .trace-preview {

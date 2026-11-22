@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, type UtilityProcess, utilityProcess } from "electron";
 import type { ApplicationEvent } from "../../contracts/application.ts";
@@ -17,9 +18,23 @@ interface BackendContext {
 
 // 窗口显示前等待后端准备就绪；异常退出时不能留下无法工作的托盘应用。
 export async function startBackend(context: BackendContext): Promise<void> {
+  const stepWorkerDirectory =
+    app.isPackaged && process.platform === "darwin"
+      ? join(process.resourcesPath, "..", "MacOS")
+      : join(
+          app.isPackaged ? process.resourcesPath : app.getAppPath(),
+          "modules",
+          "scene",
+          "runtime",
+        );
   const child = utilityProcess.fork(
     fileURLToPath(new URL("./backend.js", import.meta.url)),
-    [context.root, context.rootIdentity?.dev ?? "", context.rootIdentity?.ino ?? ""],
+    [
+      context.root,
+      context.rootIdentity?.dev ?? "",
+      context.rootIdentity?.ino ?? "",
+      stepWorkerDirectory,
+    ],
     { serviceName: `${packageName}-backend` },
   );
 

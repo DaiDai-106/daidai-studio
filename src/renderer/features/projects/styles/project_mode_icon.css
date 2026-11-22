@@ -1,0 +1,12 @@
+.project-mode-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.project-mode-icon[data-mode="coding"] {
+  color: color-mix(in srgb, #3d81bc 72%, var(--text));
+}
+.project-mode-icon[data-mode="scene"] {
+  color: color-mix(in srgb, #9560b7 72%, var(--text));
+}

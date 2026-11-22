@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type {
-  CatalogEntry,
-  CatalogInstalled,
-  CatalogSourceId,
-  PluginModule,
+import {
+  type CatalogEntry,
+  type CatalogInstalled,
+  type CatalogSourceId,
+  type PluginModule,
+  pluginModules,
 } from "../../../../contracts/catalog.ts";
 import type { DesktopTheme } from "../../../../contracts/desktop_theme.ts";
 import { productName } from "../../../../shared/app_metadata.ts";
@@ -20,6 +21,7 @@ import {
 } from "./plugin_lists.tsx";
 import { ResourceTags, scopeLabel, sources } from "./plugin_presentation.tsx";
 import { CompanySettings } from "./plugin_source_dialogs.tsx";
+import { SettingRow } from "./settings_controls.tsx";
 import { SkillLibrary } from "./skill_library.tsx";
 import "../styles/plugin_center.css";
 
@@ -87,6 +89,7 @@ export function PluginCenter({
             ["discover", "发现插件"],
             ["installed", "已安装"],
             ["skills", "我的技能"],
+            ["builtins", "内置模块"],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -158,6 +161,18 @@ export function PluginCenter({
         onConfirm={setConfirmation}
       />
       {center.tab === "skills" && <SkillLibrary moduleId={moduleId} userOnly />}
+      {center.tab === "builtins" && (
+        <div role="tabpanel" aria-label="内置模块">
+          <SettingRow
+            title={pluginModules.coding}
+            description="在 Coding 项目中浏览文件、查看 Git 变更，通过对话分析和编辑代码。"
+          />
+          <SettingRow
+            title={pluginModules.scene}
+            description="在场景项目中导入 STEP 或 URDF，编辑连杆和关节、预览运动，并导出 URDF 和 STL 网格。"
+          />
+        </div>
+      )}
       {center.detailState && (
         <PluginDetail
           key={`${center.detailState.entry.sourceId}:${center.detailState.entry.id}`}

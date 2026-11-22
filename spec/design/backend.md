@@ -35,6 +35,7 @@ src/backend/
   settings/         模型提供方、认证和应用设置
 src/contracts/      实际跨进程请求、响应及事件
 src/shared/         跨层纯逻辑；node/ 仅供 Node 进程使用的文件访问
+modules/scene/      独立 STEP 解析工具和 OCCT 构建配置
 resources/icons/    桌面图标
 scripts/            构建辅助脚本
 tests/              测试入口、契约、后端和 Electron 测试

@@ -61,6 +61,10 @@
   font-size: 13px;
   color: var(--muted);
 }
+.plugin-tabs {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
 .plugin-tabs > button[aria-selected="true"],
 .plugin-detail-tabs button[aria-selected="true"] {
   color: var(--text);

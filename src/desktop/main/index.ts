@@ -1,4 +1,6 @@
 import { statSync } from "node:fs";
+import { appendFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   app,
   type BrowserWindow,
@@ -66,6 +68,14 @@ const windows = createWindowController({
   setWindow: (window) => {
     mainWindow = window;
     if (window) {
+      window.webContents.on("render-process-gone", (_event, { reason, exitCode }) => {
+        if (reason === "clean-exit") return;
+        const message = `${new Date().toISOString()} renderer exited: ${reason} (${exitCode})\n`;
+        console.error(message.trim());
+        void appendFile(join(paths.root, "logs", "crashes.log"), message, { mode: 0o600 }).catch(
+          (error) => console.error("Unable to save renderer exit diagnostics.", error),
+        );
+      });
       window.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
         if (isMainFrame && !isInPlace) preview.dispose();
       });

@@ -38,6 +38,7 @@ export function registerQuitLifecycle(context: QuitContext) {
     if (!window || window.isDestroyed() || !flushRegistered) return true;
     const targetWindow = window;
     const contents = targetWindow.webContents;
+    if (contents.isCrashed()) return true;
     targetWindow.setEnabled(false);
     return new Promise((resolve) => {
       const id = crypto.randomUUID();
@@ -46,6 +47,7 @@ export function registerQuitLifecycle(context: QuitContext) {
       function finish(success: boolean) {
         clearTimeout(deadline);
         contents.removeListener("destroyed", destroyed);
+        contents.removeListener("render-process-gone", rendererGone);
         quitFlush = undefined;
         if (!success && !targetWindow.isDestroyed()) targetWindow.setEnabled(true);
         resolve(success);
@@ -55,12 +57,17 @@ export function registerQuitLifecycle(context: QuitContext) {
         finish(false);
       }
 
+      function rendererGone() {
+        finish(true);
+      }
+
       quitFlush = { id, resolve: finish };
       contents.once("destroyed", destroyed);
+      contents.once("render-process-gone", rendererGone);
       try {
         contents.send(QUIT_FLUSH_CHANNEL, id);
       } catch {
-        finish(false);
+        finish(contents.isCrashed());
       }
     });
   }

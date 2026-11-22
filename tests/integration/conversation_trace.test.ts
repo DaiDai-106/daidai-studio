@@ -182,10 +182,21 @@ test("统一轨迹入口展示角色、历史系统注入、工具定义和完�
     const user = trace.locator(`[data-entry-id="${userId}"]`);
     await user.locator(":scope > summary").click();
     await user.locator(".trace-context > summary").click();
+    const inputLayout = await user.locator(".trace-input-layout").evaluate((element) => {
+      const column = element.closest<HTMLElement>(".message-column");
+      const [prompts, tools] = element.children;
+      if (!column || !prompts || !tools) throw new Error("Missing model input layout");
+      const wide = tools.getBoundingClientRect().left > prompts.getBoundingClientRect().left;
+      column.style.width = "400px";
+      const narrow = tools.getBoundingClientRect().top >= prompts.getBoundingClientRect().bottom;
+      column.style.removeProperty("width");
+      return { wide, narrow };
+    });
+    assert.deepEqual(inputLayout, { wide: true, narrow: true });
     await user
       .locator("summary")
       .filter({ hasText: /^ponytail$/ })
-      .click();
+      .press("Enter");
     await user.getByText("PONYTAIL MODE ACTIVE — level: full", { exact: true }).waitFor();
     const injection = user.getByRole("region", { name: "插件消息与上下文注入" });
     await injection

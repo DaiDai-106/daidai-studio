@@ -6,6 +6,13 @@
     "buildResources": "dist/icons"
   },
   "files": ["dist/**", "package.json", "!dist/icons/*.icns"],
+  "extraResources": [
+    {
+      "from": "modules/scene/runtime",
+      "to": "modules/scene/runtime",
+      "filter": ["licenses/**"]
+    }
+  ],
   "publish": null,
   "artifactName": "${name}-${version}-${os}-${arch}.${ext}",
   "mac": {
@@ -15,7 +22,11 @@
     "type": "distribution",
     "forceCodeSigning": true,
     "hardenedRuntime": true,
-    "notarize": false
+    "notarize": false,
+    "extraFiles": [
+      { "from": "modules/scene/runtime/cad-import", "to": "MacOS/cad-import" },
+      { "from": "modules/scene/runtime/lib", "to": "Frameworks", "filter": ["*.dylib"] }
+    ]
   },
   "dmg": {
     "title": "${productName} ${version}",
@@ -40,7 +51,14 @@
   "win": {
     "target": ["nsis"],
     "icon": "dist/icons/app.ico",
-    "signExecutable": false
+    "signExecutable": false,
+    "extraResources": [
+      {
+        "from": "modules/scene/runtime",
+        "to": "modules/scene/runtime",
+        "filter": ["cad-import.exe", "*.dll"]
+      }
+    ]
   },
   "nsis": {
     "artifactName": "${name}-setup-${version}-${arch}.exe",
@@ -51,7 +69,14 @@
     "target": ["deb"],
     "icon": "dist/icons",
     "category": "Utility",
-    "syncDesktopName": true
+    "syncDesktopName": true,
+    "extraResources": [
+      {
+        "from": "modules/scene/runtime",
+        "to": "modules/scene/runtime",
+        "filter": ["cad-import", "lib/**"]
+      }
+    ]
   },
   "deb": {
     "artifactName": "${name}_${version}_${arch}.${ext}",

@@ -1,6 +1,6 @@
 # GitHub Release
 
-推送 `vX.Y.Z` 标签会构建 Linux x64、Windows x64 和 macOS Apple Silicon 安装包。打包前校验标签与 `package.json` 的版本一致，且 `CHANGELOG.md` 有标题为 `## [X.Y.Z]` 的变更记录。三个安装包都通过启动验证后，GitHub Actions 创建 Release，并从该记录提取发布说明。
+推送 `vX.Y.Z` 标签会构建 Linux x64、Windows x64 和 macOS Apple Silicon 安装包。每个平台随包分发本机构建的 STEP 解析程序和 OCCT。打包前校验标签与 `package.json` 的版本一致，且 `CHANGELOG.md` 有标题为 `## [X.Y.Z]` 的变更记录。三个打包版都通过启动和 STEP 导入验证后，GitHub Actions 创建 Release，并从该记录提取发布说明。
 
 ## 配置 macOS 签名和公证
 
@@ -22,7 +22,7 @@
 base64 -i "Developer ID Application.p12" | tr -d '\n' | pbcopy
 ```
 
-GitHub Actions 只在推送版本标签时生成 macOS 安装包。签名和公证由 `desktop-ci.yml` 中的 macOS 发版任务执行。它会签名 `.app` 和 `.dmg`，提交最终 `.dmg` 给 Apple 公证，写入并验证公证票据，再挂载镜像验证应用启动。 [Apple 的 Mac 软件分发指南](https://developer.apple.com/documentation/xcode/packaging-mac-software-for-distribution)
+GitHub Actions 只在推送版本标签时生成 macOS 安装包。签名和公证由 `desktop-ci.yml` 中的 macOS 发版任务执行。它会签名 `.app` 和 `.dmg`，挂载镜像检查应用、STEP 解析程序和 OCCT 库的签名，并执行导入验证。验证通过后再提交 `.dmg` 给 Apple 公证，写入并验证公证票据。 [Apple 的 Mac 软件分发指南](https://developer.apple.com/documentation/xcode/packaging-mac-software-for-distribution)
 
 ## 安装 Linux 包
 

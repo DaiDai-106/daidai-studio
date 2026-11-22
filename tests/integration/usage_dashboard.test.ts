@@ -5,26 +5,7 @@ import { test } from "node:test";
 import { openProjectStore } from "../../src/backend/projects/store.ts";
 import { launchTestApp } from "./support.ts";
 
-test("设置中的 Dashboard 可读取空用量、切换筛选并刷新", { timeout: 60000 }, async (context) => {
-  const { page } = await launchTestApp(context);
-  page.setDefaultTimeout(10000);
-  await page.getByRole("button", { name: "打开设置", exact: true }).click();
-  const nav = page.getByRole("navigation", { name: "设置分类" });
-  const labels = await nav.getByRole("button").allTextContents();
-  assert.equal(labels.indexOf("Dashboard"), labels.indexOf("本地数据") + 1);
-  assert.equal(labels.indexOf("信息"), labels.indexOf("Dashboard") + 1);
-  await nav.getByRole("button", { name: "Dashboard", exact: true }).click();
-  await page.locator(".usage-calendar .usage-day").first().waitFor();
-  assert.equal(await page.locator(".usage-months span").count(), 12);
-  assert.equal(
-    await page.getByRole("button", { name: "每天", exact: true }).getAttribute("aria-pressed"),
-    "true",
-  );
-  await page.getByRole("button", { name: "刷新", exact: true }).click();
-  assert.equal(await page.getByText("正在运行", { exact: true }).count(), 0);
-});
-
-test("Dashboard 正确绘制模型趋势、显示服务名称并按模型筛选", {
+test("Dashboard 从空用量刷新，绘制模型趋势并支持筛选", {
   timeout: 60000,
 }, async (context) => {
   const { page, profile } = await launchTestApp(context);
@@ -39,6 +20,21 @@ test("Dashboard 正确绘制模型趋势、显示服务名称并按模型筛选"
       enabled: true,
       models: [{ id: "model", name: "Model", context: 8192, output: 1024, reasoning: "标准" }],
     }),
+  );
+  await page.getByRole("button", { name: "打开设置", exact: true }).click();
+  const nav = page.getByRole("navigation", { name: "设置分类" });
+  const labels = await nav.getByRole("button").allTextContents();
+  assert.equal(labels.indexOf("Dashboard"), labels.indexOf("本地数据") + 1);
+  assert.equal(labels.indexOf("信息"), labels.indexOf("Dashboard") + 1);
+  await nav.getByRole("button", { name: "Dashboard", exact: true }).click();
+  const calendar = page.locator(".usage-calendar");
+  await calendar
+    .getByRole("button", { name: /总计：0 Token.*无用量/ })
+    .first()
+    .waitFor();
+  assert.equal(
+    await page.getByRole("button", { name: "每天", exact: true }).getAttribute("aria-pressed"),
+    "true",
   );
   const root = join(profile, "data");
   const store = openProjectStore(root);
@@ -109,13 +105,8 @@ test("Dashboard 正确绘制模型趋势、显示服务名称并按模型筛选"
   } finally {
     store.close();
   }
-  await page.getByRole("button", { name: "打开设置", exact: true }).click();
-  await page
-    .getByRole("navigation", { name: "设置分类" })
-    .getByRole("button", { name: "Dashboard", exact: true })
-    .click();
-  const calendar = page.locator(".usage-calendar");
-  await calendar.locator(".usage-day").first().waitFor();
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await page.locator(".usage-cards").getByText("350", { exact: true }).waitFor();
   assert.equal(await page.locator(".usage-months span").count(), 12);
   const aligned = await calendar.locator(".usage-day").evaluateAll((cells) => {
     const first = new Date();
@@ -130,7 +121,6 @@ test("Dashboard 正确绘制模型趋势、显示服务名称并按模型筛选"
     );
   });
   assert.equal(aligned, true);
-  assert.equal(await page.locator(".usage-cards").getByText("350", { exact: true }).count(), 1);
   assert.equal(await page.getByRole("columnheader", { name: "会话" }).count(), 0);
   assert.equal(await page.locator(".usage-dashboard").getByText("不应显示的会话").count(), 0);
   assert.ok((await page.getByText("我的服务", { exact: true }).count()) > 0);

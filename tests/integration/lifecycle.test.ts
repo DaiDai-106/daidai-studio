@@ -208,3 +208,28 @@ test("backend crash while the renderer is flushing a draft does not hang quittin
   const [code] = await fixture.exited;
   assert.equal(code, 1);
 });
+
+test("renderer crash releases the draft flush and lets the backend exit", {
+  timeout: 25_000,
+}, async (context) => {
+  const fixture = await launchFixture(context);
+  try {
+    const page = await fixture.application.firstWindow();
+    await page.getByRole("button", { name: "打开设置", exact: true }).waitFor();
+    await fixture.application.evaluate(({ app, BrowserWindow }) => {
+      const contents = BrowserWindow.getAllWindows()[0]?.webContents;
+      if (!contents) throw new Error("Missing renderer");
+      contents.once("render-process-gone", () => app.quit());
+      setTimeout(() => contents.forcefullyCrashRenderer(), 0);
+    });
+    const [code] = await fixture.exited;
+    assert.equal(code, 0);
+    const log = await readFile(
+      join(fixture.directory, "profile", "data", "logs", "crashes.log"),
+      "utf8",
+    );
+    assert.match(log, /renderer exited: crashed/);
+  } finally {
+    if (fixture.child.exitCode === null) fixture.child.kill("SIGKILL");
+  }
+});

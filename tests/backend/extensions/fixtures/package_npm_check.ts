@@ -96,6 +96,14 @@ try {
     /不可用/,
   );
   assert.equal((await fixed.inspect()).find((p) => p.scope === "module")?.version, "1.0.0");
+  await assert.rejects(
+    fixed.install("npm:dai-offline-fixture@2.0.0", "module", {
+      source: oldSource,
+      version: "9.0.0",
+    }),
+    /安装后的版本与所选版本不一致/,
+  );
+  assert.equal((await fixed.inspect()).find((p) => p.scope === "module")?.version, "1.0.0");
   const task = await catalog.install({
     sourceId: "pi",
     id: "dai-offline-fixture",
@@ -135,6 +143,10 @@ await assert.rejects(a.install("npm:dai-fixture-missing", "module"));
 assert.deepEqual(await a.inspect(), before);
 
 assert.equal((await fetch(`${registry}/desktop`)).status, 204);
+const beforeInvalidHost = await a.inspect();
+await assert.rejects(a.update(source, "module"), /宿主不匹配/);
+assert.deepEqual(await a.inspect(), beforeInvalidHost);
+assert.match(await extensionText(a), /version-2/);
 let agentChanges = 0;
 const desktop = createPackageService({
   dataRoot,

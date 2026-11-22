@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -22,6 +23,10 @@ const selected = targets.get(target);
 if (!selected) throw new Error(`Unknown package target: ${target}`);
 if (selected.host !== process.platform)
   throw new Error(`Build ${target} on ${selected.host}; current host is ${process.platform}.`);
+
+const cadImport = process.platform === "win32" ? "cad-import.exe" : "cad-import";
+if (!existsSync(join(projectRoot, "modules", "scene", "runtime", cadImport)))
+  throw new Error("STEP 解析程序缺失，请先运行 npm run build:scene。");
 
 const child = spawn(
   process.execPath,

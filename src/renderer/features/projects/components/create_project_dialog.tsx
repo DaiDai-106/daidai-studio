@@ -13,6 +13,7 @@ export function CreateProjectDialog({
   onCreate: (draft: CreateProjectInput) => Promise<boolean>;
   onClose: () => void;
 }) {
+  const [mode, setMode] = useState<CreateProjectInput["mode"]>("coding");
   const [name, setName] = useState("");
   const [directory, setDirectory] = useState<{ token: string; path: string } | null>(null);
   const [selecting, setSelecting] = useState(false);
@@ -40,8 +41,8 @@ export function CreateProjectDialog({
       if (
         await onCreate({
           name: name.trim(),
-          mode: "coding",
-          ...(directory ? { directoryToken: directory.token } : {}),
+          mode,
+          ...(mode === "coding" && directory ? { directoryToken: directory.token } : {}),
         })
       )
         onClose();
@@ -61,31 +62,45 @@ export function CreateProjectDialog({
         <Field label="项目名称">
           <input value={name} onChange={(event) => setName(event.target.value)} maxLength={80} />
         </Field>
-        <div className="project-directory-choice">
-          <span className="project-directory-label">项目文件夹</span>
-          <div className="project-directory-row">
-            <span className="project-directory-path" title={directory?.path}>
-              {directory?.path ?? "默认在文稿/Dai 中创建"}
-            </span>
-            {directory && (
+        <Field label="项目类型">
+          <select
+            value={mode}
+            onChange={(event) =>
+              setMode(event.currentTarget.value === "scene" ? "scene" : "coding")
+            }
+            disabled={submitting || selecting}
+          >
+            <option value="coding">Coding</option>
+            <option value="scene">场景搭建</option>
+          </select>
+        </Field>
+        {mode === "coding" && (
+          <div className="project-directory-choice">
+            <span className="project-directory-label">项目文件夹</span>
+            <div className="project-directory-row">
+              <span className="project-directory-path" title={directory?.path}>
+                {directory?.path ?? "默认在文稿/Dai 中创建"}
+              </span>
+              {directory && (
+                <button
+                  type="button"
+                  disabled={submitting || selecting}
+                  onClick={() => setDirectory(null)}
+                >
+                  使用默认
+                </button>
+              )}
               <button
                 type="button"
                 disabled={submitting || selecting}
-                onClick={() => setDirectory(null)}
+                onClick={() => void chooseDirectory()}
               >
-                使用默认
+                选择文件夹
               </button>
-            )}
-            <button
-              type="button"
-              disabled={submitting || selecting}
-              onClick={() => void chooseDirectory()}
-            >
-              选择文件夹
-            </button>
+            </div>
           </div>
-        </div>
-        {selectionError && (
+        )}
+        {mode === "coding" && selectionError && (
           <p className="error" role="alert">
             {selectionError}
           </p>

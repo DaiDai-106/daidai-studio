@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { writeJson } from "../../../src/shared/node/write_json.ts";
 
-test("JSON 写入替换旧文件、限制权限，失败后清理临时文件并允许重试", async () => {
+test("JSON 写入替换旧文件、限制权限，失败后清理临时文件并允许重试", async (context) => {
   const root = await mkdtemp(join(tmpdir(), "dai-write-json-"));
   const path = join(root, "settings.json");
   try {
@@ -14,6 +14,18 @@ test("JSON 写入替换旧文件、限制权限，失败后清理临时文件并
     const circular: { self?: unknown } = {};
     circular.self = circular;
     await assert.rejects(writeJson(path, circular), TypeError);
+    assert.deepEqual(JSON.parse(await readFile(path, "utf8")), { value: "old" });
+    const controller = new AbortController();
+    const check = controller.signal.throwIfAborted.bind(controller.signal);
+    let checks = 0;
+    context.mock.method(controller.signal, "throwIfAborted", () => {
+      if (++checks === 2) controller.abort();
+      check();
+    });
+    await assert.rejects(writeJson(path, { value: "cancelled" }, controller.signal), {
+      name: "AbortError",
+    });
+    assert.deepEqual(await readdir(root), ["settings.json"]);
     assert.deepEqual(JSON.parse(await readFile(path, "utf8")), { value: "old" });
     await rm(path);
     await mkdir(path);

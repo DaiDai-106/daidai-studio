@@ -94,6 +94,31 @@
 .composer-image {
   position: relative;
 }
+.step-attachment {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.step-attachment > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.step-attachment svg {
+  flex-shrink: 0;
+}
+.step-attachment button {
+  display: inline-flex;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+}
 .composer-image img {
   width: 64px;
   height: 64px;

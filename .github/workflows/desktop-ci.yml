@@ -19,7 +19,7 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 25
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -64,7 +64,7 @@ jobs:
     name: macOS Apple Silicon
     if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: macos-26
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
         with:
@@ -78,30 +78,22 @@ jobs:
       - name: Build app
         run: |
           npm ci
-          npm run build
-      - name: Sign and notarize macOS installer
+          npm run build:package
+      - name: Sign and verify macOS installer
+        id: dmg
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
 
-          for secret in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
-            if [[ -z "${!secret:-}" ]]; then
-              printf 'Missing macOS release credential: %s\n' "$secret" >&2
-              exit 1
-            fi
-          done
+          : "${CSC_LINK:?Missing signing certificate}" "${CSC_KEY_PASSWORD:?Missing certificate password}"
 
           work_dir=$(mktemp -d "$RUNNER_TEMP/dai-studio-dmg.XXXXXX")
           trap 'rm -rf -- "$work_dir"' EXIT
 
-          env -u APPLE_ID -u APPLE_APP_SPECIFIC_PASSWORD -u APPLE_TEAM_ID \
-            node node_modules/electron-builder/cli.js --mac dmg --publish never \
-              --config electron-builder.json --config.directories.output="$work_dir/output"
+          node node_modules/electron-builder/cli.js --mac dmg --arm64 --publish never \
+            --config electron-builder.json --config.directories.output="$work_dir/output"
           unset CSC_LINK CSC_KEY_PASSWORD
 
           shopt -s nullglob
@@ -114,13 +106,38 @@ jobs:
           image=$1
           codesign --verify --strict "$image"
 
-          if ! submission=$(xcrun notarytool submit "$image" \
+          mount_dir="$work_dir/mount"
+          mkdir "$mount_dir"
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "$image"
+          trap 'hdiutil detach "$mount_dir" && rm -rf -- "$work_dir"' EXIT
+          app="$mount_dir/Dai Studio.app"
+          codesign --verify --deep --strict "$app"
+          libraries=("$app/Contents/Frameworks"/libTK*.dylib)
+          test "${#libraries[@]}" -gt 0
+          codesign --verify --strict "$app/Contents/MacOS/cad-import" "${libraries[@]}"
+          node tests/integration/package_smoke.mjs "$app/Contents/MacOS/Dai Studio"
+          hdiutil detach "$mount_dir"
+          trap 'rm -rf -- "$work_dir"' EXIT
+
+          mkdir -p release
+          mv "$image" release/
+          printf 'filename=%s\n' "${image##*/}" >> "$GITHUB_OUTPUT"
+      - name: Notarize macOS installer
+        env:
+          IMAGE: release/${{ steps.dmg.outputs.filename }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          : "${APPLE_ID:?Missing Apple ID}" "${APPLE_APP_SPECIFIC_PASSWORD:?Missing app password}" "${APPLE_TEAM_ID:?Missing Apple team ID}"
+
+          if ! submission=$(xcrun notarytool submit "$IMAGE" \
             --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" --wait --output-format json); then
             printf '%s\n' "$submission" >&2
             exit 1
           fi
-          unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
 
           printf '%s\n' "$submission"
           status=$(node -p 'JSON.parse(require("node:fs").readFileSync(0, "utf8")).status' <<< "$submission")
@@ -129,19 +146,8 @@ jobs:
             exit 1
           fi
 
-          xcrun stapler staple "$image"
-          xcrun stapler validate "$image"
-
-          mount_dir="$work_dir/mount"
-          mkdir "$mount_dir"
-          hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "$image"
-          trap 'hdiutil detach "$mount_dir" && rm -rf -- "$work_dir"' EXIT
-          app="$mount_dir/Dai Studio.app"
-          codesign --verify --deep --strict "$app"
-          node tests/integration/package_smoke.mjs "$app/Contents/MacOS/Dai Studio"
-
-          mkdir -p release
-          mv "$image" release/
+          xcrun stapler staple "$IMAGE"
+          xcrun stapler validate "$IMAGE"
       - name: Upload installer
         uses: actions/upload-artifact@v7
         with:

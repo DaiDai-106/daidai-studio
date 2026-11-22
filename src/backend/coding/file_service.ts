@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import { readdir } from "node:fs/promises";
+import {
+  projectPathParts,
+  readProjectFile,
+  withProjectDirectory,
+} from "../projects/project_access.ts";
 import type { openProjectStore } from "../projects/store.ts";
-import { projectPathParts, readProjectFile, withProjectDirectory } from "./project_access.ts";
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 
@@ -33,7 +37,7 @@ function listEntries(root: string, path: string) {
 export function createCodingFileService(store: ReturnType<typeof openProjectStore>) {
   function projectPath(id: string) {
     const value = store.getProject(id);
-    if (!value) throw new Error("Coding 项目不存在。");
+    if (value?.mode !== "coding") throw new Error("Coding 项目不存在。");
     return value.path;
   }
 

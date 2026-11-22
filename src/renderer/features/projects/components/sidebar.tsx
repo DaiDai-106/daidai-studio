@@ -3,12 +3,14 @@ import type {
   ConversationInfo,
   ProjectInfo as Project,
 } from "../../../../contracts/application.ts";
+import { pluginModules } from "../../../../contracts/catalog.ts";
 import { productName } from "../../../../shared/app_metadata.ts";
 import { shortcutLabel } from "../../../app/logic/shortcuts.ts";
 import { ActionMenu } from "../../../shared/components/action_menu.tsx";
 import { BrandIcon } from "../../../shared/components/brand_icon.tsx";
 import { Icon, IconButton } from "../../../shared/components/icon.tsx";
 import { Tooltip } from "../../../shared/components/tooltip.tsx";
+import { ProjectModeIcon } from "./project_mode_icon.tsx";
 
 interface Props {
   projects: Project[];
@@ -72,11 +74,13 @@ export function Sidebar(props: Props) {
               <button
                 type="button"
                 className="project-title"
+                title={`${project.name} · ${pluginModules[project.mode]}`}
+                aria-description={pluginModules[project.mode]}
                 aria-expanded={!collapsedProjects.has(project.id)}
                 aria-controls={`project-conversations-${project.id}`}
                 onClick={() => toggleProject(project.id)}
               >
-                <Icon name="folder" size={16} />
+                <ProjectModeIcon mode={project.mode} />
                 <span>{project.name}</span>
                 <Icon
                   name={collapsedProjects.has(project.id) ? "chevron" : "chevron-down"}

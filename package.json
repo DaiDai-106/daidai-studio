@@ -22,16 +22,19 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "build:icons": "node --experimental-strip-types scripts/icons.ts",
+    "build:scene": "cmake -S modules/scene/cmake -B modules/scene/build/bootstrap && cmake --build modules/scene/build/bootstrap --config Release",
+    "build:package": "npm run build:scene && npm run build",
     "build": "npm run typecheck && npm run build:icons && electron-vite build",
     "test": "npm run build && node -e \"require('electron')\" && node tests/runners/test_runner.mjs",
     "check": "npm run lint && npm test",
-    "package:dir": "npm run build && node --experimental-strip-types electron.package.ts",
-    "package:deb": "npm run build && node --experimental-strip-types electron.package.ts --deb",
-    "package:win": "npm run build && node --experimental-strip-types electron.package.ts --win"
+    "package:dir": "npm run build:package && node --experimental-strip-types electron.package.ts",
+    "package:deb": "npm run build:package && node --experimental-strip-types electron.package.ts --deb",
+    "package:win": "npm run build:package && node --experimental-strip-types electron.package.ts --win"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "1.5.2",
     "@earendil-works/pi-coding-agent": "1.5.2",
+    "@xmldom/xmldom": "0.9.12",
     "shiki": "4.6.0",
     "typebox": "1.3.27"
   },
@@ -43,6 +46,7 @@
     "@types/node": "22.19.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
+    "@types/three": "0.186.0",
     "@vitejs/plugin-react": "5.2.0",
     "dompurify": "3.4.17",
     "electron": "43.8.3",
@@ -56,6 +60,7 @@
     "react-dom": "19.2.8",
     "react-markdown": "10.1.0",
     "remark-gfm": "4.0.1",
+    "three": "0.186.1",
     "typescript": "5.9.3",
     "vite": "7.3.7"
   }

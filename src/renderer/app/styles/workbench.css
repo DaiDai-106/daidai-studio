@@ -91,11 +91,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.project-title svg {
+.project-title > svg {
   color: var(--muted);
   flex-shrink: 0;
-}
-.project-title > svg:last-child {
   margin-inline-start: auto;
 }
 .extension-pending {
@@ -183,8 +181,8 @@
   display: grid;
   min-height: 0;
 }
-.workspace.coding-mode {
-  grid-template-columns: minmax(0, 1fr) 5px var(--coding-width);
+.workspace:is(.coding-mode, .scene-mode) {
+  grid-template-columns: minmax(0, 1fr) 5px var(--workspace-width);
 }
 .workspace.coding-mode[data-coding-open="false"] {
   grid-template-columns: minmax(0, 1fr);

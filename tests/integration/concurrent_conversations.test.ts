@@ -69,9 +69,18 @@ test("会话可后台并行，切换和新建项目不打断任务，停止与�
   await send.click();
   await queue.getByText("A 待恢复", { exact: true }).waitFor();
   await input.fill("A 草稿");
+  await input.evaluate((element) => {
+    const composer = element.closest(".composer");
+    const files = new DataTransfer();
+    files.items.add(new File(["invalid"], "invalid.txt", { type: "text/plain" }));
+    composer?.dispatchEvent(new DragEvent("drop", { bubbles: true, dataTransfer: files }));
+  });
+  const attachmentError = page.getByText("请选择不超过 5 MB 的 PNG、JPEG 或 WebP 图片。");
+  await attachmentError.waitFor();
 
   await page.getByRole("button", { name: "新建对话", exact: true }).click();
   await page.locator(".assistant-navigation strong").filter({ hasText: "新会话" }).waitFor();
+  assert.equal(await attachmentError.count(), 0);
   await input.fill("任务 B");
   await send.click();
   await page.getByText("任务 B 正在输出", { exact: true }).waitFor();
@@ -85,6 +94,7 @@ test("会话可后台并行，切换和新建项目不打断任务，停止与�
   await input.fill("B 草稿");
 
   const project = sidebar.getByRole("button", { name: "project", exact: true });
+  const first = sidebar.locator('.conversation-title[title="任务 A"]');
   const current = sidebar.locator('.conversation-title[title="任务 B"]');
   await project.click();
   await current.waitFor({ state: "hidden" });
@@ -100,8 +110,9 @@ test("会话可后台并行，切换和新建项目不打断任务，停止与�
   assert.equal(await input.inputValue(), "");
   assert.equal(await sidebar.getByRole("status", { name: "正在回复" }).count(), 2);
 
-  await sidebar.locator('.conversation-title[title="任务 A"]').click();
+  await first.click();
   await page.getByText("任务 A 正在输出", { exact: true }).waitFor();
+  await attachmentError.waitFor();
   assert.equal(await input.inputValue(), "A 草稿");
   assert.equal(await queue.getByText("B 后续", { exact: true }).count(), 0);
   const a = await page.evaluate(async () =>

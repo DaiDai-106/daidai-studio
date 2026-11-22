@@ -74,11 +74,17 @@ export async function withProjectDirectory<T>(
   return result;
 }
 
-export async function readProjectFile(root: string, parts: readonly string[], maxBytes: number) {
+export async function readProjectFile(
+  root: string,
+  parts: readonly string[],
+  maxBytes: number,
+  signal?: AbortSignal,
+) {
+  signal?.throwIfAborted();
   if (directoryHandlesAvailable) {
     const handle = await openProjectRoot(root);
     try {
-      return await readFileResource(handle, parts, maxBytes);
+      return await readFileResource(handle, parts, maxBytes, signal);
     } finally {
       await handle.close();
     }
@@ -93,7 +99,7 @@ export async function readProjectFile(root: string, parts: readonly string[], ma
   try {
     if (!sameEntry(before, await file.stat({ bigint: true })))
       throw new Error("文件已变化，请刷新后重试。");
-    const data = await readBoundedFile(file, maxBytes);
+    const data = await readBoundedFile(file, maxBytes, signal);
     if (!sameEntry(before, await inspect(path))) throw new Error("文件已变化，请刷新后重试。");
     return data;
   } finally {

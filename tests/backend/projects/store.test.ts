@@ -74,7 +74,7 @@ test("项目名称和目录必须有效", () => {
   }
 });
 
-test("旧场景项目及会话不出现在 Coding 版本，原数据保留", async () => {
+test("旧场景项目及会话可恢复，SQLite 场景原数据保留", async () => {
   const { DatabaseSync } = await import("node:sqlite");
   const root = mkdtempSync(join(tmpdir(), "dai-legacy-project-"));
   const data = join(root, "data");
@@ -95,17 +95,20 @@ test("旧场景项目及会话不出现在 Coding 版本，原数据保留", asy
     database.close();
 
     store = openProjectStore(data);
-    assert.equal(store.getProject(old.id), undefined);
-    assert.equal(store.getConversation(oldChat.id), undefined);
+    assert.equal(store.getProject(old.id)?.mode, "scene");
+    assert.equal(store.getConversation(oldChat.id)?.id, oldChat.id);
+    assert.equal(store.hasLegacyScene(old.id), true);
     assert.deepEqual(
-      store.listProjects().map((project) => project.id),
-      [current.id],
+      new Set(store.listProjects().map((project) => project.id)),
+      new Set([current.id, old.id]),
     );
     assert.deepEqual(
-      store.listConversationPage(undefined, 1).items.map((item) => item.id),
-      [currentChat.id],
+      new Set(store.listConversationPage(undefined, 10).items.map((item) => item.id)),
+      new Set([currentChat.id, oldChat.id]),
     );
-    assert.throws(() => store.restoreProject(old.id), /项目不存在/);
+    store.hideProject(old.id);
+    assert.equal(store.listHiddenProjects()[0]?.id, old.id);
+    assert.equal(store.restoreProject(old.id).id, old.id);
     store.close();
 
     const unchanged = new DatabaseSync(join(data, "projects.sqlite"));
