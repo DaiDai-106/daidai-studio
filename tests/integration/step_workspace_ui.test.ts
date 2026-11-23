@@ -17,11 +17,12 @@ test("场景聊天选择和拖入 STEP，Agent 直接替换装配并导出 URDF"
   await mkdir(documents);
   await writeStepFixture(step);
   await writeStepFixture(replacement, "inch");
+  let expectedImportRevision = 1;
   const server = createServer(async (request, response) => {
     let body = "";
     for await (const chunk of request) body += chunk;
     response.writeHead(200, { "content-type": "text/event-stream" });
-    response.end(stepAgentReply(body, 1));
+    response.end(stepAgentReply(body, expectedImportRevision));
   });
   context.after(async () => {
     server.closeAllConnections();
@@ -71,6 +72,9 @@ test("场景聊天选择和拖入 STEP，Agent 直接替换装配并导出 URDF"
   const sourceTree = scene.getByRole("navigation", { name: "原始模型结构树" });
   const sourceRoot = sourceTree.getByRole("button", { name: "Root", exact: true });
   await sourceRoot.waitFor();
+  await scene.getByText("属性 · URDF 配置").waitFor();
+  await scene.getByText("原始 CAD 坐标（搭建参照）", { exact: true }).click();
+  await scene.getByText("base_link（原始模型虚拟根）").waitFor();
   assert.equal(
     await sourceTree.getByRole("button", { name: "joint_Root", exact: true }).count(),
     0,
@@ -82,17 +86,45 @@ test("场景聊天选择和拖入 STEP，Agent 直接替换装配并导出 URDF"
   );
   await sourceTree.getByRole("button", { name: "展开 Root", exact: true }).click();
   await sourceTree.getByRole("button", { name: "SubInstance", exact: true }).click();
-  const properties = scene.getByRole("button", { name: "属性", exact: true });
-  await properties.click();
-  await scene.getByText("0 / 0 / 0.08", { exact: true }).first().waitFor();
+  await scene.locator(".scene-transform").first().getByText("Root", { exact: true }).waitFor();
+  assert.equal(await scene.locator(".scene-source-property-name").textContent(), "SubInstance");
   assert.equal(await scene.getByLabel("连杆名称", { exact: true }).count(), 0);
   await scene.getByRole("button", { name: "构建场景", exact: true }).click();
+  const transparency = scene.getByRole("slider", { name: "所选对象透明度" });
+  assert.equal(await transparency.inputValue(), "0");
+  assert.ok(await transparency.isDisabled()); // Empty base_link has no geometry to fade.
+  await scene.getByRole("button", { name: "原始模型", exact: true }).click();
+  assert.equal(await transparency.inputValue(), "0");
+  await transparency.fill("45");
+  await transparency.dispatchEvent("pointerup");
+  await page.waitForFunction(async () => {
+    const project = (await window.desktop.application.getWorkspace()).projects.find(
+      (project) => project.mode === "scene",
+    );
+    return (
+      project &&
+      (await window.desktop.application.getScene(project.id)).document.transparencies?.some(
+        (setting) => setting.value === 45,
+      )
+    );
+  });
+  await sourceRoot.click();
+  await scene.getByText("所选透明度 混合", { exact: true }).waitFor();
+  await scene.getByRole("button", { name: "构建场景", exact: true }).click();
+  assert.equal(await transparency.inputValue(), "0");
+  assert.equal(await scene.getByText(/原始模型参照/).count(), 0);
   const tree = scene.getByRole("navigation", { name: "机器人结构树" });
-  await tree.getByRole("button", { name: "Root", exact: true }).click();
-  await properties.click();
+  assert.equal(await tree.getByText("1 个连杆").count(), 1);
+  assert.equal(await tree.getByRole("button", { name: "Root", exact: true }).count(), 0);
   const linkName = scene.getByRole("textbox", { name: "连杆名称", exact: true });
   await linkName.fill("原装配未保存的名称");
 
+  expectedImportRevision = await page.evaluate(async () => {
+    const api = window.desktop.application;
+    const project = (await api.getWorkspace()).projects.find((project) => project.mode === "scene");
+    if (!project) throw new Error("缺少场景项目");
+    return (await api.getScene(project.id)).document.revision;
+  });
   if (await page.getByRole("tab", { name: "聊天", exact: true }).isVisible())
     await page.getByRole("tab", { name: "聊天", exact: true }).click();
   await page.getByRole("button", { name: "新建对话", exact: true }).last().click();
@@ -122,7 +154,6 @@ test("场景聊天选择和拖入 STEP，Agent 直接替换装配并导出 URDF"
   await page.locator(".message.user .step-attachment").getByText("replacement.step").waitFor();
   if (await mobileTab.isVisible()) await mobileTab.click();
   await scene.getByText("replacement", { exact: true }).waitFor();
-  await properties.click();
   assert.equal(await linkName.inputValue(), "base_link");
   await scene.getByRole("button", { name: "导出 URDF", exact: true }).click();
   const status = scene.getByText(/^已导出至 /);
@@ -130,13 +161,11 @@ test("场景聊天选择和拖入 STEP，Agent 直接替换装配并导出 URDF"
   const output = (await status.textContent())?.replace(/^已导出至 /, "");
   assert.ok(output);
   const urdf = await readFile(output, "utf8");
-  assert.match(urdf, /<mesh filename="meshes\/[0-9a-f]{64}\.stl" scale="0\.001 0\.001 0\.001"\/>/);
-  assert.match(urdf, /<joint name="joint_Root" type="fixed">/);
+  assert.doesNotMatch(urdf, /<mesh|<joint/);
+  assert.match(urdf, /<link name="base_link"/);
   assert.match(urdf, /<robot name="replacement">/);
 
   await scene.getByRole("button", { name: "构建场景", exact: true }).click();
-  await tree.getByRole("button", { name: "Root", exact: true }).click();
-  await properties.click();
   await linkName.fill("替换装配未保存的名称");
   await scene.getByRole("button", { name: "撤销", exact: true }).click();
   await scene.getByText("assembly", { exact: true }).waitFor();

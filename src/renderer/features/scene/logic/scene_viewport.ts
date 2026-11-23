@@ -13,7 +13,11 @@ import {
 } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { CSS2DObject, CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
-import type { SceneJointPreview, SceneRobot } from "../../../../contracts/scene.ts";
+import type {
+  SceneJointPreview,
+  SceneRobot,
+  SceneVisualOpacities,
+} from "../../../../contracts/scene.ts";
 import { createRobotModel } from "./robot_model.ts";
 
 const axisLength = 1;
@@ -117,7 +121,7 @@ export function createSceneViewport(
   function fit() {
     framingOrigin = false;
     const bounds = new Box3();
-    if (model) bounds.setFromObject(model.root);
+    if (model) bounds.expandByObject(model.root);
     frameView(
       bounds.getCenter(new Vector3()),
       Math.max(0.1, bounds.getSize(new Vector3()).length() / 2),
@@ -197,7 +201,12 @@ export function createSceneViewport(
   return {
     fit,
     focusOrigin,
-    update(robot: SceneRobot, selected: string | null, preview?: SceneJointPreview) {
+    update(
+      robot: SceneRobot,
+      selected: string | null,
+      preview?: SceneJointPreview,
+      opacities: SceneVisualOpacities = new Map(),
+    ) {
       let needsFit = false;
       if (robot !== previousRobot) {
         previousRobot = robot;
@@ -231,6 +240,7 @@ export function createSceneViewport(
           });
         }
       }
+      model?.setOpacity(opacities);
       model?.pose(robot.joints, preview);
       model?.select(selected);
       if (needsFit) fit();

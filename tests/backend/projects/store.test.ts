@@ -74,59 +74,18 @@ test("项目名称和目录必须有效", () => {
   }
 });
 
-test("旧场景项目及会话可恢复，SQLite 场景原数据保留", async () => {
+test("拒绝过期项目数据库，不补列或改写原数据", async () => {
   const { DatabaseSync } = await import("node:sqlite");
-  const root = mkdtempSync(join(tmpdir(), "dai-legacy-project-"));
-  const data = join(root, "data");
+  const root = mkdtempSync(join(tmpdir(), "dai-outdated-project-"));
+  const file = join(root, "projects.sqlite");
   try {
-    let store = openProjectStore(data);
-    const old = store.createProject({ name: "旧项目", mode: "coding", path: root });
-    const oldChat = store.createConversation(old.id);
-    const current = store.createProject({ name: "场景", mode: "coding", path: root });
-    const currentChat = store.createConversation(current.id);
-    store.close();
-
-    const database = new DatabaseSync(join(data, "projects.sqlite"));
-    database.prepare("UPDATE projects SET mode = ? WHERE id = ?").run("scene", old.id);
-    database.exec(
-      "CREATE TABLE scenes (project_id TEXT PRIMARY KEY, revision INTEGER, document TEXT)",
-    );
-    database.prepare("INSERT INTO scenes VALUES (?, ?, ?)").run(old.id, 1, '{"saved":true}');
+    const database = new DatabaseSync(file);
+    database.exec(`CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT, path TEXT);
+      INSERT INTO projects VALUES ('previous', '原始项目', '/original');`);
     database.close();
-
-    store = openProjectStore(data);
-    assert.equal(store.getProject(old.id)?.mode, "scene");
-    assert.equal(store.getConversation(oldChat.id)?.id, oldChat.id);
-    assert.equal(store.hasLegacyScene(old.id), true);
-    assert.deepEqual(
-      new Set(store.listProjects().map((project) => project.id)),
-      new Set([current.id, old.id]),
-    );
-    assert.deepEqual(
-      new Set(store.listConversationPage(undefined, 10).items.map((item) => item.id)),
-      new Set([currentChat.id, oldChat.id]),
-    );
-    store.hideProject(old.id);
-    assert.equal(store.listHiddenProjects()[0]?.id, old.id);
-    assert.equal(store.restoreProject(old.id).id, old.id);
-    store.close();
-
-    const unchanged = new DatabaseSync(join(data, "projects.sqlite"));
-    assert.equal(
-      (unchanged.prepare("SELECT mode FROM projects WHERE id = ?").get(old.id) as { mode: string })
-        .mode,
-      "scene",
-    );
-    assert.ok(unchanged.prepare("SELECT id FROM conversations WHERE id = ?").get(oldChat.id));
-    assert.deepEqual(
-      {
-        ...unchanged
-          .prepare("SELECT revision, document FROM scenes WHERE project_id = ?")
-          .get(old.id),
-      },
-      { revision: 1, document: '{"saved":true}' },
-    );
-    unchanged.close();
+    const original = readFileSync(file);
+    assert.throws(() => openProjectStore(root), /项目数据库格式无效或已过期/);
+    assert.deepEqual(readFileSync(file), original);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

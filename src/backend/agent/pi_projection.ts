@@ -6,7 +6,7 @@ import {
   type MessageInfo,
   type ResponseInfo,
 } from "../../contracts/application.ts";
-import { splitStepMessage } from "../../shared/step_attachment.ts";
+import { splitStepMessage } from "../../shared/scene/step_attachment.ts";
 import { type ModelContext, projectUsage } from "./pi_usage.ts";
 import { displayArguments } from "./presentation.ts";
 

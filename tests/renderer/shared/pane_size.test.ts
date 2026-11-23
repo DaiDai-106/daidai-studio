@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { rightPanePercent } from "../../../src/renderer/app/logic/pane_size.ts";
+import { rightPanePercent } from "../../../src/renderer/shared/logic/pane_size.ts";
 
 test("面板比例以工作区边界计算并限制拖动范围", () => {
   assert.equal(rightPanePercent(900, { left: 300, right: 1500 }, 20, 80), 50);

@@ -35,7 +35,7 @@ export function PaneSplitter({
       aria-orientation="vertical"
       aria-valuemin={min}
       aria-valuemax={max}
-      aria-valuenow={Math.round(width)}
+      aria-valuenow={width}
       aria-valuetext={unit === "percent" ? `右侧区域 ${Math.round(width)}%` : undefined}
       onPointerDown={(event) => {
         event.currentTarget.setPointerCapture(event.pointerId);

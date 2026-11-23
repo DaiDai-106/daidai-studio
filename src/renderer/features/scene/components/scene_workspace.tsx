@@ -1,9 +1,17 @@
-import { lazy, Suspense, useState } from "react";
+import { type CSSProperties, lazy, Suspense, useCallback, useMemo, useState } from "react";
 import type { ApplicationBridge } from "../../../../contracts/bridge.ts";
 import type { SceneJointPreview, SceneRobot, SceneSelection } from "../../../../contracts/scene.ts";
+import { resolveSceneRobot } from "../../../../shared/scene/geometry.ts";
+import {
+  sceneVisualOpacities,
+  selectionTransparency,
+  transparencyTargets,
+} from "../../../../shared/scene/transparency.ts";
 import { Icon } from "../../../shared/components/icon.tsx";
+import { PaneSplitter } from "../../../shared/components/pane_splitter.tsx";
 import { useSceneWorkspace } from "../logic/use_scene_workspace.ts";
 import { SceneInspector, type SceneTarget } from "./scene_inspector.tsx";
+import { SceneSourceInspector } from "./scene_source_inspector.tsx";
 import { SceneTree } from "./scene_tree.tsx";
 import "../styles/scene.css";
 
@@ -16,16 +24,14 @@ const SceneCoordinates = lazy(async () => ({
 
 type SceneView = "scene" | "source";
 type ViewState = {
-  modelRevision: number;
   view: SceneView;
-  showProperties: boolean;
-  selections: Partial<Record<SceneView, { selection: SceneSelection; picked: boolean }>>;
+  selections: Partial<
+    Record<SceneView, { revision: number; selection: SceneSelection; picked: boolean }>
+  >;
 };
-const initialView = { view: "scene", showProperties: false, selections: {} } as const;
 const panes = [
   ["scene", "构建场景"],
   ["source", "原始模型"],
-  ["properties", "属性"],
 ] as const;
 
 function findTarget(
@@ -48,17 +54,45 @@ export function SceneWorkspace({ projectId, api }: { projectId: string; api: App
   const document = snapshot?.document;
   const sceneRobot = document?.robot;
   const revision = document?.revision ?? 0;
-  const [state, setState] = useState<ViewState>({ ...initialView, modelRevision });
+  const sourceRevision = snapshot?.sourceRevision ?? 0;
+  const [state, setState] = useState<ViewState>({ view: "scene", selections: {} });
+  const [canvasWidth, setCanvasWidth] = useState(55);
+  const [stageWidth, setStageWidth] = useState(0);
+  const measureStage = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return;
+    setStageWidth(node.getBoundingClientRect().width);
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setStageWidth(entry.contentRect.width);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  const minSidebarWidth = Math.min(210, stageWidth * 0.4);
+  const maxSidebarWidth = Math.min(480, stageWidth * 0.65);
+  const minCanvasWidth = stageWidth ? (1 - maxSidebarWidth / stageWidth) * 100 : 35;
+  const maxCanvasWidth = stageWidth ? (1 - minSidebarWidth / stageWidth) * 100 : 72;
+  const actualCanvasWidth = Math.max(minCanvasWidth, Math.min(maxCanvasWidth, canvasWidth));
   const [preview, setPreview] = useState<SceneJointPreview & { revision: number }>();
-  const { view } = state;
-  const selections = state.modelRevision === modelRevision ? state.selections : {};
+  const [opacityDraft, setOpacityDraft] = useState<{
+    revision: number;
+    selectionKey: string;
+    value: number;
+  }>();
+  const [checked, setChecked] = useState<{ sourceRevision: number; ids: string[] }>({
+    sourceRevision,
+    ids: [],
+  });
+  const checkedIds = useMemo(
+    () => (checked.sourceRevision === sourceRevision ? checked.ids : []),
+    [checked, sourceRevision],
+  );
+  const resolvedRobot = useMemo(() => (document ? resolveSceneRobot(document) : null), [document]);
+  const { view, selections } = state;
   const readOnly = view === "source";
+  const viewRevision = readOnly ? sourceRevision : modelRevision;
   const robot = readOnly ? document?.sourceRobot : sceneRobot;
-  const warnings = readOnly
-    ? (document?.sourceWarnings ?? (robot ? document?.warnings : []))
-    : document?.warnings;
-  const [notice, ...notes] = new Set(warnings);
-  const selected = selections[view];
+  const warnings = Array.from(new Set(readOnly ? document?.sourceWarnings : document?.warnings));
+  const selected = selections[view]?.revision === viewRevision ? selections[view] : undefined;
   const pickedTarget = findTarget(robot, selected?.selection);
   const highlightedLink =
     pickedTarget?.entity === "joint" ? pickedTarget.node.childId : pickedTarget?.node.id;
@@ -69,27 +103,69 @@ export function SceneWorkspace({ projectId, api }: { projectId: string; api: App
     pickedTarget ??
     (defaultLink ? findTarget(robot, { entity: "link", id: defaultLink }) : undefined);
   const active = target && { entity: target.entity, id: target.node.id };
-  const showProperties = state.showProperties && Boolean(active);
+  const sourceIds = checkedIds.length
+    ? checkedIds
+    : target?.entity === "link"
+      ? [target.node.id]
+      : [];
+  const opacityEntity = readOnly ? "source" : "link";
+  const pickedId = pickedTarget?.node.id;
+  const opacityIds = useMemo(
+    () =>
+      readOnly
+        ? checkedIds.length
+          ? checkedIds
+          : pickedId
+            ? [pickedId]
+            : []
+        : highlightedLink
+          ? [highlightedLink]
+          : [],
+    [readOnly, checkedIds, pickedId, highlightedLink],
+  );
+  const opacitySelectionKey = JSON.stringify([viewRevision, opacityEntity, opacityIds]);
+  const opacityTargets = useMemo(
+    () =>
+      document && opacityIds.length ? transparencyTargets(document, opacityEntity, opacityIds) : [],
+    [document, opacityEntity, opacityIds],
+  );
+  const savedOpacity = document
+    ? selectionTransparency(document, opacityTargets)
+    : { value: 0, mixed: false };
+  const activeOpacityDraft =
+    opacityDraft?.revision === revision && opacityDraft.selectionKey === opacitySelectionKey
+      ? opacityDraft
+      : undefined;
+  const transparency = activeOpacityDraft?.value ?? savedOpacity.value;
+  const visualOpacities = useMemo(
+    () =>
+      document
+        ? sceneVisualOpacities(
+            document,
+            readOnly,
+            activeOpacityDraft
+              ? opacityTargets.map((target) => ({ ...target, value: activeOpacityDraft.value }))
+              : [],
+          )
+        : new Map(),
+    [document, readOnly, activeOpacityDraft, opacityTargets],
+  );
   const livePreview =
-    preview?.revision === revision && active?.entity === "joint" && preview.jointId === active.id
+    preview?.revision === revision &&
+    sceneRobot?.joints.some((joint) => joint.id === preview.jointId)
       ? preview
       : undefined;
 
   function setPane(pane: (typeof panes)[number][0]) {
-    if (pane === "properties") {
-      setState({ ...state, showProperties: true });
-      return;
-    }
     setPreview(undefined);
-    setState({ ...state, view: pane, showProperties: false });
+    setState({ ...state, view: pane });
   }
 
   function select(selection: SceneSelection, picked = false) {
     setPreview(undefined);
     setState({
       ...state,
-      modelRevision,
-      selections: { ...selections, [view]: { selection, picked } },
+      selections: { ...selections, [view]: { revision: viewRevision, selection, picked } },
     });
   }
 
@@ -143,38 +219,29 @@ export function SceneWorkspace({ projectId, api }: { projectId: string; api: App
           已导出至 {scene.exportPath}
         </p>
       )}
-      {snapshot?.legacy && (
-        <p className="scene-notice" role="status">
-          检测到旧版场景。可重新导入 STEP 或 URDF，旧模型数据会保留。
-        </p>
+      {warnings.length > 0 && (
+        <details className="scene-notice scene-import-warnings" aria-label="导入警告" key={view}>
+          <summary>导入警告（{warnings.length}）</summary>
+          <ul>
+            {warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </details>
       )}
-      {notice &&
-        (notes.length ? (
-          <details className="scene-notice">
-            <summary>
-              {notice}（另有 {notes.length} 条导入说明）
-            </summary>
-            <ul>
-              {notes.map((note) => (
-                <li key={note}>{note}</li>
-              ))}
-            </ul>
-          </details>
-        ) : (
-          <p className="scene-notice" role="status">
-            {notice}
-          </p>
-        ))}
       {document ? (
-        <div className="scene-stage">
+        <div
+          ref={measureStage}
+          className="scene-stage"
+          style={{ "--scene-canvas-width": `${actualCanvasWidth}%` } as CSSProperties}
+        >
           <aside className="scene-outliner">
             <fieldset className="scene-mode-controls" aria-label="装配视图">
               {panes.map(([pane, label]) => (
                 <button
                   key={pane}
                   type="button"
-                  aria-pressed={pane === (showProperties ? "properties" : view)}
-                  disabled={pane === "properties" && !active}
+                  aria-pressed={pane === view}
                   onClick={() => setPane(pane)}
                 >
                   {label}
@@ -184,20 +251,60 @@ export function SceneWorkspace({ projectId, api }: { projectId: string; api: App
             {robot && target && active ? (
               <>
                 <SceneTree
-                  key={`${modelRevision}:${view}`}
+                  key={`${viewRevision}:${view}`}
                   robot={robot}
                   selection={active}
                   picked={selected?.picked && pickedTarget ? selected.selection : undefined}
                   readOnly={readOnly}
-                  hidden={showProperties}
-                  onSelect={select}
+                  checkedIds={readOnly ? checkedIds : undefined}
+                  onCheck={
+                    readOnly
+                      ? (id, value) =>
+                          setChecked({
+                            sourceRevision,
+                            ids: value
+                              ? [...checkedIds, id]
+                              : checkedIds.filter((item) => item !== id),
+                          })
+                      : undefined
+                  }
+                  onSelect={(selection) => {
+                    setChecked({ sourceRevision, ids: [] });
+                    select(selection);
+                  }}
                 />
-                <div className="scene-properties" hidden={!showProperties}>
-                  {!readOnly && (
+                <div className="scene-properties">
+                  <strong className="scene-properties-header">属性 · URDF 配置</strong>
+                  {readOnly ? (
+                    <>
+                      <div className="scene-source-selection">
+                        <div className="scene-source-property-name" title={target.node.name}>
+                          {target.node.name}
+                        </div>
+                        {checkedIds.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setChecked({ sourceRevision, ids: [] })}
+                          >
+                            清空多选
+                          </button>
+                        )}
+                      </div>
+                      <SceneSourceInspector
+                        key={`${sourceRevision}:${sourceIds.join(",")}`}
+                        document={document}
+                        sourceIds={sourceIds}
+                        busy={scene.busy}
+                        apply={scene.apply}
+                        preview={livePreview}
+                        onPreview={(value) => setPreview(value && { ...value, revision })}
+                      />
+                    </>
+                  ) : (
                     <SceneInspector
                       key={`${modelRevision}:${active.id}`}
                       revision={revision}
-                      rootLinkId={robot.rootLinkId}
+                      robot={robot}
                       target={target}
                       busy={scene.busy}
                       apply={scene.apply}
@@ -206,16 +313,26 @@ export function SceneWorkspace({ projectId, api }: { projectId: string; api: App
                         setPreview(
                           position === undefined
                             ? undefined
-                            : { jointId: active.id, position, revision },
+                            : {
+                                jointId:
+                                  target.entity === "joint"
+                                    ? target.node.id
+                                    : (robot.joints.find(
+                                        (joint) => joint.childId === target.node.id,
+                                      )?.id ?? ""),
+                                position,
+                                revision,
+                              },
                         )
                       }
                     />
                   )}
-                  {showProperties && (
+                  <details className="scene-config-group" open={!readOnly}>
+                    <summary>{readOnly ? "原始 CAD 坐标（搭建参照）" : "坐标变换"}</summary>
                     <Suspense fallback={null}>
-                      <SceneCoordinates robot={robot} selection={active} />
+                      <SceneCoordinates robot={robot} selection={active} readOnly={readOnly} />
                     </Suspense>
-                  )}
+                  </details>
                 </div>
               </>
             ) : (
@@ -237,6 +354,17 @@ export function SceneWorkspace({ projectId, api }: { projectId: string; api: App
               )
             )}
           </aside>
+          <PaneSplitter
+            className="scene-panel-splitter"
+            label="调整属性与画布宽度"
+            width={actualCanvasWidth}
+            min={minCanvasWidth}
+            max={maxCanvasWidth}
+            onWidth={(change) =>
+              setCanvasWidth(typeof change === "function" ? change(actualCanvasWidth) : change)
+            }
+            unit="percent"
+          />
           {robot ? (
             <Suspense
               fallback={
@@ -248,10 +376,35 @@ export function SceneWorkspace({ projectId, api }: { projectId: string; api: App
               <SceneCanvas
                 projectId={projectId}
                 api={api}
-                robot={robot}
+                robot={readOnly ? robot : (resolvedRobot ?? robot)}
+                transparency={transparency}
+                opacities={visualOpacities}
+                transparencyMixed={!activeOpacityDraft && savedOpacity.mixed}
+                transparencyDisabled={scene.busy || !opacityTargets.length}
+                onTransparencyChange={(value) =>
+                  setOpacityDraft({ revision, selectionKey: opacitySelectionKey, value })
+                }
+                onTransparencyCommit={() => {
+                  if (activeOpacityDraft && !scene.busy)
+                    void scene
+                      .apply(
+                        {
+                          op: "setTransparency",
+                          entity: opacityEntity,
+                          ids: opacityIds,
+                          value: activeOpacityDraft.value,
+                        },
+                        activeOpacityDraft.revision,
+                      )
+                      .finally(() => setOpacityDraft(undefined));
+                }}
+                onTransparencyCancel={() => setOpacityDraft(undefined)}
                 selected={highlightedLink ?? null}
-                preview={livePreview}
-                onSelect={(id) => select({ entity: "link", id }, true)}
+                preview={readOnly ? undefined : livePreview}
+                onSelect={(id) => {
+                  setChecked({ sourceRevision, ids: [] });
+                  select({ entity: "link", id }, true);
+                }}
               />
             </Suspense>
           ) : readOnly ? (

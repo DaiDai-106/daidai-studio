@@ -1,4 +1,5 @@
 import {
+  type Api,
   type CredentialStore,
   createModels,
   createProvider,
@@ -14,7 +15,7 @@ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completio
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { ModelChoice, ProviderConfig, ProviderTypeInfo } from "../../contracts/application.ts";
 
-export function modelChoice(model: Model<import("@earendil-works/pi-ai").Api>): ModelChoice {
+export function modelChoice(model: Model<Api>): ModelChoice {
   return {
     id: model.id,
     name: model.name,
@@ -24,6 +25,61 @@ export function modelChoice(model: Model<import("@earendil-works/pi-ai").Api>): 
     thinkingLevels: getSupportedThinkingLevels(model),
     supportsImages: model.input.includes("image"),
   };
+}
+
+// shortcut: only documented model IDs, update when OpenAI changes the Fast pricing and Codex support lists.
+const fastModels = new Set([
+  "gpt-6.2-astra",
+  "gpt-6.2-sol",
+  "gpt-6.1-sol",
+  "gpt-6.1-terra",
+  "gpt-6-astra",
+  "gpt-6-sol",
+  "gpt-6-luna",
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
+]);
+const apiOnlyFastModels = new Set([
+  "gpt-5.5",
+  "gpt-5.4",
+  "gpt-5.4-mini",
+  "gpt-5.2",
+  "gpt-5.1",
+  "gpt-5",
+  "gpt-5-mini",
+  "gpt-4.1",
+  "gpt-4.1-mini",
+  "gpt-4o",
+  "gpt-4o-mini",
+  "o3",
+]);
+
+function supportsFast(config: ProviderConfig, model: Model<Api>): boolean {
+  const url = model.baseUrl.replace(/\/$/, "");
+  if (
+    config.providerType === "openai" &&
+    model.api === "openai-responses" &&
+    url === "https://api.openai.com/v1"
+  )
+    return (
+      fastModels.has(model.id) || (config.authMethod !== "oauth" && apiOnlyFastModels.has(model.id))
+    );
+  return (
+    config.providerType === "openai-codex" &&
+    model.api === "openai-codex-responses" &&
+    url === "https://chatgpt.com/backend-api" &&
+    fastModels.has(model.id)
+  );
+}
+
+export function configuredModelChoice(
+  config: ProviderConfig,
+  model: Model<Api>,
+  fast = false,
+): ModelChoice {
+  // Omitted means unsupported; false means available but not enabled.
+  return { ...modelChoice(model), ...(supportsFast(config, model) ? { fast } : {}) };
 }
 
 function validateEndpoint(value: string) {
@@ -71,7 +127,7 @@ export function createProviders(credentials: CredentialStore, modelsStore?: Mode
         api,
       });
     }
-    const provider = builtinProviders().find((item) => item.id === config.providerType);
+    const provider = builtins.get(config.providerType);
     if (!provider) throw new Error("当前 pi-ai 不提供此服务。");
     return provider;
   }
@@ -138,6 +194,24 @@ export function createProviders(credentials: CredentialStore, modelsStore?: Mode
       auth,
       getModels: catalog,
       getAllModels: catalog,
+      streamSimple(model, context, options) {
+        if (
+          !config.models.some((item) => item.id === model.id && item.fast === true) ||
+          !supportsFast(config, model)
+        )
+          return provider.streamSimple(model, context, options);
+        return provider.streamSimple(model, context, {
+          ...options,
+          // Pi 1.6's streamSimple drops serviceTier before building the payload.
+          async onPayload(payload, requestModel) {
+            const transformed = await options?.onPayload?.(payload, requestModel);
+            const body = transformed === undefined ? payload : transformed;
+            return body && typeof body === "object" && "model" in body && body.model === model.id
+              ? { ...body, service_tier: "priority" }
+              : body;
+          },
+        });
+      },
     };
   }
 

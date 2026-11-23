@@ -7,15 +7,17 @@ export function SceneTree({
   selection,
   picked,
   readOnly = false,
-  hidden,
   onSelect,
+  checkedIds,
+  onCheck,
 }: {
   robot: SceneRobot;
   selection: SceneSelection;
   picked?: SceneSelection | undefined;
   readOnly?: boolean;
-  hidden?: boolean;
   onSelect(selection: SceneSelection): void;
+  checkedIds?: string[] | undefined;
+  onCheck?: ((id: string, checked: boolean) => void) | undefined;
 }) {
   const { links, children, parents } = useMemo(
     () => ({
@@ -44,9 +46,8 @@ export function SceneTree({
   }
 
   useLayoutEffect(() => {
-    if (picked && !hidden)
-      pickedButton.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [picked, hidden]);
+    if (picked) pickedButton.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [picked]);
 
   function toggle(id: string) {
     setExpanded((current) => {
@@ -77,6 +78,14 @@ export function SceneTree({
             </button>
           ) : (
             <span className="scene-tree-spacer" aria-hidden="true" />
+          )}
+          {onCheck && (
+            <input
+              type="checkbox"
+              aria-label={`选择零件 ${name}`}
+              checked={checkedIds?.includes(id) ?? false}
+              onChange={(event) => onCheck(id, event.target.checked)}
+            />
           )}
           <button
             type="button"
@@ -110,13 +119,9 @@ export function SceneTree({
   }
 
   return (
-    <nav
-      className="scene-tree"
-      aria-label={readOnly ? "原始模型结构树" : "机器人结构树"}
-      hidden={hidden}
-    >
+    <nav className="scene-tree" aria-label={readOnly ? "原始模型结构树" : "机器人结构树"}>
       <header className="scene-tree-header">
-        <strong>{readOnly ? "只读 CAD 装配" : "场景结构"}</strong>
+        <strong>{readOnly ? "CAD 装配 · URDF 搭建" : "场景结构"}</strong>
         <span>
           {readOnly ? `${robot.links.length - 1} 个对象` : `${robot.links.length} 个连杆`}
         </span>

@@ -51,8 +51,9 @@ test("场景操作校验拓扑、支持版本冲突与重启恢复，导出时�
     stl,
   );
 
-  const jointId = imported.document.robot?.joints[0]?.id;
-  assert.ok(jointId);
+  const joint = imported.document.robot?.joints[0];
+  assert.ok(joint?.limit);
+  const jointId = joint.id;
   const apply = (expectedRevision: number, position: number) =>
     app.request("scene.apply", {
       projectId,
@@ -65,6 +66,21 @@ test("场景操作校验拓扑、支持版本冲突与重启恢复，导出时�
   await stale;
   await assert.rejects(apply(2, 3), /限位/);
   assert.equal((await apply(2, 0.5)).document.revision, 2);
+  const unchanged = await app.request("scene.apply", {
+    projectId,
+    expectedRevision: 2,
+    operation: {
+      op: "updateJoint",
+      jointId,
+      name: ` ${joint.name} `,
+      parentId: joint.parentId,
+      jointType: joint.type,
+      origin: joint.origin,
+      axis: joint.axis,
+      limit: joint.limit,
+    },
+  });
+  assert.deepEqual(unchanged, await first);
 
   const meshPath = join(root, "meshes", "arm.stl");
   await writeFile(meshPath, "solid bad\nendfacet\nendsolid bad\n");
@@ -109,7 +125,11 @@ test("场景操作校验拓扑、支持版本冲突与重启恢复，导出时�
   assert.equal(restored.document.revision, 4);
   assert.equal(restored.document.robot?.joints[0]?.position, 1);
   assert.equal(restored.canUndo, false);
-  const exported = await app.request("scene.export", { projectId, directory: root });
+  const exported = await app.request("scene.export", {
+    projectId,
+    directory: root,
+    expectedRevision: restored.document.revision,
+  });
   assert.deepEqual(await readFile(join(dirname(exported.path), "meshes", shape.asset)), stl);
   const roundtrip = await app.request("scene.import", {
     projectId,

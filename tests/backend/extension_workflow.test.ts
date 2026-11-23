@@ -78,13 +78,13 @@ test("Pi 包和技能按模块共享，无需项目即可浏览、读取和启�
       "module",
     );
     assert.equal(
-      (await app.request("skill.library.list", { moduleId: "robot" })).find(
+      (await app.request("skill.library.list", { moduleId: "scene" })).find(
         (item) => item.name === "pkg-skill",
       )?.ownerScope,
       "global",
     );
     assert.ok(
-      (await app.request("skill.library.list", { moduleId: "robot" })).some(
+      (await app.request("skill.library.list", { moduleId: "scene" })).some(
         (item) => item.name === "pkg-skill",
       ),
     );

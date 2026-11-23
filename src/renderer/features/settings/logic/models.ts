@@ -6,15 +6,18 @@ export function availableModels(
     name: string;
     enabled: boolean;
     models: readonly ModelChoice[];
+    unavailableModels?: readonly string[];
   }[],
 ) {
   return providers
     .filter((provider) => provider.enabled)
     .flatMap((provider) =>
-      provider.models.map((model) => ({
-        ...model,
-        id: `${provider.id}:${model.id}`,
-        name: `${model.name} · ${provider.name}`,
-      })),
+      provider.models
+        .filter((model) => !provider.unavailableModels?.includes(model.id))
+        .map((model) => ({
+          ...model,
+          id: `${provider.id}:${model.id}`,
+          name: `${model.name} · ${provider.name}`,
+        })),
     );
 }

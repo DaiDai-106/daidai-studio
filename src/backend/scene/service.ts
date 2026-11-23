@@ -15,14 +15,15 @@ import {
   StepAttachmentIdSchema,
 } from "../../contracts/scene.ts";
 import { writeAtomic, writeJson } from "../../shared/node/write_json.ts";
-import { isStepFile } from "../../shared/step_attachment.ts";
+import { resolveSceneRobot } from "../../shared/scene/geometry.ts";
+import { isStepFile } from "../../shared/scene/step_attachment.ts";
 import {
   projectPathParts,
   readProjectFile,
   withProjectDirectory,
 } from "../projects/project_access.ts";
 import type { openProjectStore } from "../projects/store.ts";
-import { editRobot, validateScene } from "./document.ts";
+import { editScene, validateScene } from "./document.ts";
 import { loadStepAssembly, readStepSource } from "./step_import.ts";
 import { createMeshBatch } from "./stl.ts";
 import { parseUrdf, writeUrdf } from "./urdf.ts";
@@ -32,7 +33,8 @@ const undoLimit = 20;
 type SceneContents = Omit<SceneDocument, "schemaVersion" | "revision"> & {
   assets?: ReadonlyMap<string, Buffer>;
 };
-type UndoEntry = { document: SceneDocument; replaced: boolean };
+type SceneChange = "import" | "source" | "structure" | "edit";
+type UndoEntry = { document: SceneDocument; change: SceneChange };
 const defaultDocument = (): SceneDocument => ({
   schemaVersion: 1,
   revision: 0,
@@ -98,6 +100,7 @@ export function createSceneService({
 }) {
   const writes = new Map<string, Promise<void>>();
   const undo = new Map<string, UndoEntry[]>();
+  const sourceRevisions = new Map<string, number>();
   const assetIndexes = new Map<string, Promise<Set<string>>>();
   let stepJob:
     | { projectId: string; controller: AbortController; result: Promise<SceneSnapshot> }
@@ -131,7 +134,7 @@ export function createSceneService({
     return {
       document,
       canUndo: document.revision > 0 && Boolean(undo.get(projectId)?.length),
-      legacy: !document.robot && store.hasLegacyScene(projectId),
+      sourceRevision: sourceRevisions.get(projectId) ?? 0,
     };
   }
 
@@ -174,7 +177,7 @@ export function createSceneService({
     projectId: string,
     previous: SceneDocument,
     next: SceneContents,
-    change: "import" | "undo" | "structure" | "edit",
+    change: SceneChange | "undo",
     signal?: AbortSignal,
   ) {
     const { assets, ...contents } = next;
@@ -185,7 +188,7 @@ export function createSceneService({
     };
     validateScene(document);
     if ((change === "import" || change === "structure") && document.robot)
-      writeUrdf(document.robot, document.warnings);
+      writeUrdf(resolveSceneRobot(document) ?? document.robot, document.warnings);
     const folder = parts(projectId);
     if (assets?.size) {
       const meshFolder = [...folder, "meshes"];
@@ -214,20 +217,21 @@ export function createSceneService({
     );
     assetIndexes.delete(projectId);
     const history = undo.get(projectId) ?? [];
-    const replaced = change === "undo" ? history.at(-1)?.replaced : change === "import";
-    if (change === "undo") history.pop();
-    else {
-      history.push({ document: previous, replaced: change === "import" });
+    const applied = change === "undo" ? history.pop()?.change : change;
+    if (change !== "undo") {
+      history.push({ document: previous, change });
       if (history.length > undoLimit) history.shift();
     }
     if (history.length) undo.set(projectId, history);
     else undo.delete(projectId);
+    if (applied === "import" || applied === "source")
+      sourceRevisions.set(projectId, document.revision);
     const updated = snapshot(projectId, document);
     publish({
       type: "scene.document",
       projectId,
       snapshot: updated,
-      ...(replaced ? { replaced: true } : {}),
+      ...(applied === "import" ? { replaced: true } : {}),
     });
     return updated;
   }
@@ -275,12 +279,27 @@ export function createSceneService({
       await enqueue(projectId, async () => {
         const { document } = await current(projectId, expectedRevision);
         if (options.sourceOnly && !document.robot) throw new Error("请先导入场景。");
+        if (options.sourceOnly && document.robot?.links.some((link) => link.sourceParts?.length))
+          throw new Error("当前原始模型已有零件绑定，请先解除绑定再替换原始模型。");
       });
       const next = await loadStepAssembly(path, signal, stepWorkerDirectory);
       return enqueue(projectId, async () => {
         signal.throwIfAborted();
         const { document } = await current(projectId, expectedRevision);
-        const contents = options.sourceOnly ? document : next;
+        const contents = options.sourceOnly
+          ? {
+              ...document,
+              transparencies:
+                document.transparencies?.filter((setting) => setting.entity === "link") ?? [],
+            }
+          : {
+              robot: {
+                ...next.robot,
+                links: [{ id: next.robot.rootLinkId, name: "base_link", visuals: [] }],
+                joints: [],
+              },
+              warnings: [],
+            };
         return persist(
           projectId,
           document,
@@ -290,7 +309,7 @@ export function createSceneService({
             sourceWarnings: next.warnings,
             assets: next.assets,
           },
-          options.sourceOnly ? "edit" : "import",
+          options.sourceOnly ? "source" : "import",
           signal,
         );
       });
@@ -333,14 +352,15 @@ export function createSceneService({
           if (!entry) throw new Error("没有可撤销的操作。");
           return persist(projectId, previous, entry.document, "undo", signal);
         }
-        if (!previous.robot) throw new Error("请先导入场景。");
-        const robot = editRobot(previous.robot, operation);
-        if (robot === previous.robot) return snapshot;
+        const next = editScene(previous, operation);
+        if (next === previous) return snapshot;
         return persist(
           projectId,
           previous,
-          { ...previous, robot },
-          operation.op === "addChildLink" || operation.op === "rename" ? "structure" : "edit",
+          next,
+          operation.op === "setJointPosition" || operation.op === "setTransparency"
+            ? "edit"
+            : "structure",
           signal,
         );
       });
@@ -348,7 +368,17 @@ export function createSceneService({
     importUrdf(projectId: string, expectedRevision: number, path: string) {
       return enqueue(projectId, async () => {
         const { document: previous } = await current(projectId, expectedRevision);
-        return persist(projectId, previous, { ...previous, ...(await loadUrdf(path)) }, "import");
+        return persist(
+          projectId,
+          previous,
+          {
+            ...previous,
+            ...(await loadUrdf(path)),
+            transparencies:
+              previous.transparencies?.filter((setting) => setting.entity === "source") ?? [],
+          },
+          "import",
+        );
       });
     },
     importStep,
@@ -410,18 +440,16 @@ export function createSceneService({
       active?.controller.abort(new Error("STEP 导入已取消。"));
       await active?.result.catch(() => {});
     },
-    exportUrdf(projectId: string, directory: string, expectedRevision?: number) {
+    exportUrdf(projectId: string, directory: string, expectedRevision: number) {
       return enqueue(projectId, async () => {
-        const { document } =
-          expectedRevision === undefined
-            ? await get(projectId)
-            : await current(projectId, expectedRevision);
+        const { document } = await current(projectId, expectedRevision);
         if (!document.robot) throw new Error("请先导入 URDF。");
         if (!isAbsolute(directory)) throw new Error("请选择导出目录。");
-        const content = writeUrdf(document.robot, document.warnings);
+        const robot = resolveSceneRobot(document) ?? document.robot;
+        const content = writeUrdf(robot, document.warnings);
         const folder = await mkdtemp(join(await realpath(directory), "dai-urdf-"));
         try {
-          const assets = new Set(Array.from(meshGeometries(document.robot), ({ asset }) => asset));
+          const assets = new Set(Array.from(meshGeometries(robot), ({ asset }) => asset));
           const meshFolder = [...parts(projectId), "meshes"];
           if (assets.size) await mkdir(join(folder, "meshes"));
           for (const id of assets) {
@@ -440,6 +468,7 @@ export function createSceneService({
     forget(projectId: string) {
       cancelStep(projectId);
       undo.delete(projectId);
+      sourceRevisions.delete(projectId);
       assetIndexes.delete(projectId);
     },
   };

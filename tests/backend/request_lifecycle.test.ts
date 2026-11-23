@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -107,6 +107,32 @@ test("排队超时的写入不会延迟提交，已开始的写入返回真实�
   } finally {
     remote.resolve(new Response(null, { status: 503 }));
     globalThis.fetch = fetch;
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("旧主题回退在写入队列内比较当前选择，不覆盖新主题且不保存比较条件", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dai-theme-compare-"));
+  const dataRoot = join(root, "data");
+  const app = await openApplication({ dataRoot, publish() {} });
+  try {
+    await app.request("settings.update", { desktopTheme: "theme:a" });
+    const [selected, fallback] = await Promise.all([
+      app.request("settings.update", { desktopTheme: "theme:b" }),
+      app.request("settings.update", { desktopTheme: "", expectedDesktopTheme: "theme:a" }),
+    ]);
+    assert.equal(selected.desktopTheme, "theme:b");
+    assert.equal(fallback.desktopTheme, "theme:b");
+    const cleared = await app.request("settings.update", {
+      desktopTheme: "",
+      expectedDesktopTheme: "theme:b",
+    });
+    assert.equal(cleared.desktopTheme, "");
+    const saved = JSON.parse(await readFile(join(dataRoot, "desktop/settings.json"), "utf8"));
+    assert.equal(saved.desktopTheme, "");
+    assert.equal(Object.hasOwn(saved, "expectedDesktopTheme"), false);
+  } finally {
     await app.close();
     await rm(root, { recursive: true, force: true });
   }

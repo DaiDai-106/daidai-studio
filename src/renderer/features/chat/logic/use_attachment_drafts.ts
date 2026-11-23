@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ChatImage } from "../../../../contracts/application.ts";
 import type { ApplicationBridge } from "../../../../contracts/bridge.ts";
 import { maxStepBytes } from "../../../../contracts/scene.ts";
-import { isStepFile } from "../../../../shared/step_attachment.ts";
+import { isStepFile } from "../../../../shared/scene/step_attachment.ts";
 import { errorMessage } from "../../../shared/logic/error_message.ts";
 
 type AttachmentDraft = { images: ChatImage[]; step?: File | undefined; error: string };

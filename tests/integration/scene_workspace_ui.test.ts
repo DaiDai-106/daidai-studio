@@ -6,13 +6,14 @@ import { parseUrdf, writeUrdf } from "../../src/backend/scene/urdf.ts";
 import { REQUEST_CHANNEL } from "../../src/contracts/desktop.ts";
 import { testRobot } from "../support/scene_fixture.ts";
 import { stepWorkerAvailable, writeStepFixture } from "../support/step_fixture.ts";
-import { launchTestApp } from "./support.ts";
+import { holdApplicationResponses, launchTestApp } from "./support.ts";
 
 test("场景项目在工作区导入、改关节、撤销和导出 URDF", { timeout: 45_000 }, async (context) => {
   const { application, page, profile } = await launchTestApp(context);
   const documents = join(profile, "documents");
   const urdf = join(profile, "robot.urdf");
   const step = join(profile, "original.step");
+  const replacement = join(profile, "replacement.step");
   const warning = "零件「arm」已跳过 3 个无法网格化的曲面。";
   await mkdir(documents);
   await mkdir(join(profile, "meshes"));
@@ -22,17 +23,31 @@ test("场景项目在工作区导入、改关节、撤销和导出 URDF", { time
   triangle.writeFloatLE(1, 124);
   await writeFile(join(profile, "meshes", "triangle.stl"), triangle);
   const { robot } = parseUrdf(
-    testRobot.replace(
+    testRobot
+      .replace(
+        "</link>",
+        '<visual><geometry><mesh filename="triangle.stl"/></geometry></visual></link>',
+      )
+      .replace(
+        "</robot>",
+        '<link name="spindle"/><joint name="spin" type="continuous"><parent link="base"/><child link="spindle"/></joint></robot>',
+      ),
+  );
+  await writeFile(
+    urdf,
+    writeUrdf(robot, [warning, "STEP 装配按固定关节导入。"]).replace(
       "</link>",
-      '<visual><geometry><mesh filename="triangle.stl"/></geometry></visual></link>',
+      '<collision><geometry><box size="1 1 1"/></geometry></collision></link>',
     ),
   );
-  await writeFile(urdf, writeUrdf(robot, [warning, "STEP 装配按固定关节导入。"]));
-  if (stepWorkerAvailable) await writeStepFixture(step);
+  if (stepWorkerAvailable) {
+    await writeStepFixture(step);
+    await writeStepFixture(replacement, "inch");
+  }
   const meshResponse = await application.evaluateHandle(
     ({ app, dialog, ipcMain }, paths) => {
       app.setPath("documents", paths.documents);
-      const choices = [paths.urdf, paths.documents, paths.step];
+      const choices = [paths.urdf, paths.documents, paths.step, paths.replacement];
       dialog.showOpenDialog = async () => {
         const path = choices.shift();
         return { canceled: !path, filePaths: path ? [path] : [] };
@@ -55,7 +70,7 @@ test("场景项目在工作区导入、改关节、撤销和导出 URDF", { time
       });
       return gate.resolve;
     },
-    { documents, urdf, step, channel: REQUEST_CHANNEL },
+    { documents, urdf, step, replacement, channel: REQUEST_CHANNEL },
   );
 
   await page.getByRole("button", { name: "新建项目", exact: true }).first().click();
@@ -67,17 +82,30 @@ test("场景项目在工作区导入、改关节、撤销和导出 URDF", { time
   await form.waitFor({ state: "hidden" });
 
   const scene = page.getByRole("region", { name: "场景工作区" });
+  const importNotice = scene.getByText(/已跳过.+曲面|STEP 装配按固定关节导入/);
   const mobileTab = page.getByRole("tab", { name: "场景", exact: true });
   if (await mobileTab.isVisible()) await mobileTab.click();
   await scene.getByRole("button", { name: "导入 URDF" }).click();
-  await scene.getByText(warning, { exact: false }).waitFor({ state: "visible" });
   const tree = scene.getByRole("navigation", { name: "机器人结构树" });
   const swivel = tree.getByRole("button", { name: "swivel", exact: true });
+  await scene.getByText("无（根节点，以世界坐标为基准）").waitFor();
+  const importWarnings = scene.getByLabel("导入警告", { exact: true });
+  await importWarnings.locator("summary").click();
+  await importWarnings.getByText("未保留 <link> 中的其他 URDF 元素。", { exact: true }).waitFor();
   await swivel.click();
+  await scene.getByText("父级连杆").waitFor();
+  assert.equal(
+    await scene.locator(".scene-transform").first().getByText("base", { exact: true }).count(),
+    1,
+  );
+  assert.equal(await importNotice.count(), 2);
   const side = scene.locator(".scene-outliner");
-  const properties = side.getByRole("button", { name: "属性", exact: true });
-  await properties.click();
   await side.getByRole("region", { name: "坐标变换" }).waitFor();
+  assert.ok(await tree.isVisible());
+  assert.ok(await side.getByRole("region", { name: "场景属性" }).isVisible());
+  const treeBounds = await tree.boundingBox();
+  const propertyBounds = await side.locator(".scene-properties").boundingBox();
+  assert.ok(treeBounds && propertyBounds && propertyBounds.y >= treeBounds.y + treeBounds.height);
   await side.getByLabel("关节名称", { exact: true }).waitFor();
   const canvas = scene.locator("canvas");
   const fallback = scene.getByText("当前环境无法启动 3D 显示。", { exact: false });
@@ -169,6 +197,10 @@ test("场景项目在工作区导入、改关节、撤销和导出 URDF", { time
 
   const name = scene.getByLabel("关节名称", { exact: true });
   await name.fill("尚未保存的名称");
+  const originDraft = scene
+    .getByRole("form", { name: "关节配置" })
+    .getByLabel("原点位置 (m) X", { exact: true });
+  await originDraft.fill("0.125");
   // Simulate the same committed document update that a Pi tool emits during a drag.
   await page.mouse.move(bounds.x + bounds.width * 0.8, y);
   await page.mouse.down();
@@ -197,6 +229,7 @@ test("场景项目在工作区导入、改关节、撤销和导出 URDF", { time
   assert.equal(snapshot.document.revision, externalRevision);
   assert.equal(snapshot.document.robot?.joints[0]?.position, -1);
   assert.equal(await name.inputValue(), "尚未保存的名称");
+  assert.equal(await originDraft.inputValue(), "0.125");
 
   await slider.focus();
   for (let step = 1; step <= 2; step++) {
@@ -212,6 +245,26 @@ test("场景项目在工作区导入、改关节、撤销和导出 URDF", { time
     assert.ok(await slider.evaluate((element) => element === document.activeElement));
   }
 
+  await tree.getByRole("button", { name: "spin", exact: true }).click();
+  const jointForm = side.getByRole("form", { name: "关节配置" });
+  const saveJoint = jointForm.getByRole("button", { name: "保存关节配置", exact: true });
+  const effort = jointForm.getByLabel("最大力/力矩");
+  const velocity = jointForm.getByLabel("最大速度");
+  assert.equal(await effort.inputValue(), "");
+  assert.equal(await velocity.inputValue(), "");
+  const beforeSave = await readScene();
+  const hold = await holdApplicationResponses(application);
+  const saved = await hold("scene.apply");
+  try {
+    await saveJoint.click();
+    await saved.entered();
+    assert.deepEqual(await readScene(), beforeSave);
+  } finally {
+    await saved.release();
+  }
+  await jointForm.locator('button[type="submit"]:enabled').waitFor();
+  await swivel.click();
+
   await scene.getByRole("button", { name: "导出 URDF" }).click();
   const status = scene.getByText(/^已导出至 /);
   await status.waitFor();
@@ -219,6 +272,9 @@ test("场景项目在工作区导入、改关节、撤销和导出 URDF", { time
   assert.ok(result);
   const exported = parseUrdf(await readFile(result, "utf8"));
   assert.equal(exported.robot.joints[0]?.name, "swivel");
+  const spin = exported.robot.joints.find(({ name }) => name === "spin");
+  assert.equal(spin?.type, "continuous");
+  assert.equal(spin.limit, undefined);
   assert.equal(exported.warnings[0], warning);
 
   const before = await readScene();
@@ -228,14 +284,32 @@ test("场景项目在工作区导入、改关节、撤销和导出 URDF", { time
   await side.getByRole("button", { name: "补充原始 STEP", exact: true }).click();
   const sourceTree = side.getByRole("navigation", { name: "原始模型结构树" });
   await sourceTree.getByRole("button", { name: "Root", exact: true }).waitFor();
-  await scene.getByText(warning, { exact: false }).waitFor({ state: "hidden" });
-  await properties.click();
+  assert.equal(await importNotice.count(), 0);
+  assert.equal(await scene.getByLabel("导入警告", { exact: true }).count(), 0);
+  assert.ok(await sourceTree.isVisible());
+  assert.equal(await side.getByRole("region", { name: "场景属性" }).count(), 0);
+  await side.getByText("原始 CAD 坐标（搭建参照）", { exact: true }).click();
   await side.getByRole("region", { name: "坐标变换" }).waitFor();
+  await side.getByText("属性 · URDF 配置").waitFor();
   const after = await readScene();
   assert.equal(after.document.sourceRobot?.name, "original");
-  assert.deepEqual(after.document.sourceWarnings, ["STEP 装配按固定关节导入。"]);
+  assert.deepEqual(after.document.sourceWarnings, []);
   assert.deepEqual(after.document.robot, before.document.robot);
   assert.deepEqual(after.document.warnings, before.document.warnings);
+
+  const subassembly = sourceTree.getByRole("button", { name: "SubInstance", exact: true });
+  await subassembly.click();
+  assert.equal(await subassembly.getAttribute("aria-current"), "true");
+  const checked = sourceTree.getByRole("checkbox", { name: "选择零件 Root", exact: true });
+  await checked.check();
+  await side.getByRole("button", { name: "清空多选", exact: true }).waitFor();
+  await scene.getByRole("button", { name: "撤销", exact: true }).click();
+  await side.getByText("当前场景缺少原始模型快照。").waitFor();
+  await side.getByRole("button", { name: "补充原始 STEP", exact: true }).click();
+  await checked.waitFor();
+  assert.equal(await checked.isChecked(), false);
+  assert.equal(await subassembly.getAttribute("aria-current"), null);
+  assert.equal((await readScene()).document.sourceRobot?.name, "replacement");
   await side.getByRole("button", { name: "构建场景", exact: true }).click();
   assert.equal(await swivel.getAttribute("aria-current"), "true");
 });

@@ -644,32 +644,30 @@ test("两个市场可发现不同宿主，条目类型冲突和混合资源被�
   }
 });
 
-test("启动迁移旧市场目录并保留配置和 Git 索引，已有新目录时不覆盖", async () => {
-  const root = await mkdtemp(join(tmpdir(), "dai-catalog-relocate-"));
-  const legacy = join(root, "agent/catalog");
+test("只读取当前市场目录，不搬迁或覆盖磁盘上的旧目录", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dai-catalog-storage-"));
+  const previous = join(root, "agent/catalog");
   const current = join(root, "catalog");
   const config = { companyUrl: "https://company.example/catalog.json" };
+  const previousConfig = JSON.stringify({ companyUrl: "https://previous.example/catalog.json" });
   try {
-    await mkdir(join(legacy, "git"), { recursive: true });
-    await writeFile(join(legacy, "sources.json"), JSON.stringify(config));
-    await writeFile(join(legacy, "origins.json"), "[]");
-    await writeFile(join(legacy, "git/index-marker"), "retained");
+    await mkdir(join(previous, "git"), { recursive: true });
+    await writeFile(join(previous, "sources.json"), previousConfig);
+    await writeFile(join(previous, "git/index-marker"), "untouched");
     const first = await openApplication({ dataRoot: root, publish() {} });
     try {
-      assert.deepEqual(await first.request("catalog.sources", {}), config);
-      assert.equal(await readFile(join(current, "origins.json"), "utf8"), "[]");
-      assert.equal(await readFile(join(current, "git/index-marker"), "utf8"), "retained");
-      await assert.rejects(readFile(join(legacy, "sources.json")), { code: "ENOENT" });
+      assert.deepEqual(await first.request("catalog.sources", {}), { companyUrl: "" });
+      await assert.rejects(readFile(join(current, "sources.json")), { code: "ENOENT" });
     } finally {
       await first.close();
     }
-    // 用户已在新目录配置过来源时，遗留目录不能覆盖它。
-    await mkdir(legacy);
-    await writeFile(join(legacy, "sources.json"), "{}");
+    await mkdir(current, { recursive: true });
+    await writeFile(join(current, "sources.json"), JSON.stringify(config));
     const second = await openApplication({ dataRoot: root, publish() {} });
     try {
       assert.deepEqual(await second.request("catalog.sources", {}), config);
-      assert.equal(await readFile(join(legacy, "sources.json"), "utf8"), "{}");
+      assert.equal(await readFile(join(previous, "sources.json"), "utf8"), previousConfig);
+      assert.equal(await readFile(join(previous, "git/index-marker"), "utf8"), "untouched");
     } finally {
       await second.close();
     }
@@ -722,10 +720,10 @@ test("同一来源的全局和模块诊断独立，模块变更不清空其他�
     installed = await catalog.installed();
     assert.equal(installed.find((item) => item.scope === "global")?.loadState, "failed");
     assert.equal(installed.find((item) => item.scope === "module")?.loadState, "loaded");
-    catalog.recordLoad("robot", [{ source, scope: "global", error: "" }]);
+    catalog.recordLoad("scene", [{ source, scope: "global", error: "" }]);
     const task = catalog.start({ source, scope: "module", moduleId: "coding", action: "disable" });
     assert.equal((await waitForCatalogTask(catalog.taskList, task.id)).state, "completed");
-    assert.equal((await catalog.installed("robot"))[0]?.loadState, "loaded");
+    assert.equal((await catalog.installed("scene"))[0]?.loadState, "loaded");
   } finally {
     await catalog.close();
     await rm(root, { recursive: true, force: true });

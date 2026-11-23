@@ -15,7 +15,7 @@ import { writeJson } from "../../shared/node/write_json.ts";
 import { createCredentials, type StoredProvider } from "./credentials.ts";
 import { discoverModels } from "./discovery.ts";
 import { createLogins } from "./login.ts";
-import { createProviders, modelChoice } from "./providers.ts";
+import { configuredModelChoice, createProviders } from "./providers.ts";
 
 type Settings = {
   version: 1;
@@ -96,16 +96,6 @@ export async function createSettingsService(options: {
   }
 
   configure();
-  let pending = Promise.resolve();
-
-  function serialize<T>(operation: () => Promise<T>): Promise<T> {
-    const result = pending.then(operation);
-    pending = result.then(
-      () => {},
-      () => {},
-    );
-    return result;
-  }
 
   async function commit(next: Settings, scope: "agent" | "desktop") {
     await writeJson(
@@ -132,15 +122,29 @@ export async function createSettingsService(options: {
   }
 
   function defaultModel(configs: StoredProvider[], selected: string) {
+    // 已配置型号失效时提示用户重新选择，不能因升级或添加服务而静默换模。
     if (configs.some((p) => p.enabled && p.models.some((m) => `${p.id}:${m.id}` === selected)))
       return selected;
-    const first = configs.find((p) => p.enabled && p.models.length);
-    return first ? `${first.id}:${first.models[0]?.id ?? ""}` : "";
+    for (const config of configs) {
+      if (!config.enabled) continue;
+      const catalogue = providers.create(config).getModels();
+      const first = config.models.find((item) => catalogue.some((model) => model.id === item.id));
+      if (first) return `${config.id}:${first.id}`;
+    }
+    return "";
   }
 
   async function providerInfo(config: StoredProvider): Promise<ProviderInfo> {
     const { secretRef, ...value } = config;
-    const provider = providers.create(config);
+    const catalogue = new Map(
+      providers
+        .create(config)
+        .getModels()
+        .map((model) => [model.id, model]),
+    );
+    const unavailableModels = config.models
+      .filter((item) => !catalogue.has(item.id))
+      .map((item) => item.id);
     const configured =
       config.authMethod === "none" ||
       (await credentials.has(config.id)) ||
@@ -149,9 +153,10 @@ export async function createSettingsService(options: {
     return {
       ...value,
       configured,
-      models: config.models.map((item) => {
-        const model = provider.getModels().find((candidate) => candidate.id === item.id);
-        return model ? modelChoice(model) : item;
+      ...(unavailableModels.length ? { unavailableModels } : {}),
+      models: config.models.map(({ fast, ...item }) => {
+        const model = catalogue.get(item.id);
+        return model ? configuredModelChoice(config, model, fast === true) : item;
       }),
     };
   }
@@ -201,7 +206,25 @@ export async function createSettingsService(options: {
       if (refreshed && refreshed !== credential)
         logins.replaceCredential(loginId, credential, refreshed);
     }
-    return models.getModels(config.id).slice(0, 1000).map(modelChoice);
+    return models
+      .getModels(config.id)
+      .slice(0, 1000)
+      .map((model) => configuredModelChoice(config, model));
+  }
+
+  function model(selection: string) {
+    for (const config of settings.providers)
+      if (config.enabled) {
+        const choice = config.models.find((item) => `${config.id}:${item.id}` === selection);
+        if (!choice) continue;
+        const resolved = modelRuntime.getModel(config.id, choice.id);
+        if (!resolved)
+          throw new Error(
+            `模型「${choice.name}」（${choice.id}）已不可用，请在设置中重新选择模型。`,
+          );
+        return resolved;
+      }
+    return undefined;
   }
 
   async function info(): Promise<SettingsInfo> {
@@ -219,51 +242,41 @@ export async function createSettingsService(options: {
       return providers.catalog();
     },
     "provider.models": listModels,
-    "provider.save": ({ config, loginId }: Arguments<"provider.save">) =>
-      serialize(async () => {
-        if (
-          !config.name.trim() ||
-          !config.models.length ||
-          new Set(config.models.map((m) => m.id)).size !== config.models.length
+    async "provider.save"({ config, loginId }: Arguments<"provider.save">) {
+      if (
+        !config.name.trim() ||
+        !config.models.length ||
+        new Set(config.models.map((m) => m.id)).size !== config.models.length
+      )
+        throw new Error("请填写服务名称并选择不重复的模型。");
+      const previous = settings.providers.find((item) => item.id === config.id);
+      if (!previous && settings.providers.length >= 100)
+        throw new Error("最多可配置 100 个模型服务。");
+      const catalogue = await listModels({
+        config,
+        ...(loginId ? { loginId } : {}),
+        discover: false,
+      });
+      if (
+        config.enabled &&
+        config.models.some((item) => !catalogue.some((known) => known.id === item.id))
+      )
+        throw new Error("请选择提供方目录中的模型。");
+      if (
+        config.models.some(
+          (item) =>
+            item.fast === true &&
+            !catalogue.some((known) => known.id === item.id && known.fast !== undefined),
         )
-          throw new Error("请填写服务名称并选择不重复的模型。");
-        const previous = settings.providers.find((item) => item.id === config.id);
-        if (!previous && settings.providers.length >= 100)
-          throw new Error("最多可配置 100 个模型服务。");
-        const catalogue = await listModels({
-          config,
-          ...(loginId ? { loginId } : {}),
-          discover: false,
-        });
-        if (config.models.some((item) => !catalogue.some((known) => known.id === item.id)))
-          throw new Error("请选择提供方目录中的模型。");
-        const credential = await credentialFor(config, loginId);
-        if (["oauth", "api_key"].includes(config.authMethod) && !credential)
-          throw new Error("请先完成认证。");
-        const secretRef = credential ? await credentials.stage(credential) : "";
-        const stored = { ...config, secretRef };
-        const configs = [...settings.providers.filter((item) => item.id !== config.id), stored];
-        try {
-          await commit(
-            {
-              ...settings,
-              providers: configs,
-              defaultModel: defaultModel(configs, settings.defaultModel),
-            },
-            "agent",
-          );
-        } catch (error) {
-          if (secretRef) await credentials.remove(secretRef);
-          throw error;
-        }
-        if (loginId) logins.consume(loginId);
-        if (previous?.secretRef) await credentials.remove(previous.secretRef);
-        return providerInfo(stored);
-      }),
-    "provider.remove": ({ id }: Arguments<"provider.remove">) =>
-      serialize(async () => {
-        const previous = settings.providers.find((item) => item.id === id);
-        const configs = settings.providers.filter((item) => item.id !== id);
+      )
+        throw new Error("当前模型或服务地址不支持 Fast。");
+      const credential = await credentialFor(config, loginId);
+      if (["oauth", "api_key"].includes(config.authMethod) && !credential)
+        throw new Error("请先完成认证。");
+      const secretRef = credential ? await credentials.stage(credential) : "";
+      const stored = { ...config, secretRef };
+      const configs = [...settings.providers.filter((item) => item.id !== config.id), stored];
+      try {
         await commit(
           {
             ...settings,
@@ -272,33 +285,47 @@ export async function createSettingsService(options: {
           },
           "agent",
         );
-        if (previous?.secretRef) await credentials.remove(previous.secretRef);
-        return null;
-      }),
-    "settings.update": (change: Arguments<"settings.update">) =>
-      serialize(async () => {
-        const { expectedDesktopTheme, defaultModel: selectedModel, ...desktop } = change;
-        // 回退请求可能晚于用户的新选择；在写入队列内比较，不能由前端快照决定。
-        if (expectedDesktopTheme !== undefined && settings.desktopTheme !== expectedDesktopTheme)
-          return info();
-        if (
-          change.defaultModel &&
-          defaultModel(settings.providers, change.defaultModel) !== change.defaultModel
-        )
-          throw new Error("请选择有效模型。");
-        if (selectedModel !== undefined)
-          await commit({ ...settings, defaultModel: selectedModel }, "agent");
-        if (Object.keys(desktop).length) {
-          try {
-            await commit({ ...settings, ...desktop }, "desktop");
-          } catch (error) {
-            if (selectedModel !== undefined)
-              throw new Error("默认模型已保存，但桌面设置保存失败。", { cause: error });
-            throw error;
-          }
-        }
+      } catch (error) {
+        if (secretRef) await credentials.remove(secretRef);
+        throw error;
+      }
+      if (loginId) logins.consume(loginId);
+      if (previous?.secretRef) await credentials.remove(previous.secretRef);
+      return providerInfo(stored);
+    },
+    async "provider.remove"({ id }: Arguments<"provider.remove">) {
+      const previous = settings.providers.find((item) => item.id === id);
+      const configs = settings.providers.filter((item) => item.id !== id);
+      await commit(
+        {
+          ...settings,
+          providers: configs,
+          defaultModel: defaultModel(configs, settings.defaultModel),
+        },
+        "agent",
+      );
+      if (previous?.secretRef) await credentials.remove(previous.secretRef);
+      return null;
+    },
+    async "settings.update"(change: Arguments<"settings.update">) {
+      const { expectedDesktopTheme, defaultModel: selectedModel, ...desktop } = change;
+      // 回退请求可能晚于用户的新选择；在写入队列内比较，不能由前端快照决定。
+      if (expectedDesktopTheme !== undefined && settings.desktopTheme !== expectedDesktopTheme)
         return info();
-      }),
+      if (selectedModel && !model(selectedModel)) throw new Error("请选择有效模型。");
+      if (selectedModel !== undefined)
+        await commit({ ...settings, defaultModel: selectedModel }, "agent");
+      if (Object.keys(desktop).length) {
+        try {
+          await commit({ ...settings, ...desktop }, "desktop");
+        } catch (error) {
+          if (selectedModel !== undefined)
+            throw new Error("默认模型已保存，但桌面设置保存失败。", { cause: error });
+          throw error;
+        }
+      }
+      return info();
+    },
     async "auth.start"({ providerType, method }: Arguments<"auth.start">) {
       return logins.start(providerType, method);
     },
@@ -324,18 +351,14 @@ export async function createSettingsService(options: {
     handlers,
     info,
     modelRuntime,
-    model(selection: string) {
-      for (const config of settings.providers)
-        if (config.enabled) {
-          const choice = config.models.find((item) => `${config.id}:${item.id}` === selection);
-          if (choice) return modelRuntime.getModel(config.id, choice.id);
-        }
-      return undefined;
+    model,
+
+    get defaultModel() {
+      return settings.defaultModel;
     },
 
     async close() {
       logins.close();
-      await pending;
     },
   };
 }

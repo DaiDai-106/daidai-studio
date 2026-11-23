@@ -82,9 +82,12 @@ try {
     const project = await api.createProject({ name: "STEP 装配", mode: "scene" });
     return project && api.importScene(project.id, 0, "step");
   });
-  assert.equal(scene?.document.robot?.links.length, 8);
-  assert.ok(scene.document.robot.links.some((link) => link.visuals[0]?.geometry.type === "mesh"));
-  assert.equal(scene.document.robot.joints[1]?.origin.xyz[2], 0.08);
+  assert.equal(scene?.document.robot?.links.length, 1);
+  assert.equal(scene.document.robot.joints.length, 0);
+  assert.ok(
+    scene.document.sourceRobot.links.some((link) => link.visuals[0]?.geometry.type === "mesh"),
+  );
+  assert.equal(scene.document.sourceRobot.joints[1]?.origin.xyz[2], 0.08);
   console.log("打包版启动、数据隔离和 STEP 导入检查通过。");
 } finally {
   if (application) await application.close();

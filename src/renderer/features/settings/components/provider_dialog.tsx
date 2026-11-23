@@ -103,7 +103,16 @@ export function ProviderDialog({
     setBusy(true);
     setError("");
     try {
-      setCatalog(await api.getModels(config(), authId.current || undefined, discover));
+      const models = await api.getModels(config(), authId.current || undefined, discover);
+      setCatalog(models);
+      setDraft((value) => ({
+        ...value,
+        models: value.models.map(({ fast, ...model }) =>
+          models.some((known) => known.id === model.id && known.fast !== undefined)
+            ? { ...model, fast: fast ?? false }
+            : model,
+        ),
+      }));
       setStep("models");
     } catch (error) {
       setError(error instanceof Error ? error.message : "模型目录读取失败。");

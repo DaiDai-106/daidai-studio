@@ -68,7 +68,7 @@ test("插件范围独立于项目，市场与模块标识严格校验", () => {
     source: "npm:demo",
     scope: "global",
   });
-  for (const moduleId of ["coding", "scene", "robot"])
+  for (const moduleId of ["coding", "scene"])
     validateRequest("catalog.packageAction", {
       action: "install",
       source: "npm:demo",
@@ -84,6 +84,7 @@ test("插件范围独立于项目，市场与模块标识严格校验", () => {
     }),
   );
   assert.throws(() => validateRequest("catalog.installed", { moduleId: "../escape" }));
+  assert.throws(() => validateRequest("catalog.installed", { moduleId: "robot" }));
   validateRequest("skill.library.list", { moduleId: "coding" });
   assert.throws(() => validateRequest("skill.library.list", { projectId: "old-project" }));
   assert.throws(() => validateRequest("skill.library.list", { moduleId: "../escape" }));

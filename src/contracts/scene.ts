@@ -41,7 +41,14 @@ const visual = object({
   geometry,
   color: Type.Optional(Type.Tuple([channel, channel, channel, channel])),
 });
-const link = object({ id, name: id, visuals: Type.Array(visual, { maxItems: 32 }) });
+const link = object({
+  id,
+  name: id,
+  visuals: Type.Array(visual, { maxItems: 16384 }),
+  sourceParts: Type.Optional(
+    Type.Array(object({ sourceId: id, origin: SceneOriginSchema }), { maxItems: 512 }),
+  ),
+});
 const joint = object({
   id,
   name: id,
@@ -67,6 +74,14 @@ const SceneRobotSchema = object({
   links: Type.Array(link, { minItems: 1, maxItems: 512 }),
   joints: Type.Array(joint, { maxItems: 511 }),
 });
+const transparencyValue = Type.Integer({ minimum: 0, maximum: 100 });
+const SceneTransparencySchema = object({
+  entity: Type.Enum(["source", "link"]),
+  id,
+  value: transparencyValue,
+});
+export type SceneTransparency = Static<typeof SceneTransparencySchema>;
+export type SceneVisualOpacities = ReadonlyMap<string, readonly number[]>;
 export const SceneDocumentSchema = object({
   schemaVersion: Type.Literal(1),
   revision: SceneRevisionSchema,
@@ -74,11 +89,12 @@ export const SceneDocumentSchema = object({
   sourceRobot: Type.Optional(SceneRobotSchema),
   sourceWarnings: Type.Optional(SceneWarningsSchema),
   warnings: SceneWarningsSchema,
+  transparencies: Type.Optional(Type.Array(SceneTransparencySchema, { maxItems: 1024 })),
 });
 export const SceneSnapshotSchema = object({
   document: SceneDocumentSchema,
-  legacy: Type.Boolean(),
   canUndo: Type.Boolean(),
+  sourceRevision: SceneRevisionSchema,
 });
 const entity = Type.Enum(["link", "joint"]);
 export const SceneOperationSchema = Type.Union([
@@ -90,6 +106,39 @@ export const SceneOperationSchema = Type.Union([
     linkName: id,
     jointName: id,
     jointType: JointTypeSchema,
+  }),
+  object({
+    op: Type.Literal("updateJoint"),
+    jointId: id,
+    name: id,
+    parentId: id,
+    jointType: JointTypeSchema,
+    origin: SceneOriginSchema,
+    axis: vec3,
+    limit: Type.Optional(joint.properties.limit),
+  }),
+  object({
+    op: Type.Literal("assignSource"),
+    sourceIds: Type.Array(id, { minItems: 1, maxItems: 512 }),
+    linkId: id,
+  }),
+  object({
+    op: Type.Literal("createSourceLink"),
+    sourceIds: Type.Array(id, { minItems: 1, maxItems: 512 }),
+    parentId: id,
+    linkName: id,
+    jointName: id,
+    jointType: JointTypeSchema,
+  }),
+  object({
+    op: Type.Literal("unassignSource"),
+    sourceIds: Type.Array(id, { minItems: 1, maxItems: 512 }),
+  }),
+  object({
+    op: Type.Literal("setTransparency"),
+    entity: SceneTransparencySchema.properties.entity,
+    ids: Type.Array(id, { minItems: 1, maxItems: 512 }),
+    value: transparencyValue,
   }),
   object({ op: Type.Literal("removeSubtree"), linkId: id }),
   object({ op: Type.Literal("undo") }),

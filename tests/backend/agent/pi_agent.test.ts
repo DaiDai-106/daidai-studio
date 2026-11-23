@@ -1,15 +1,16 @@
 import { strict as assert } from "node:assert";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createHistoryProjection } from "../../../src/backend/agent/history_projection.ts";
 import { createPiAgent } from "../../../src/backend/agent/pi_agent.ts";
 import { createPiHistory } from "../../../src/backend/agent/pi_history.ts";
 import { createPackageService } from "../../../src/backend/extensions/package_service.ts";
 import { openProjectStore } from "../../../src/backend/projects/store.ts";
+import { createProviders } from "../../../src/backend/settings/providers.ts";
 import type { PackageLoad } from "../../../src/contracts/catalog.ts";
 
 test("Pi agent 从授权包加载技能和扩展，并使用项目模式的系统提示", async () => {
@@ -18,16 +19,22 @@ test("Pi agent 从授权包加载技能和扩展，并使用项目模式的系�
   const cwd = join(root, "workspace");
   const source = join(root, "package");
   const started = join(root, "server-started");
+  const lifecycle = join(root, "extension-lifecycle");
   await mkdir(cwd);
   await mkdir(join(source, "extensions"), { recursive: true });
   await mkdir(join(source, "skills", "sample"), { recursive: true });
   await writeFile(join(source, "package.json"), JSON.stringify({ name: "test-pi-package" }));
   await writeFile(
     join(source, "extensions", "index.ts"),
-    `export default pi => pi.registerTool({
-    name: "sample_tool", label: "Sample", description: "Test tool", parameters: {type:"object",properties:{}},
-    execute: async () => ({content:[{type:"text",text:"ok"}],details:{}})
-  });`,
+    `import { appendFileSync } from "node:fs";
+  export default pi => {
+    pi.on("session_start", () => appendFileSync(${JSON.stringify(lifecycle)}, ${JSON.stringify("start\n")}));
+    pi.on("session_shutdown", () => appendFileSync(${JSON.stringify(lifecycle)}, ${JSON.stringify("shutdown\n")}));
+    pi.registerTool({
+      name: "sample_tool", label: "Sample", description: "Test tool", parameters: {type:"object",properties:{}},
+      execute: async () => ({content:[{type:"text",text:"ok"}],details:{}})
+    });
+  };`,
   );
   await writeFile(
     join(source, "extensions", "server.ts"),
@@ -85,9 +92,16 @@ test("Pi agent 从授权包加载技能和扩展，并使用项目模式的系�
       assert.ok(!session.getActiveToolNames().some((name) => name.startsWith("mcp__")));
       await assert.rejects(readFile(started), { code: "ENOENT" });
       assert.match(session.systemPrompt, /coding instruction fixture/);
+      assert.equal(await readFile(lifecycle, "utf8"), "start\n");
+      await session.reload();
+      assert.equal(await readFile(lifecycle, "utf8"), "start\nshutdown\nstart\n");
+      assert.ok(session.getActiveToolNames().includes("sample_tool"));
+      assert.ok(!session.getActiveToolNames().some((name) => name.startsWith("mcp__")));
+      await assert.rejects(readFile(started), { code: "ENOENT" });
     } finally {
       session.dispose();
     }
+    let fullAccess = false;
     const coding = await createPiAgent({
       conversationId: conversation.id,
       cwd,
@@ -95,6 +109,7 @@ test("Pi agent 从授权包加载技能和扩展，并使用项目模式的系�
       history: createPiHistory(store, dataRoot),
       packages,
       modelRuntime,
+      fullAccess: () => fullAccess,
     });
     try {
       const manager = coding.sessionManager;
@@ -131,6 +146,99 @@ test("Pi agent 从授权包加载技能和扩展，并使用项目模式的系�
       assert.match(coding.systemPrompt, /Parent coding instruction fixture/);
       assert.match(coding.systemPrompt, /Project coding instruction fixture/);
       assert.ok(coding.getActiveToolNames().includes("sample_tool"));
+      await mkdir(join(cwd, "src"));
+      await mkdir(join(cwd, "nested", "src"), { recursive: true });
+      await writeFile(join(cwd, "src", "main.ts"), "export {};\n");
+      await writeFile(join(cwd, "nested", "src", "other.ts"), "export {};\n");
+      coding.setActiveToolsByName([...coding.getActiveToolNames(), "find"]);
+      const find = coding.agent.state.tools.find((tool) => tool.name === "find");
+      assert.ok(find);
+      for (const [pattern, expected] of [
+        ["src/*.ts", ["src/main.ts"]],
+        ["./src/*.ts", ["src/main.ts"]],
+        ["**/src/*.ts", ["nested/src/other.ts", "src/main.ts"]],
+      ] as const) {
+        const result = await find.execute(`find-${pattern}`, { pattern });
+        const paths = result.content.flatMap((part) =>
+          part.type === "text" ? part.text.split("\n") : [],
+        );
+        assert.deepEqual(paths.sort(), [...expected].sort());
+      }
+      const outside = join(root, "outside");
+      await mkdir(outside);
+      await writeFile(join(outside, "private-secret.ts"), "secret");
+      if (process.platform !== "win32") await symlink(outside, join(cwd, "escape"), "dir");
+      modelRuntime.registerNativeProvider(
+        createProviders(new InMemoryCredentialStore()).create({
+          id: "find-test",
+          name: "Find test",
+          providerType: "local",
+          authMethod: "none",
+          endpoint: "http://127.0.0.1:1/v1",
+          enabled: true,
+          models: [
+            {
+              id: "find-model",
+              name: "Find model",
+              context: 128000,
+              output: 4096,
+              reasoning: "标准",
+            },
+          ],
+        }),
+      );
+      const model = modelRuntime.getModel("find-test", "find-model");
+      assert.ok(model);
+      await coding.setModel(model);
+      let requests = 0;
+      const paths =
+        process.platform === "win32" ? ["src", "../outside"] : ["src", "../outside", "escape"];
+      coding.agent.streamFunction = (selected) => {
+        const path = (fullAccess ? ["../outside"] : paths)[requests++];
+        const response = createAssistantMessageEventStream();
+        const message = {
+          role: "assistant" as const,
+          api: selected.api,
+          provider: selected.provider,
+          model: selected.id,
+          usage,
+          timestamp: Date.now(),
+          stopReason: path ? ("toolUse" as const) : ("stop" as const),
+          content: path
+            ? [
+                {
+                  type: "toolCall" as const,
+                  id: `find-${fullAccess ? "full" : "restricted"}-${requests}`,
+                  name: "find",
+                  arguments: { pattern: "**/*.ts", path },
+                },
+              ]
+            : [{ type: "text" as const, text: "完成" }],
+        };
+        response.push({ type: "done", reason: message.stopReason, message });
+        return response;
+      };
+      await coding.prompt("通过 find 查找文件");
+      const results = coding.messages
+        .filter((message) => message.role === "toolResult")
+        .filter((message) => message.toolCallId.startsWith("find-restricted-"));
+      assert.equal(results.length, paths.length);
+      assert.equal(results[0]?.isError, false);
+      assert.match(JSON.stringify(results[0]?.content), /main.ts/);
+      for (const result of results.slice(1)) {
+        assert.equal(result.isError, true);
+        assert.match(JSON.stringify(result.content), /不在项目目录/);
+        assert.doesNotMatch(JSON.stringify(result.content), /private-secret/);
+      }
+      fullAccess = true;
+      requests = 0;
+      await coding.prompt("已授权完整访问，再次查找外部目录");
+      const allowed = coding.messages
+        .filter((message) => message.role === "toolResult")
+        .find((message) => message.toolCallId === "find-full-1");
+      assert.ok(allowed);
+      assert.equal(allowed.isError, false);
+      assert.match(JSON.stringify(allowed.content), /private-secret.ts/);
     } finally {
       coding.dispose();
     }

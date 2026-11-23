@@ -17,27 +17,33 @@ const local: ProviderConfig = {
   models: [{ id: "example", name: "Example", context: 4096, output: 1024, reasoning: "标准" }],
 };
 
-test("旧主题回退在写入队列内比较当前选择，不覆盖新主题且不保存比较条件", async () => {
-  const root = await mkdtemp(join(tmpdir(), "dai-theme-compare-"));
-  const service = await createSettingsService({ dataRoot: root, publish() {} });
-  try {
-    const update = service.handlers["settings.update"];
-    await update({ desktopTheme: "theme:a" });
-    const [selected, fallback] = await Promise.all([
-      update({ desktopTheme: "theme:b" }),
-      update({ desktopTheme: "", expectedDesktopTheme: "theme:a" }),
-    ]);
-    assert.equal(selected.desktopTheme, "theme:b");
-    assert.equal(fallback.desktopTheme, "theme:b");
-    await update({ desktopTheme: "", expectedDesktopTheme: "theme:b" });
-    assert.equal((await service.info()).desktopTheme, "");
-    const saved = JSON.parse(await readFile(join(root, "desktop/settings.json"), "utf8"));
-    assert.equal(saved.desktopTheme, "");
-    assert.equal(Object.hasOwn(saved, "expectedDesktopTheme"), false);
-  } finally {
+test("Fast cannot be saved for a custom OpenAI endpoint", async (context) => {
+  const root = await mkdtemp(join(tmpdir(), "dai-fast-settings-"));
+  const service = await createSettingsService({ dataRoot: root, publish: () => {} });
+  context.after(async () => {
     await service.close();
     await rm(root, { recursive: true, force: true });
-  }
+  });
+  const config: ProviderConfig = {
+    ...local,
+    providerType: "openai",
+    authMethod: "environment",
+    models: [
+      {
+        id: "gpt-6.2-sol",
+        name: "GPT-6.2 Sol",
+        context: 4096,
+        output: 1024,
+        reasoning: "支持推理",
+        fast: true,
+      },
+    ],
+  };
+  await assert.rejects(
+    service.handlers["provider.save"]({ config }),
+    /当前模型或服务地址不支持 Fast/,
+  );
+  assert.deepEqual((await service.info()).providers, []);
 });
 
 test("启动不会读取旧设置文件", async () => {
@@ -287,6 +293,82 @@ test("混合更新按归属提交，桌面失败后内存与磁盘保持一致�
     service = await createSettingsService({ dataRoot: root, publish() {} });
     assert.equal((await service.info()).defaultModel, "local-test:example");
     assert.equal((await service.info()).theme, "dark");
+  } finally {
+    await service.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("升级后失效型号明确提示并保留配置和凭据，重新选型后可恢复", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dai-retired-model-"));
+  let service = await createSettingsService({ dataRoot: root, publish() {} });
+  const path = join(root, "agent/settings.json");
+  const authPath = join(root, "agent/auth.json");
+  const config: ProviderConfig = {
+    ...local,
+    id: "qwen-test",
+    name: "Qwen",
+    providerType: "qwen-token-plan",
+    authMethod: "api_key",
+    endpoint: "",
+    models: [],
+  };
+  try {
+    const catalogue = await service.handlers["provider.models"]({ config, discover: false });
+    const valid = catalogue.find((model) => model.id === "deepseek-v4.1-flash");
+    assert.ok(valid);
+    config.models = [valid];
+    const login = await service.handlers["auth.start"]({
+      providerType: config.providerType,
+      method: "api_key",
+    });
+    const prompt = (await service.handlers["auth.status"]({ id: login.id })).prompt;
+    assert.ok(prompt);
+    await service.handlers["auth.answer"]({ id: login.id, promptId: prompt.id, value: "kept-key" });
+    await new Promise((resolve) => setImmediate(resolve));
+    await service.handlers["provider.save"]({ config, loginId: login.id });
+    await service.close();
+    const saved = JSON.parse(await readFile(path, "utf8"));
+    const retired = { ...valid, id: "deepseek-v4-flash", name: "Old DeepSeek" };
+    saved.providers[0].models = [retired];
+    saved.defaultModel = `${config.id}:${retired.id}`;
+    await writeFile(path, JSON.stringify(saved));
+    const before = await readFile(path, "utf8");
+    const auth = await readFile(authPath, "utf8");
+    service = await createSettingsService({ dataRoot: root, publish() {} });
+    const info = await service.info();
+    assert.equal(info.defaultModel, saved.defaultModel);
+    assert.equal(info.providers[0]?.configured, true);
+    assert.deepEqual(info.providers[0]?.models, [retired]);
+    assert.deepEqual(info.providers[0]?.unavailableModels, [retired.id]);
+    assert.throws(() => service.model(saved.defaultModel), /deepseek-v4-flash.*重新选择模型/);
+    await assert.rejects(
+      service.handlers["settings.update"]({ defaultModel: saved.defaultModel }),
+      /重新选择模型/,
+    );
+    assert.equal(await readFile(path, "utf8"), before);
+    assert.equal(await readFile(authPath, "utf8"), auth);
+    assert.equal((await service.modelRuntime.getAuth(config.id))?.auth.apiKey, "kept-key");
+    await service.handlers["provider.save"]({ config: local });
+    assert.equal((await service.info()).defaultModel, saved.defaultModel);
+    const disabled = await service.handlers["provider.save"]({
+      config: { ...config, models: [retired], enabled: false },
+    });
+    assert.equal(disabled.enabled, false);
+    assert.deepEqual(disabled.unavailableModels, [retired.id]);
+    await assert.rejects(
+      service.handlers["provider.save"]({ config: { ...config, models: [retired] } }),
+      /提供方目录/,
+    );
+    const repaired = await service.handlers["provider.save"]({ config });
+    assert.equal(repaired.unavailableModels, undefined);
+    await service.handlers["settings.update"]({ defaultModel: `${config.id}:${valid.id}` });
+    assert.equal(service.model(`${config.id}:${valid.id}`)?.id, valid.id);
+    assert.equal((await service.modelRuntime.getAuth(config.id))?.auth.apiKey, "kept-key");
+    await service.close();
+    service = await createSettingsService({ dataRoot: root, publish() {} });
+    assert.equal((await service.info()).defaultModel, `${config.id}:${valid.id}`);
+    assert.equal((await service.modelRuntime.getAuth(config.id))?.auth.apiKey, "kept-key");
   } finally {
     await service.close();
     await rm(root, { recursive: true, force: true });

@@ -1,6 +1,8 @@
 import {
   type CSSProperties,
+  lazy,
   type Ref,
+  Suspense,
   useEffect,
   useImperativeHandle,
   useMemo,
@@ -14,14 +16,17 @@ import { Welcome } from "../../features/chat/components/welcome.tsx";
 import { useAttachmentDrafts } from "../../features/chat/logic/use_attachment_drafts.ts";
 import { CodingWorkspace } from "../../features/coding/components/coding_workspace.tsx";
 import { useCodingWorkspace } from "../../features/coding/logic/use_coding_workspace.ts";
-import { SceneWorkspace } from "../../features/scene/components/scene_workspace.tsx";
 import type { useSettings } from "../../features/settings/logic/use_settings.ts";
 import { IconButton } from "../../shared/components/icon.tsx";
+import { PaneSplitter } from "../../shared/components/pane_splitter.tsx";
 import { CodingOpenContext } from "../../shared/logic/coding_context.ts";
 import { useOverlayBlocked } from "../../shared/logic/overlay_context.tsx";
 import type { ApplicationState } from "../logic/use_application.ts";
 import type { useWorkbench } from "../logic/use_workbench.ts";
-import { PaneSplitter } from "./pane_splitter.tsx";
+
+const SceneWorkspace = lazy(async () => ({
+  default: (await import("../../features/scene/components/scene_workspace.tsx")).SceneWorkspace,
+}));
 
 function sceneWidth(projectId: string) {
   try {
@@ -234,7 +239,15 @@ export function ProjectWorkspace({
           />
         )}
         {scene ? (
-          <SceneWorkspace key={project.id} projectId={project.id} api={application.api} />
+          <Suspense
+            fallback={
+              <p className="scene-workspace notice" role="status">
+                正在加载场景工作区…
+              </p>
+            }
+          >
+            <SceneWorkspace key={project.id} projectId={project.id} api={application.api} />
+          </Suspense>
         ) : (
           <CodingWorkspace
             key={project.id}

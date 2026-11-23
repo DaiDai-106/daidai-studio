@@ -32,8 +32,8 @@
     "package:win": "npm run build:package && node --experimental-strip-types electron.package.ts --win"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "1.5.2",
-    "@earendil-works/pi-coding-agent": "1.5.2",
+    "@earendil-works/pi-ai": "1.6.0",
+    "@earendil-works/pi-coding-agent": "1.6.0",
     "@xmldom/xmldom": "0.9.12",
     "shiki": "4.6.0",
     "typebox": "1.3.27"

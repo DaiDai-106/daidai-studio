@@ -27,10 +27,10 @@ test("真实 STEP 导入、取消、版本冲突与 URDF 回读", {
   const load = (expectedRevision: number, source = path) =>
     app.request("scene.importStep", { projectId, expectedRevision, path: source });
   const imported = await load(0);
-  const robot = imported.document.robot;
+  const robot = imported.document.sourceRobot;
   assert.ok(robot);
-  assert.deepEqual(imported.document.sourceRobot, robot);
-  assert.deepEqual(imported.document.sourceWarnings, imported.document.warnings);
+  assert.deepEqual(imported.document.robot, { ...robot, links: [robot.links[0]], joints: [] });
+  assert.deepEqual(imported.document.warnings, []);
   assert.equal(imported.document.revision, 1);
   assert.equal(robot.links.length, 8);
   assert.equal(robot.joints.length, 7);
@@ -70,7 +70,7 @@ test("真实 STEP 导入、取消、版本冲突与 URDF 回读", {
     directory: root,
     expectedRevision: 1,
   });
-  assert.equal((await readdir(join(dirname(exported.path), "meshes"))).length, 1);
+  assert.deepEqual(await readdir(dirname(exported.path)), ["robot.urdf"]);
   const reloaded = await app.request("scene.import", {
     projectId,
     path: exported.path,
@@ -78,14 +78,8 @@ test("真实 STEP 导入、取消、版本冲突与 URDF 回读", {
   });
   assert.deepEqual(reloaded.document.sourceRobot, robot);
   assert.deepEqual(reloaded.document.sourceWarnings, imported.document.sourceWarnings);
-  assert.deepEqual(
-    reloaded.document.robot?.links.map((link) => link.visuals),
-    robot.links.map((link) => link.visuals),
-  );
-  assert.deepEqual(
-    reloaded.document.robot?.joints.map(({ origin }) => origin),
-    robot.joints.map(({ origin }) => origin),
-  );
+  assert.equal(reloaded.document.robot?.links.length, 1);
+  assert.equal(reloaded.document.robot?.joints.length, 0);
   await assert.rejects(
     app.request("scene.export", { projectId, directory: root, expectedRevision: 1 }),
     /场景已更新/,
@@ -133,7 +127,7 @@ test("真实 STEP 导入、取消、版本冲突与 URDF 回读", {
     .replace("'SubInstance'", "'NAUO56'");
   await writeFile(inches, stepText, "latin1");
   assert.ok(await app.request("scene.asset", { projectId, asset: mesh.asset }));
-  const inchRobot = (await load(3, inches)).document.robot;
+  const inchRobot = (await load(3, inches)).document.sourceRobot;
   assert.ok(inchRobot);
   assert.equal(inchRobot.links[2]?.name, "测试装配");
   assert.ok(Math.abs((inchRobot.joints[1]?.origin.xyz[2] ?? 0) - 2.032) < 1e-8);
@@ -145,7 +139,7 @@ test("真实 STEP 导入、取消、版本冲突与 URDF 回读", {
   await app.request("scene.apply", {
     projectId,
     expectedRevision: 4,
-    operation: { op: "removeSubtree", linkId: inchRobot.links[1]?.id ?? "" },
+    operation: { op: "rename", entity: "link", id: "cad-root", name: "edited_base" },
   });
   const edited = await app.request("scene.get", { projectId });
   assert.equal(edited.document.robot?.links.length, 1);

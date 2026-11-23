@@ -2,11 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Mesh, Vector3 } from "three";
 import { parseUrdf } from "../../../src/backend/scene/urdf.ts";
-import {
-  robotFrames,
-  sceneCoordinates,
-} from "../../../src/renderer/features/scene/logic/robot_frames.ts";
 import { createRobotModel } from "../../../src/renderer/features/scene/logic/robot_model.ts";
+import { robotFrames, sceneCoordinates } from "../../../src/shared/scene/frames.ts";
 import { testRobot } from "../../support/scene_fixture.ts";
 
 test("预览在关节的局部坐标系中变换，清除预览恢复已提交位置", () => {
@@ -99,6 +96,109 @@ test("同一 STL 只读一次，限制并发且卸载后停止读取", async () 
     });
     assert.equal(meshes.length, 7);
     assert.equal(meshes[0]?.geometry, meshes[1]?.geometry);
+  } finally {
+    model.dispose();
+  }
+});
+
+test("逐几何透明度可调整且不改变其他模型", () => {
+  const { robot } = parseUrdf(testRobot);
+  const normal = createRobotModel(
+    robot,
+    async () => "",
+    () => {},
+    () => {},
+  );
+  const reference = createRobotModel(
+    robot,
+    async () => "",
+    () => {},
+    () => {},
+  );
+  try {
+    const materials = (model: typeof normal) => {
+      const result: { opacity: number; transparent: boolean; depthWrite: boolean }[] = [];
+      model.root.traverse((object) => {
+        if (object instanceof Mesh && !Array.isArray(object.material)) result.push(object.material);
+      });
+      return result;
+    };
+    reference.setOpacity(
+      new Map(robot.links.map((link) => [link.id, link.visuals.map(() => 0.3)])),
+    );
+    assert.ok(materials(reference).length > 0);
+    assert.ok(
+      materials(reference).every(
+        (material) => material.opacity < 1 && material.transparent && !material.depthWrite,
+      ),
+    );
+    reference.setOpacity(
+      new Map(robot.links.map((link) => [link.id, link.visuals.map(() => 0.75)])),
+    );
+    assert.ok(
+      materials(reference).every((material) => material.opacity === 0.75 && material.transparent),
+    );
+    reference.setOpacity(new Map(robot.links.map((link) => [link.id, link.visuals.map(() => 1)])));
+    assert.ok(
+      materials(reference).every(
+        (material) => material.opacity === 1 && !material.transparent && material.depthWrite,
+      ),
+    );
+    reference.setOpacity(new Map(robot.links.map((link) => [link.id, link.visuals.map(() => 0)])));
+    assert.ok(
+      materials(reference).every((material) => material.opacity === 0 && !material.depthWrite),
+    );
+    assert.ok(materials(normal).every((material) => material.opacity === 1 && material.depthWrite));
+  } finally {
+    normal.dispose();
+    reference.dispose();
+  }
+});
+
+test("加载中的网格使用最新透明度并保留原始材质透明度", async () => {
+  const { robot } = parseUrdf(testRobot);
+  const link = robot.links[0];
+  const visual = link?.visuals[0];
+  assert.ok(link && visual);
+  visual.color = [1, 1, 1, 0.5];
+  visual.geometry = { type: "mesh", asset: "mesh", scale: [1, 1, 1] };
+  link.visuals.push(structuredClone(visual));
+  const data = Promise.withResolvers<string>();
+  const model = createRobotModel(
+    robot,
+    () => data.promise,
+    () => {},
+    () => assert.fail(),
+  );
+  try {
+    model.setOpacity(new Map([[robot.rootLinkId, [0.4]]]));
+    const stl = Buffer.alloc(134);
+    stl.writeUInt32LE(1, 80);
+    stl.writeFloatLE(1, 108);
+    stl.writeFloatLE(1, 124);
+    data.resolve(stl.toString("base64"));
+    await model.ready;
+    const opacities: number[] = [];
+    model.root.traverse((object) => {
+      if (
+        object instanceof Mesh &&
+        object.userData.linkId === robot.links[0]?.id &&
+        !Array.isArray(object.material)
+      )
+        opacities.push(object.material.opacity);
+    });
+    assert.deepEqual(opacities, [0.2, 0.5]);
+    model.setOpacity(new Map([[robot.rootLinkId, [0.8]]]));
+    const updated: number[] = [];
+    model.root.traverse((object) => {
+      if (
+        object instanceof Mesh &&
+        object.userData.linkId === robot.links[0]?.id &&
+        !Array.isArray(object.material)
+      )
+        updated.push(object.material.opacity);
+    });
+    assert.deepEqual(updated, [0.4, 0.5]);
   } finally {
     model.dispose();
   }

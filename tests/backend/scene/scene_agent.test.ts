@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { type TestContext, test } from "node:test";
 import { openApplication } from "../../../src/backend/application.ts";
 import type { ApplicationEvent, ExtensionUiRequest } from "../../../src/contracts/application.ts";
@@ -264,14 +264,17 @@ test("Pi 直接导入本地 STEP 附件，失败、取消及版本冲突时保�
   assert.equal(imported.revision, 3);
   assert.equal(approvalCount, 0);
   assert.equal(imported.robot?.name, "新装配");
-  assert.equal(imported.robot.links.length, 8);
-  const mesh = imported.robot.links.flatMap((link) => link.visuals)[0]?.geometry;
+  assert.equal(imported.robot.links.length, 1);
+  assert.equal(imported.robot.joints.length, 0);
+  const mesh = imported.sourceRobot?.links.flatMap((link) => link.visuals)[0]?.geometry;
   assert.equal(mesh?.type, "mesh");
-  const preview = await app.request("scene.asset", { projectId, asset: mesh.asset });
-  const exported = await app.request("scene.export", { projectId, directory: root });
-  const stl = await readFile(join(dirname(exported.path), "meshes", mesh.asset));
-  assert.equal(stl.toString("base64"), preview);
-  assert.ok((await readFile(exported.path, "utf8")).includes(`meshes/${mesh.asset}`));
+  assert.ok(await app.request("scene.asset", { projectId, asset: mesh.asset }));
+  const exported = await app.request("scene.export", {
+    projectId,
+    directory: root,
+    expectedRevision: imported.revision,
+  });
+  assert.ok(!(await readFile(exported.path, "utf8")).includes("<mesh"));
   const view = await app.request("conversation.watch", { id });
   assert.equal(
     view.messages.filter((message) => message.stepAttachment).at(-1)?.stepAttachment?.name,

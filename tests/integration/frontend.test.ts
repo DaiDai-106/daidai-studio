@@ -98,12 +98,6 @@ test("desktop configures a real local service, streams chat and restores Pi hist
       .getByRole("dialog", { name: "本次响应用量", exact: true })
       .getByRole("button", { name: "关闭弹窗", exact: true })
       .click();
-    await page.getByRole("textbox", { name: "消息内容", exact: true }).fill("重启后保留的草稿");
-    await page.waitForFunction(
-      async () =>
-        (await window.desktop.application.getWorkspace()).conversations[0]?.draft ===
-        "重启后保留的草稿",
-    );
     const beforeRemoval = await page.evaluate(() => window.desktop.application.getWorkspace());
     const project = beforeRemoval.projects[0];
     assert.ok(project);
@@ -130,10 +124,6 @@ test("desktop configures a real local service, streams chat and restores Pi hist
     await page.locator(".conversation-title").first().click();
     await page.getByText("本地服务的真实协议回复", { exact: true }).waitFor();
     await page.getByRole("button", { name: "对话用量", exact: true }).waitFor();
-    assert.equal(
-      await page.getByRole("textbox", { name: "消息内容", exact: true }).inputValue(),
-      "重启后保留的草稿",
-    );
     assert.equal(requestCount, 1, "Restart must restore history without replaying requests.");
     const state = await page.evaluate(() => window.desktop.application.getWorkspace());
     assert.equal(state.projects[0]?.id, project.id);

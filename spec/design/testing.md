@@ -6,4 +6,4 @@
 
 Electron 测试需要可用的图形显示环境；Git、npm 等子进程测试需要运行环境允许启动对应程序。不可运行时应报告具体限制，不把跳过或未执行视为通过。
 
-推送 `master`、提交面向 `master` 的 PR 或手动运行 Desktop CI 时，GitHub Actions 构建 Linux 和 Windows 安装包。推送版本标签时，Actions 还会生成签名并公证的 macOS 安装包，三个打包版都通过启动检查后才会发布。
+推送 `master`、提交面向 `master` 的 PR 或手动运行 Desktop CI 时，GitHub Actions 构建 Linux 和 Windows 安装包。Linux 任务复用打包时构建的 STEP worker，运行 lint 和不依赖图形环境的回归测试。推送版本标签时，Actions 还会生成签名并公证的 macOS 安装包，三个打包版都通过启动检查后才会发布。

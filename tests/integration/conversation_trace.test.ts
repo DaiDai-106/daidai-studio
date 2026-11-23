@@ -114,7 +114,7 @@ test("统一轨迹入口展示角色、历史系统注入、工具定义和完�
     store.updateConversation(conversation.id, { title: "轨迹验收", hasMessages: true });
     const other = store.createConversation(project.id);
     const otherSession = history.open(other.id);
-    otherSession.appendMessage({ role: "user", content: "另一条旧对话", timestamp: 1 });
+    otherSession.appendMessage({ role: "user", content: "另一条对话", timestamp: 1 });
     otherSession.appendMessage({
       role: "assistant",
       provider: "fixture",
@@ -123,7 +123,7 @@ test("统一轨迹入口展示角色、历史系统注入、工具定义和完�
       usage,
       stopReason: "stop",
       timestamp: 2,
-      content: [{ type: "text", text: "旧版记录回答" }],
+      content: [{ type: "text", text: "无系统快照的回答" }],
     });
     store.updateConversation(other.id, { title: "没有系统快照", hasMessages: true });
   } finally {
@@ -314,7 +314,7 @@ test("统一轨迹入口展示角色、历史系统注入、工具定义和完�
     );
     assert.equal(await trace.locator('[data-entry-id="entry-30"]').count(), 1);
     await page.getByRole("button", { name: "没有系统快照", exact: true }).click();
-    await trace.getByText("另一条旧对话", { exact: true }).waitFor();
+    await trace.getByText("另一条对话", { exact: true }).waitFor();
     const old = trace.locator(".role-user");
     await old.locator(":scope > summary").click();
     await old.locator(".trace-context > summary").click();
@@ -327,7 +327,7 @@ test("统一轨迹入口展示角色、历史系统注入、工具定义和完�
       .getByRole("tablist", { name: "对话视图" })
       .getByRole("tab", { name: "聊天", exact: true })
       .click();
-    await page.getByText("旧版记录回答", { exact: true }).waitFor();
+    await page.getByText("无系统快照的回答", { exact: true }).waitFor();
     const chatBounds = await page.locator(".message-column").boundingBox();
     assert.ok(chatBounds && chatBounds.width <= 800, "切回聊天后保留原有宽度限制");
   } finally {

@@ -31,12 +31,11 @@ export function createSceneTools(
       description: "读取当前机器人和版本，返回关节 ID、位置、限位和连杆关系。改关节前先调用。",
       parameters: object({ jointName: Type.Optional(Type.String({ maxLength: 200 })) }),
       async execute(_callId, { jointName }) {
-        const { document, legacy } = await scene.get(projectId);
+        const { document } = await scene.get(projectId);
         const robot = document.robot;
         const links = new Map(robot?.links.map(({ id, name }) => [id, name]));
         return result({
           revision: document.revision,
-          legacy,
           robot: robot?.name ?? null,
           joints:
             robot?.joints
@@ -59,7 +58,7 @@ export function createSceneTools(
       name: sceneToolNames.importStep,
       label: "导入 STEP 附件",
       description:
-        "将用户消息中的 STEP 附件导入当前场景。成功后替换原装配。attachmentId 来自 [STEP 附件]，expectedRevision 来自 scene_get。",
+        "导入 STEP 附件并保留原始 CAD，将构建场景重置为只有 base_link；用户可在属性区配置零件与 Link/Joint 的关系。成功后替换当前场景。attachmentId 来自 [STEP 附件]，expectedRevision 来自 scene_get。",
       parameters: object({
         attachmentId: StepAttachmentIdSchema,
         expectedRevision: SceneRevisionSchema,
@@ -77,7 +76,7 @@ export function createSceneTools(
           revision: snapshot.document.revision,
           robot: robot?.name,
           linkCount: robot?.links.length,
-          warnings: snapshot.document.warnings,
+          warnings: snapshot.document.sourceWarnings,
         });
       },
     });

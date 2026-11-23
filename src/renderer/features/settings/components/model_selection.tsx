@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type { ModelChoice } from "../../../../contracts/application.ts";
 import { Field } from "../../../shared/components/dialog.tsx";
 
@@ -22,6 +23,8 @@ export function ModelSelection({
   onModelId,
   onChange,
 }: Props) {
+  const fastHelp = useId();
+
   function toggle(model: ModelChoice) {
     onChange(
       selected.some((item) => item.id === model.id)
@@ -32,7 +35,7 @@ export function ModelSelection({
 
   function update(
     id: string,
-    change: Partial<Pick<ModelChoice, "context" | "output" | "supportsImages">>,
+    change: Partial<Pick<ModelChoice, "context" | "output" | "supportsImages" | "fast">>,
   ) {
     onChange(selected.map((model) => (model.id === id ? { ...model, ...change } : model)));
   }
@@ -93,6 +96,11 @@ export function ModelSelection({
           </button>
         </>
       )}
+      {selected.some((model) => model.fast !== undefined) && (
+        <p id={fastHelp} className="small muted">
+          Fast 可能增加费用或额度消耗，实际档位由服务端决定。
+        </p>
+      )}
       {selected.map((model) => (
         <div className="selected-model" key={model.id}>
           <strong>{model.name}</strong>
@@ -104,6 +112,18 @@ export function ModelSelection({
                 onChange={(event) => update(model.id, { supportsImages: event.target.checked })}
               />
               支持图片输入
+            </label>
+          )}
+          {model.fast !== undefined && (
+            <label className="check-row">
+              <input
+                type="checkbox"
+                aria-label={`${model.id} 请求 Fast`}
+                aria-describedby={fastHelp}
+                checked={model.fast}
+                onChange={(event) => update(model.id, { fast: event.target.checked })}
+              />
+              请求 Fast
             </label>
           )}
           <div className="limit-inputs">

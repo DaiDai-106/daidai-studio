@@ -60,6 +60,17 @@ export interface QueuedMessage {
 export function openProjectStore(dataRoot: string) {
   mkdirSync(dataRoot, { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(join(dataRoot, "projects.sqlite"));
+  // 只接受当前表结构；检查在建表前完成，不修补或改写旧数据库。
+  try {
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' LIMIT 1").get()) {
+      db.prepare("SELECT id, name, mode, path, created_at, hidden FROM projects LIMIT 0");
+      db.prepare(`SELECT ${conversationColumns} FROM conversations c LIMIT 0`);
+      db.prepare("SELECT conversation_id, id, body FROM conversation_queue LIMIT 0");
+    }
+  } catch (error) {
+    db.close();
+    throw new Error("项目数据库格式无效或已过期，请使用新的数据目录。", { cause: error });
+  }
   db.exec(`
     PRAGMA foreign_keys = ON;
     PRAGMA journal_mode = WAL;
@@ -80,20 +91,6 @@ export function openProjectStore(dataRoot: string) {
       id TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY (conversation_id, id)
     );
   `);
-  // 兼容新版开发期间创建的数据表，不改变已有会话内容。
-  const columns = db.prepare("PRAGMA table_info(conversations)").all() as { name: string }[];
-  if (!columns.some((column) => column.name === "thinking_level"))
-    db.exec("ALTER TABLE conversations ADD COLUMN thinking_level TEXT NOT NULL DEFAULT 'off'");
-  if (!columns.some((column) => column.name === "access_mode"))
-    db.exec("ALTER TABLE conversations ADD COLUMN access_mode TEXT NOT NULL DEFAULT 'ask'");
-  if (!columns.some((column) => column.name === "interrupted"))
-    db.exec("ALTER TABLE conversations ADD COLUMN interrupted INTEGER NOT NULL DEFAULT 0");
-  if (!columns.some((column) => column.name === "has_messages"))
-    db.exec("ALTER TABLE conversations ADD COLUMN has_messages INTEGER NOT NULL DEFAULT 0");
-  const projectColumns = db.prepare("PRAGMA table_info(projects)").all() as { name: string }[];
-  if (!projectColumns.some((column) => column.name === "hidden"))
-    db.exec("ALTER TABLE projects ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0");
-
   function project(id: string): StoredProject | undefined {
     return db
       .prepare(
@@ -145,14 +142,6 @@ export function openProjectStore(dataRoot: string) {
       return result;
     },
     getProject: project,
-    hasLegacyScene(projectId: string) {
-      const table = db
-        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'scenes'")
-        .get();
-      return Boolean(
-        table && db.prepare("SELECT 1 FROM scenes WHERE project_id = ?").get(projectId),
-      );
-    },
     listProjects: () => listProjects(false),
     listHiddenProjects: () => listProjects(true),
 

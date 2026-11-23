@@ -108,7 +108,7 @@ test("concurrent global package changes from different modules are not lost", as
     await writeFile(join(bPath, "package.json"), JSON.stringify({ name: "package-b" }));
     const dataRoot = join(root, "data");
     const a = createPackageService({ dataRoot, moduleId: "coding" });
-    const b = createPackageService({ dataRoot, moduleId: "robot" });
+    const b = createPackageService({ dataRoot, moduleId: "scene" });
     await Promise.all([a.install(aPath, "global"), b.install(bPath, "global")]);
     assert.deepEqual(
       new Set((await a.inspect()).map((item) => item.source)),
@@ -127,17 +127,17 @@ test("同名模块包优先于全局，两个范围分别启停且不自动回�
     await writeFile(join(source, "package.json"), JSON.stringify({ name: "demo" }));
     await writeFile(join(source, "extensions", "index.ts"), "export default () => {};\n");
     const coding = createPackageService({ dataRoot: join(root, "data"), moduleId: "coding" });
-    const robot = createPackageService({ dataRoot: join(root, "data"), moduleId: "robot" });
+    const scene = createPackageService({ dataRoot: join(root, "data"), moduleId: "scene" });
     await coding.install(source, "global");
     await coding.install(source, "module");
     assert.equal((await coding.resolve()).extensions[0]?.metadata.scope, "project");
     await coding.setEnabled(source, "global", false);
     assert.equal((await coding.resolve()).extensions.length, 1);
-    assert.equal((await robot.resolve()).extensions.length, 0);
+    assert.equal((await scene.resolve()).extensions.length, 0);
     await coding.setEnabled(source, "global", true);
     await coding.setEnabled(source, "module", false);
     assert.equal((await coding.resolve()).extensions.length, 0);
-    assert.equal((await robot.resolve()).extensions.length, 1);
+    assert.equal((await scene.resolve()).extensions.length, 1);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

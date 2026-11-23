@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { copyFile } from "node:fs/promises";
-import { splitStepMessage } from "../../src/shared/step_attachment.ts";
+import { splitStepMessage } from "../../src/shared/scene/step_attachment.ts";
 
 const executable = process.platform === "win32" ? "cad-import.exe" : "cad-import";
 export const stepWorkerAvailable = existsSync(

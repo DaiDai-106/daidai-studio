@@ -15,7 +15,7 @@ import {
   type SceneRobot,
 } from "../../contracts/scene.ts";
 import { object } from "../../contracts/schema.ts";
-import { isStepFile } from "../../shared/step_attachment.ts";
+import { isStepFile } from "../../shared/scene/step_attachment.ts";
 import { readProjectFile } from "../projects/project_access.ts";
 import { zeroOrigin } from "./document.ts";
 import { createMeshBatch } from "./stl.ts";
@@ -178,7 +178,6 @@ export async function loadStepAssembly(
     if (omissions.size > warnings.length) {
       warnings.push(`另有 ${omissions.size - warnings.length} 组零件跳过了部分曲面。`);
     }
-    warnings.push("STEP 装配按固定关节导入。");
     return {
       robot,
       assets: batch.assets,

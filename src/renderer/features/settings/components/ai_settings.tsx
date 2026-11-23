@@ -25,7 +25,7 @@ export function AiSettings({
 
   async function toggle(provider: ProviderInfo) {
     setError("");
-    const { configured: _configured, ...config } = provider;
+    const { configured: _configured, unavailableModels: _unavailable, ...config } = provider;
     try {
       await window.desktop.application.saveProvider({
         ...config,
@@ -48,12 +48,10 @@ export function AiSettings({
         <Select
           aria-label="默认模型"
           value={defaultModel}
+          placeholder={defaultModel ? "默认模型已不可用，请重新选择" : "未选择模型"}
           onValueChange={onDefault}
-          options={
-            models.length
-              ? models.map((model) => ({ value: model.id, label: model.name }))
-              : [{ value: "", label: "未选择模型" }]
-          }
+          options={models.map((model) => ({ value: model.id, label: model.name }))}
+          disabled={!models.length}
         />
       </SettingRow>
       {error && (
@@ -93,24 +91,30 @@ export function AiSettings({
             </div>
             {provider.endpoint && <p className="endpoint">{provider.endpoint}</p>}
             <div className="provider-models">
-              {provider.models.map((model) => (
-                <div className="provider-model" key={model.id}>
-                  <span>{model.name}</span>
-                  <span className="muted small">{model.context.toLocaleString()} 上下文</span>
-                  {defaultModel === `${provider.id}:${model.id}` ? (
-                    <span className="tag">默认</span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="text-button"
-                      disabled={!provider.enabled}
-                      onClick={() => onDefault(`${provider.id}:${model.id}`)}
-                    >
-                      设为默认
-                    </button>
-                  )}
-                </div>
-              ))}
+              {provider.models.map((model) => {
+                const unavailable = provider.unavailableModels?.includes(model.id);
+                return (
+                  <div className="provider-model" key={model.id}>
+                    <span>{model.name}</span>
+                    <span className="muted small">{model.context.toLocaleString()} 上下文</span>
+                    {unavailable && (
+                      <span className="error small">型号已不可用，请编辑并重新选择</span>
+                    )}
+                    {defaultModel === `${provider.id}:${model.id}` ? (
+                      <span className="tag">{unavailable ? "默认（已不可用）" : "默认"}</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="text-button"
+                        disabled={!provider.enabled || unavailable}
+                        onClick={() => onDefault(`${provider.id}:${model.id}`)}
+                      >
+                        设为默认
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             <div className="service-actions">
               <button type="button" className="text-button" onClick={() => setEditor(provider)}>

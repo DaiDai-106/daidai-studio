@@ -50,6 +50,11 @@ jobs:
           PACKAGE_TARGET: ${{ matrix.target }}
           CHECK_PACKAGED_APP: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 'true' || 'false' }}
         run: bash scripts/github-build.sh "$PACKAGE_TARGET"
+      - name: Run headless checks
+        if: matrix.target == '--deb'
+        run: |
+          npm run lint
+          node tests/runners/test_runner.mjs 'tests/{backend,contracts,desktop,renderer,shared,support}/**/*.test.ts'
       - name: Upload installer
         uses: actions/upload-artifact@v7
         with:

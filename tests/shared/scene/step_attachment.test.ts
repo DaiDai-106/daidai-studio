@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { attachStepToMessage, splitStepMessage } from "../../src/shared/step_attachment.ts";
+import {
+  attachStepToMessage,
+  splitStepMessage,
+} from "../../../src/shared/scene/step_attachment.ts";
 
 test("Pi 附加图片处理说明后，STEP 仍显示为附件", () => {
   const stepAttachment = { id: crypto.randomUUID(), name: "原始装配.step" };

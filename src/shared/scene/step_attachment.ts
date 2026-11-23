@@ -1,5 +1,5 @@
 import { Value } from "typebox/value";
-import { type StepAttachment, StepAttachmentSchema } from "../contracts/scene.ts";
+import { type StepAttachment, StepAttachmentSchema } from "../../contracts/scene.ts";
 
 const marker = "[STEP 附件] ";
 

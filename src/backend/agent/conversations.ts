@@ -9,7 +9,7 @@ import type {
 } from "../../contracts/application.ts";
 import type { PackageLoad, PluginModule } from "../../contracts/catalog.ts";
 import type { StepAttachment } from "../../contracts/scene.ts";
-import { attachStepToMessage, splitStepMessage } from "../../shared/step_attachment.ts";
+import { attachStepToMessage, splitStepMessage } from "../../shared/scene/step_attachment.ts";
 import { createCodingFileService } from "../coding/file_service.ts";
 import { resolveFileReferences } from "../coding/references.ts";
 import { createPackageService } from "../extensions/package_service.ts";
@@ -254,7 +254,7 @@ export function createConversations(options: {
     const project = store.getProject(conversation.projectId);
     if (!project) throw new Error("项目不存在。");
 
-    const selection = conversation.modelId || (await settings.info()).defaultModel;
+    const selection = conversation.modelId || settings.defaultModel;
     const model = settings.model(selection);
     if (!model) throw new Error("请先在设置中配置并选择模型。");
 
@@ -547,8 +547,8 @@ export function createConversations(options: {
 
   return {
     metadata,
-    async create(projectId: string) {
-      const item = store.createConversation(projectId, (await settings.info()).defaultModel);
+    create(projectId: string) {
+      const item = store.createConversation(projectId, settings.defaultModel);
       publish({ type: "workspace" });
       return metadata(item);
     },

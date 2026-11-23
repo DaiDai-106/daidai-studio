@@ -1,5 +1,5 @@
 import { FILE_SNAPSHOT_MARKER, splitReferenceDraft } from "../../shared/file_references.ts";
-import { splitStepMessage } from "../../shared/step_attachment.ts";
+import { splitStepMessage } from "../../shared/scene/step_attachment.ts";
 
 // 使用首条消息命名，不额外请求模型；手动重命名由调用方保留。
 export function conversationTitle(message: string) {

@@ -1,10 +1,7 @@
 import { useRef, useState } from "react";
-import {
-  type SceneJoint,
-  type SceneOperation,
-  type SceneRobot,
-  sceneJointTypes,
-} from "../../../../contracts/scene.ts";
+import type { SceneJoint, SceneOperation, SceneRobot } from "../../../../contracts/scene.ts";
+import { SceneJointForm } from "./scene_joint_form.tsx";
+import { SceneNewLinkFields } from "./scene_new_link_fields.tsx";
 
 export type SceneTarget =
   | { entity: "link"; node: SceneRobot["links"][number] }
@@ -135,11 +132,14 @@ function JointPositionControl({
 
 export function SceneInspector({
   target,
-  rootLinkId,
+  robot,
   ...controls
-}: JointControlProps & { target: SceneTarget; rootLinkId: string }) {
+}: JointControlProps & { target: SceneTarget; robot: SceneRobot }) {
   const { busy, apply } = controls;
   const { id, name } = target.node;
+  const rootLinkId = robot.rootLinkId;
+  const joint =
+    target.entity === "joint" ? target.node : robot.joints.find((joint) => joint.childId === id);
   const [draft, setDraft] = useState({ name, text: name });
   if (draft.name !== name) setDraft({ name, text: name });
   const draftName = draft.text.trim();
@@ -152,7 +152,10 @@ export function SceneInspector({
         onSubmit={(event) => {
           event.preventDefault();
           if (draftName && draftName !== name)
-            void apply({ op: "rename", entity: target.entity, id, name: draftName });
+            void apply(
+              { op: "rename", entity: target.entity, id, name: draftName },
+              controls.revision,
+            );
         }}
       >
         <label>
@@ -167,6 +170,19 @@ export function SceneInspector({
           保存名称
         </button>
       </form>
+      {joint && (
+        <SceneJointForm
+          key={JSON.stringify({ ...joint, position: 0 })}
+          robot={robot}
+          joint={joint}
+          busy={busy}
+          revision={controls.revision}
+          apply={apply}
+        />
+      )}
+      {target.entity === "link" && joint && joint.type !== "fixed" && (
+        <JointPositionControl {...controls} joint={joint} />
+      )}
       {target.entity === "joint" ? (
         <>
           <p className="scene-details">
@@ -189,33 +205,21 @@ export function SceneInspector({
                 const form = event.currentTarget;
                 const values = new FormData(form);
                 if (
-                  await apply({
-                    op: "addChildLink",
-                    parentId: id,
-                    linkName: String(values.get("linkName") ?? ""),
-                    jointName: String(values.get("jointName") ?? ""),
-                    jointType: values.get("jointType") as SceneJoint["type"],
-                  })
+                  await apply(
+                    {
+                      op: "addChildLink",
+                      parentId: id,
+                      linkName: String(values.get("linkName") ?? ""),
+                      jointName: String(values.get("jointName") ?? ""),
+                      jointType: values.get("jointType") as SceneJoint["type"],
+                    },
+                    controls.revision,
+                  )
                 )
                   form.reset();
               }}
             >
-              <label>
-                连杆名称
-                <input name="linkName" required maxLength={200} />
-              </label>
-              <label>
-                关节名称
-                <input name="jointName" required maxLength={200} />
-              </label>
-              <label>
-                关节类型
-                <select name="jointType">
-                  {sceneJointTypes.map((type) => (
-                    <option key={type}>{type}</option>
-                  ))}
-                </select>
-              </label>
+              <SceneNewLinkFields />
               <button type="submit" disabled={busy}>
                 添加
               </button>
@@ -228,11 +232,11 @@ export function SceneInspector({
               onClick={() => {
                 if (removing) {
                   setRemoving(false);
-                  void apply({ op: "removeSubtree", linkId: id });
+                  void apply({ op: "removeSubtree", linkId: id }, controls.revision);
                 } else setRemoving(true);
               }}
             >
-              {removing ? "确认删除子树" : "删除子树"}
+              {removing ? "确认删除子树并解除零件绑定" : "删除子树"}
             </button>
           )}
         </div>

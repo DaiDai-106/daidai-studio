@@ -36,17 +36,12 @@ test("并发发送先占位；执行中拒绝变更包和技能，避免半成�
 
     publish: () => {},
   });
-  let waitForStartup: (() => Promise<void>) | undefined;
+  let startupReached: (() => void) | undefined;
   const conversations = createConversations({
     dataRoot,
     store,
-    settings: {
-      ...settings,
-      async info() {
-        await waitForStartup?.();
-        return settings.info();
-      },
-    },
+    settings,
+    onPackageLoad: () => startupReached?.(),
     publish: () => {},
   });
   try {
@@ -65,7 +60,8 @@ test("并发发送先占位；执行中拒绝变更包和技能，避免半成�
       },
     });
     const project = store.createProject({ name: "场景", mode: "coding", path: root });
-    const conversation = await conversations.create(project.id);
+    const conversation = conversations.create(project.id);
+    assert.equal(conversation.modelId, "local:example");
     const interrupted = store.updateConversation(conversation.id, { interrupted: true });
     assert.equal(conversations.metadata(interrupted).interrupted, true);
     const first = conversations.send({ id: conversation.id, requestId: "a", text: "第一条" });
@@ -114,27 +110,19 @@ test("并发发送先占位；执行中拒绝变更包和技能，避免半成�
     const pendingConversation = store.createConversation(project.id);
     await conversations.update({ id: pendingConversation.id, draft: "立刻停止" });
     const { promise: starting, resolve: start } = Promise.withResolvers<void>();
-    const { promise: startup, resolve: resumeStartup } = Promise.withResolvers<void>();
-    waitForStartup = () => {
-      start();
-      return startup;
-    };
+    startupReached = start;
     const pending = conversations.send({
       id: pendingConversation.id,
       requestId: "pending",
       text: "立刻停止",
     });
     const cancelled = assert.rejects(pending, /发送已取消/);
-    try {
-      await starting;
-      assert.deepEqual(
-        new Set(conversations.busyIds()),
-        new Set([conversation.id, pendingConversation.id]),
-      );
-      await conversations.stop(pendingConversation.id);
-    } finally {
-      resumeStartup();
-    }
+    await starting;
+    assert.deepEqual(
+      new Set(conversations.busyIds()),
+      new Set([conversation.id, pendingConversation.id]),
+    );
+    await conversations.stop(pendingConversation.id);
     await cancelled;
     assert.equal(conversations.watch(pendingConversation.id).busy, false);
     assert.deepEqual(conversations.watch(pendingConversation.id).messages, []);

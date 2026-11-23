@@ -4,7 +4,7 @@ import type {
   SceneJointPreview,
   SceneOrigin,
   SceneRobot,
-} from "../../../../contracts/scene.ts";
+} from "../../contracts/scene.ts";
 
 export function setOrigin(object: Object3D, origin: SceneOrigin) {
   object.position.fromArray(origin.xyz);
@@ -46,7 +46,7 @@ export function robotFrames(robot: SceneRobot) {
   };
 }
 
-function coordinates(matrix: Matrix4): SceneOrigin {
+export function coordinates(matrix: Matrix4): SceneOrigin {
   const xyz = new Vector3();
   const rotation = new Quaternion();
   matrix.decompose(xyz, rotation, new Vector3());

@@ -1,6 +1,6 @@
 import { contentText } from "@earendil-works/pi-ai";
 import type { SessionEntry, SessionManager, SessionStats } from "@earendil-works/pi-coding-agent";
-import { splitStepMessage } from "../../shared/step_attachment.ts";
+import { splitStepMessage } from "../../shared/scene/step_attachment.ts";
 import { projectPiHistory } from "./pi_projection.ts";
 import { type ModelContext, projectUsage } from "./pi_usage.ts";
 

@@ -6,13 +6,12 @@ const CatalogSourceIdSchema = Type.Enum(["pi", "company"]);
 const PluginHostSchema = Type.Enum(["pi", "desktop"]);
 export type PluginHost = Static<typeof PluginHostSchema>;
 const CatalogResourceSchema = Type.Enum(["extension", "skill", "prompt", "theme", "desktop-theme"]);
-// 模块标识独立于项目模式，插件可预先分配到尚未开放的模块。
+// 模块标识独立于项目实例，同模块的项目共享插件配置。
 export const pluginModules = {
   coding: "Coding",
   scene: "场景搭建",
-  robot: "机器人工作平台",
 } as const;
-export const PluginModuleSchema = Type.Enum(["coding", "scene", "robot"]);
+export const PluginModuleSchema = Type.Enum(["coding", "scene"]);
 export type PluginModule = Static<typeof PluginModuleSchema>;
 export const PluginScopeSchema = Type.Enum(["global", "module"]);
 export type PluginScope = Static<typeof PluginScopeSchema>;

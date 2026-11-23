@@ -17,8 +17,7 @@ import { createCodingFileService } from "./coding/file_service.ts";
 import { createCodingGitService } from "./coding/git_service.ts";
 import { openOrCreateDataRoot } from "./data_root.ts";
 import { createCatalogService } from "./extensions/catalog_service.ts";
-import { relocateCatalog } from "./extensions/catalog_storage.ts";
-import { createPackageService, relocateModulePackages } from "./extensions/package_service.ts";
+import { createPackageService } from "./extensions/package_service.ts";
 import { createSkillHandlers } from "./extensions/skill_handlers.ts";
 import { openProjectStore } from "./projects/store.ts";
 import { createSceneService } from "./scene/service.ts";
@@ -50,8 +49,6 @@ export async function openApplication(options: {
     if (!options.expectedRoot) await mkdir(configuredRoot, { recursive: true, mode: 0o700 });
     dataRoot = await realpath(configuredRoot);
   }
-  await relocateCatalog(dataRoot);
-  relocateModulePackages(dataRoot);
   const store = openProjectStore(dataRoot);
   const coding = createCodingFileService(store);
   const codingGit = createCodingGitService(coding);

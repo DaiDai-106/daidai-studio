@@ -38,6 +38,7 @@ const ModelSchema = object({
   reasoning: text(),
   thinkingLevels: Type.Optional(Type.Array(ModelThinkingLevelSchema, { maxItems: 7 })),
   supportsImages: Type.Optional(Type.Boolean()),
+  fast: Type.Optional(Type.Boolean()),
 });
 export type ModelChoice = Static<typeof ModelSchema>;
 
@@ -237,7 +238,7 @@ const commands = {
   "scene.export": object({
     projectId: id,
     directory: text(4096),
-    expectedRevision: Type.Optional(SceneRevisionSchema),
+    expectedRevision: SceneRevisionSchema,
   }),
   "scene.asset": object({ projectId: id, asset: SceneAssetSchema }),
   "extension.ui.respond": object({
@@ -305,6 +306,7 @@ export function validateRequest(method: unknown, args: unknown): asserts method 
 const ProviderInfoSchema = object({
   ...ProviderSchema.properties,
   configured: Type.Boolean(),
+  unavailableModels: Type.Optional(Type.Array(id, { maxItems: 100 })),
 });
 
 const ProjectInfoSchema = object({

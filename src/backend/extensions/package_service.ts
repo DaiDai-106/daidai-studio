@@ -1,13 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-  constants,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmdirSync,
-  writeFileSync,
-} from "node:fs";
+import { constants, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { cp, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -74,54 +66,6 @@ function absolutePackageSource(source: string, base: string): string {
   return source === "." || source.startsWith("./") || source.startsWith("../")
     ? resolve(base, source)
     : source;
-}
-
-/** 启动时迁移模块安装内容；在创建包服务和会话之前完成，避免运行中改变 SDK 路径。 */
-export function relocateModulePackages(dataRoot: string): void {
-  for (const moduleId of Object.keys(pluginModules)) {
-    const root = join(dataRoot, "agent", "packages", "modules", moduleId);
-    const workspace = join(root, "workspace");
-    if (!existsSync(workspace)) continue;
-    const previous = join(workspace, ".pi");
-    const target = join(root, ".pi");
-    if (existsSync(previous)) {
-      if (existsSync(target))
-        throw new Error(`模块 ${moduleId} 的新旧插件目录同时存在，请先检查，迁移不会覆盖内容。`);
-      const path = join(root, "settings.json");
-      const text = readText(path);
-      if (text !== undefined) {
-        const config: unknown = JSON.parse(text);
-        if (!config || typeof config !== "object" || Array.isArray(config))
-          throw new Error(`模块 ${moduleId} 的插件配置损坏。`);
-        if ("packages" in config) {
-          if (!Array.isArray(config.packages)) throw new Error("插件来源需要数组。");
-          const packages = config.packages.map((entry: unknown) => {
-            const item = typeof entry === "string" ? { source: entry } : entry;
-            if (
-              !item ||
-              typeof item !== "object" ||
-              !("source" in item) ||
-              typeof item.source !== "string"
-            )
-              throw new Error("插件来源格式无效。");
-            const source = absolutePackageSource(item.source, previous);
-            return typeof entry === "string" ? source : { ...item, source };
-          });
-          // 先把相对来源固定到原目录；即使移动失败，重试也不会重复改变来源。
-          if (JSON.stringify(packages) !== JSON.stringify(config.packages))
-            writeText(path, JSON.stringify({ ...config, packages }, null, 2));
-        }
-      }
-      renameSync(previous, target);
-    }
-    try {
-      rmdirSync(workspace);
-    } catch (error) {
-      // 只删除空的旧容器，保留其中不属于安装器的其他文件。
-      if (!["ENOTEMPTY", "EEXIST"].includes((error as NodeJS.ErrnoException).code ?? ""))
-        throw error;
-    }
-  }
 }
 
 /** 共用 Pi 的安装能力；配置目录决定宿主，包清单不能在更新时改变归属。 */
