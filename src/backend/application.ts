@@ -1,4 +1,5 @@
 import { mkdir, realpath, stat } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import {
   type ApplicationEvent,
   type Arguments,
@@ -6,6 +7,7 @@ import {
   type Results,
   validateRequest,
 } from "../contracts/application.ts";
+import { dwgParserProcess } from "../contracts/dwgparser.ts";
 import type { DataRootIdentity } from "../contracts/process.ts";
 import { requestPolicy } from "../contracts/request_policy.ts";
 import { openDirectoryRoot } from "../shared/node/file_access.ts";
@@ -15,6 +17,11 @@ import { createShellApproval } from "./agent/shell_approval.ts";
 import { usageDashboard } from "./agent/usage_dashboard.ts";
 import { openOrCreateDataRoot } from "./data_root.ts";
 import { createCatalogService } from "./extensions/catalog_service.ts";
+import {
+  createMcpTlsService,
+  prepareMcpPrivateKeyRemoval,
+  rememberMcpPrivateKey,
+} from "./extensions/mcp/tls.ts";
 import { createPackageService } from "./extensions/package_service.ts";
 import { createSkillHandlers } from "./extensions/skill_handlers.ts";
 import { createCodingFileService } from "./module/coding/file_service.ts";
@@ -22,6 +29,14 @@ import { createCodingGitService } from "./module/coding/git_service.ts";
 import { createPlanningService } from "./module/planning/service.ts";
 import { createSceneService } from "./module/scene/service.ts";
 import { openProjectStore } from "./projects/store.ts";
+import {
+  mcpConfigDirectory,
+  readMcpCertificateBinding,
+  readMcpConfig,
+  readProcessMcpOptions,
+  saveMcpCertificateBinding,
+  saveMcpConfig,
+} from "./settings/mcp.ts";
 import { createSettingsService } from "./settings/service.ts";
 import type { Handlers } from "./types.ts";
 
@@ -33,6 +48,7 @@ export async function openApplication(options: {
   expectedRoot?: DataRootIdentity;
   stepWorkerDirectory?: string;
   planningWorkerDirectory?: string;
+  dwgParserEndpoint?: string;
   publish: (event: ApplicationEvent) => void;
 }) {
   const { publish } = options;
@@ -51,8 +67,23 @@ export async function openApplication(options: {
     if (!options.expectedRoot) await mkdir(configuredRoot, { recursive: true, mode: 0o700 });
     dataRoot = await realpath(configuredRoot);
   }
+  const dwgParserDefinition = {
+    ...dwgParserProcess,
+    url: options.dwgParserEndpoint ?? dwgParserProcess.url,
+  };
+  const binding = await readMcpCertificateBinding(dataRoot, dwgParserProcess.name).catch(
+    () => undefined,
+  );
+  const defaultDirectory = join(mcpConfigDirectory(dataRoot), "process", dwgParserProcess.name);
+  const provisionedDirectory = process.env.DAI_DWGPARSER_TLS_DIR;
+  const certificateDirectory =
+    binding?.certificateDirectory || provisionedDirectory || defaultDirectory;
+  let dwgParser = createMcpTlsService(dwgParserDefinition, certificateDirectory);
+  const protectedPrivateKeys = new Set(binding?.protectedPrivateKeys);
+  for (const directory of new Set([defaultDirectory, provisionedDirectory, certificateDirectory]))
+    await rememberMcpPrivateKey(protectedPrivateKeys, directory);
   const store = openProjectStore(dataRoot);
-  const coding = createCodingFileService(store);
+  const coding = createCodingFileService(store, protectedPrivateKeys);
   const codingGit = createCodingGitService(coding);
   const planning = createPlanningService(options.planningWorkerDirectory, (projectId, snapshot) =>
     publish({ type: "planning.scene", projectId, snapshot }),
@@ -72,11 +103,16 @@ export async function openApplication(options: {
   }
   const shellApproval = createShellApproval(publish);
   const extensionUi = createExtensionUi(publish);
+  await dwgParser.refresh();
+  let certificateConfigured =
+    Boolean(binding?.certificateDirectory) || dwgParser.status().state === "ready";
   const conversations = createConversations({
     store,
     codingFiles: coding,
     scene,
     planning,
+    builtinMcp: (id) => (id === dwgParserProcess.id ? dwgParser : undefined),
+    protectedPrivateKeys,
     dataRoot,
     settings,
     publish,
@@ -112,6 +148,68 @@ export async function openApplication(options: {
     if (store.getProject(id)?.mode !== "planning") throw new Error("规划项目不存在。");
   }
   const handlers: Handlers = {
+    "mcp.dwgparser.status": async () => dwgParser.status(),
+    async "mcp.dwgparser.configure"({ directory }) {
+      if (!isAbsolute(directory)) throw new Error("证书目录必须是绝对路径。");
+      const next = createMcpTlsService(dwgParserDefinition, await realpath(directory));
+      const { status } = await next.refresh();
+      if (status.state !== "ready")
+        throw new Error(
+          status.message ?? "所选目录需要包含 server-ca.crt、device.crt 和 device.key。",
+        );
+      const previous = dwgParser;
+      const previousDirectory = previous.status().directory;
+      const nextProtectedKeys = new Set(protectedPrivateKeys);
+      let removePreviousKey: Awaited<ReturnType<typeof prepareMcpPrivateKeyRemoval>>;
+      try {
+        if (certificateConfigured) {
+          removePreviousKey = await prepareMcpPrivateKeyRemoval(
+            previousDirectory,
+            status.directory,
+          );
+          if (removePreviousKey) await next.test();
+        }
+        await rememberMcpPrivateKey(nextProtectedKeys, previousDirectory);
+        await rememberMcpPrivateKey(nextProtectedKeys, status.directory);
+        await conversations.invalidate(undefined, "planning", dwgParserProcess.id);
+        await saveMcpCertificateBinding(dataRoot, dwgParserProcess.name, {
+          certificateDirectory: status.directory,
+          protectedPrivateKeys: [...nextProtectedKeys],
+        });
+      } catch (error) {
+        await next.close();
+        throw error;
+      }
+      for (const path of nextProtectedKeys) protectedPrivateKeys.add(path);
+      dwgParser = next;
+      certificateConfigured = true;
+      publish({ type: "mcp.process.changed" });
+      await previous.close();
+      try {
+        await removePreviousKey?.();
+      } catch {
+        return { ...status, message: "新证书已保存，但无法删除旧私钥。旧私钥仍受项目访问保护。" };
+      }
+      return status;
+    },
+    async "mcp.dwgparser.refresh"() {
+      const { status, connectionChanged } = await dwgParser.refresh(() =>
+        conversations.invalidate(undefined, "planning", dwgParserProcess.id),
+      );
+      certificateConfigured ||= status.state === "ready";
+      if (connectionChanged) publish({ type: "mcp.process.changed" });
+      return status;
+    },
+    "mcp.dwgparser.test": () => dwgParser.test(),
+    "mcp.get": (input) => readMcpConfig(dataRoot, "scope" in input ? input.scope : input.moduleId),
+    async "mcp.save"(input) {
+      const scope = "scope" in input ? input.scope : input.moduleId;
+      await saveMcpConfig(dataRoot, scope, input.text, () =>
+        conversations.invalidate(undefined, scope === "process" ? "planning" : scope),
+      );
+      if (scope === "process") publish({ type: "mcp.process.changed" });
+      return null;
+    },
     "package.list": ({ moduleId = "coding", host = "pi" }) =>
       createPackageService({ dataRoot, moduleId, host }).inspect(),
     ...settings.handlers,
@@ -285,6 +383,38 @@ export async function openApplication(options: {
     "scene.asset": async ({ projectId, asset }) =>
       (await scene.readAsset(projectId, asset)).toString("base64"),
 
+    async "planning.process.get"({ projectId }) {
+      requirePlanningProject(projectId);
+      const { servers, configError } = await readProcessMcpOptions(dataRoot);
+      return {
+        selected: store.getPlanningProcess(projectId),
+        ...(configError ? { configError } : {}),
+        servers: [
+          {
+            id: dwgParserProcess.id,
+            label: dwgParserProcess.label,
+            ...(dwgParser.status().state !== "ready" ? { disabled: true as const } : {}),
+          },
+          ...servers,
+        ],
+      };
+    },
+    async "planning.process.select"({ projectId, server }) {
+      requirePlanningProject(projectId);
+      if (server === dwgParserProcess.id) {
+        if (dwgParser.status().state !== "ready")
+          throw new Error("请先配置非标图纸工艺的设备证书。");
+      } else if (server !== null) {
+        const { servers, configError } = await readProcessMcpOptions(dataRoot);
+        if (configError) throw new Error(configError);
+        if (!servers.some(({ id }) => id === server)) throw new Error("此工艺 MCP 已停用或移除。");
+      }
+      if (server === store.getPlanningProcess(projectId)) return null;
+      await conversations.invalidate(projectId);
+      store.setPlanningProcess(projectId, server);
+      publish({ type: "mcp.process.changed", projectId });
+      return null;
+    },
     async "planning.load"({ projectId, kind, path }) {
       requirePlanningProject(projectId);
       await planning.load(projectId, kind, path);
@@ -366,6 +496,7 @@ export async function openApplication(options: {
           () => planning.close(),
           () => catalog.close(),
           () => conversations.close(),
+          () => dwgParser.close(),
           () => settings.close(),
         ]) {
           try {

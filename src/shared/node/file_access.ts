@@ -1,10 +1,51 @@
 import { constants } from "node:fs";
-import { type FileHandle, open, realpath } from "node:fs/promises";
+import { type FileHandle, lstat, open, realpath } from "node:fs/promises";
+import { dirname, isAbsolute, relative, sep } from "node:path";
 import type { DataRootIdentity } from "../../contracts/process.ts";
 
 const directoryFlags = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
 export const directoryHandlesAvailable =
   process.platform === "linux" && !!constants.O_NOFOLLOW && !!constants.O_DIRECTORY;
+
+export function isWithinPath(root: string, target: string) {
+  const path = relative(root, target);
+  return path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path);
+}
+
+export async function matchesProtectedFiles(
+  target: string,
+  protectedFiles: ReadonlySet<string> | undefined,
+  recursive = false,
+) {
+  if (!protectedFiles) return false;
+  for (const path of protectedFiles) {
+    if (!relative(target, path)) return true;
+    const canonical = await realpath(path).catch(() => undefined);
+    if (!canonical) continue;
+    if (
+      !relative(target, canonical) ||
+      (recursive && (isWithinPath(target, canonical) || isWithinPath(target, path)))
+    )
+      return true;
+  }
+  return false;
+}
+
+/** 用 lstat 查找现有路径，保留悬空符号链接供调用方检查。 */
+export async function nearestExistingPath(path: string, allowMissing: boolean) {
+  for (let candidate = path; ; candidate = dirname(candidate)) {
+    try {
+      return { path: candidate, info: await lstat(candidate) };
+    } catch (error) {
+      if (
+        !allowMissing ||
+        (error as NodeJS.ErrnoException).code !== "ENOENT" ||
+        candidate === dirname(candidate)
+      )
+        throw error;
+    }
+  }
+}
 
 /** 打开相对于已固定目录的子目录。空路径返回调用方的根句柄。 */
 export async function openRelativeDirectory(root: FileHandle, parts: readonly string[]) {

@@ -89,6 +89,7 @@ test("规划对话按所选权限执行命令、读写文件并加载场景", {
       "read",
       "write",
       "edit",
+      "codemode",
       "planning_load_scene",
       "planning_get_scene",
     ])
@@ -154,6 +155,14 @@ test("规划对话按所选权限执行命令、读写文件并加载场景", {
     const current = results.read<{ status: string; scene: { robot: string } }>("get");
     assert.equal(current.status, "loaded");
     assert.equal(current.scene.robot, robotName);
+    if (!results.has("compose"))
+      return {
+        id: "compose",
+        name: "codemode",
+        args: { code: "return JSON.parse(await tools.planning_get_scene({})).scene.robot;" },
+      };
+    const composed = request.messages.find((message) => message.tool_call_id === "compose");
+    assert.match(composed?.content ?? "", /planning_zip_fixture/);
     return { text: "规划场景已加载。" };
   });
   context.after(() => planner.close());

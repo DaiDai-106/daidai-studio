@@ -10,6 +10,7 @@ export const PROJECT_DIRECTORY_CHANNEL = "desktop:choose-project-directory";
 export const SCENE_IMPORT_CHANNEL = "desktop:import-scene-model";
 export const PLANNING_LOAD_CHANNEL = "desktop:load-planning-scene";
 export const PLANNING_PICK_CHANNEL = "desktop:choose-planning-source";
+export const DWGPARSER_DIRECTORY_CHANNEL = "desktop:choose-dwgparser-certificate-directory";
 export const SCENE_EXPORT_CHANNEL = "desktop:export-urdf";
 export const FILE_MESSAGE_CHANNEL = "desktop:send-message-with-file";
 export const SKILL_IMPORT_CHANNEL = "desktop:import-skill";

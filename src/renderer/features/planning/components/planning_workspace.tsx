@@ -1,20 +1,17 @@
 import { useEffect, useState } from "react";
 import type { ApplicationBridge } from "../../../../contracts/bridge.ts";
+import { dwgParserProcess } from "../../../../contracts/dwgparser.ts";
 import type { PlanningScene, PlanningSource } from "../../../../contracts/planning.ts";
 import { ActionMenu } from "../../../shared/components/action_menu.tsx";
 import { Icon } from "../../../shared/components/icon.tsx";
 import { Select } from "../../../shared/components/select.tsx";
 import { errorMessage } from "../../../shared/logic/error_message.ts";
+import { DwgParserSetupDialog } from "../../settings/components/dwgparser_setup_dialog.tsx";
+import { usePlanningProcess } from "../logic/use_planning_process.ts";
 import { PlanningCanvas } from "./planning_canvas.tsx";
 import "../../robot/styles/robot.css";
 import "../styles/planning.css";
 
-const processes = [
-  { value: "bevel", label: "坡口切割" },
-  { value: "weld", label: "焊接" },
-  { value: "steel", label: "型钢切割" },
-  { value: "custom", label: "非标" },
-] as const;
 const sceneViews = [
   { value: "visual", label: "视觉模型" },
   { value: "collision", label: "碰撞模型" },
@@ -29,7 +26,8 @@ export function PlanningWorkspace({
 }) {
   const [scene, setScene] = useState<PlanningScene>();
   const [sceneView, setSceneView] = useState<(typeof sceneViews)[number]["value"]>("visual");
-  const [process, setProcess] = useState<(typeof processes)[number]["value"]>("bevel");
+  const process = usePlanningProcess(api, projectId);
+  const [setup, setSetup] = useState(false);
   const [loading, setLoading] = useState(true);
   const [importError, setImportError] = useState("");
   useEffect(() => {
@@ -85,7 +83,17 @@ export function PlanningWorkspace({
           <Icon name="box" size={16} />
           <span>{scene?.name ?? "规划"}</span>
         </strong>
-        <Select aria-label="工艺" value={process} options={processes} onValueChange={setProcess} />
+        <Select
+          aria-label="工艺 MCP"
+          value={process.selected}
+          placeholder={process.placeholder}
+          options={process.options}
+          disabled={process.saving || !process.options.length}
+          onValueChange={(server) => {
+            if (server === dwgParserProcess.id && process.needsDwgParserSetup) setSetup(true);
+            else void process.select(server);
+          }}
+        />
         <Select
           aria-label="场景显示"
           value={sceneView}
@@ -109,6 +117,28 @@ export function PlanningWorkspace({
           运行规划
         </button>
       </header>
+      {process.error && (
+        <p className="scene-notice error" role="alert">
+          {process.error}
+        </p>
+      )}
+      {process.configError && (
+        <p className="scene-notice error" role="alert">
+          {process.configError}
+        </p>
+      )}
+      {process.needsSetup && (
+        <p className="scene-notice" role="status">
+          选择「非标图纸工艺」配置设备证书，或在「设置 → 插件与技能 → MCP → 工艺」注册其他服务。
+        </p>
+      )}
+      {process.needsDwgParserSetup && process.selected === dwgParserProcess.id && (
+        <div className="scene-notice">
+          <button type="button" onClick={() => setSetup(true)}>
+            重新配置设备证书
+          </button>
+        </div>
+      )}
       {importError && (
         <p className="scene-notice error" role="alert">
           {importError}
@@ -147,6 +177,13 @@ export function PlanningWorkspace({
           </p>
         ) : null}
       </div>
+      {setup && (
+        <DwgParserSetupDialog
+          api={api}
+          onConfigured={() => process.select(dwgParserProcess.id)}
+          onClose={() => setSetup(false)}
+        />
+      )}
     </section>
   );
 }

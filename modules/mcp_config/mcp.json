@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "dwgparser": {
+      "label": "非标图纸工艺",
+      "description": "从 DWG 图纸构建、查询或取消非标工艺工程包。",
+      "url": "https://192.168.122.147:19443/mcp",
+      "openGetStream": false,
+      "healthCheckPath": "/mcp/health",
+      "requiredTools": [
+        "dwgparser_build_process_package",
+        "dwgparser_get_package_task",
+        "dwgparser_cancel_package_task"
+      ]
+    }
+  }
+}

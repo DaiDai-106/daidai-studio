@@ -13,7 +13,19 @@ test("项目模式在创建时由严格的请求契约校验", () => {
     validateRequest("project.create", { name: "机器人", mode: "unknown", path: "/tmp/project" }),
   );
   assert.throws(() => validateRequest("conversation.update", { id: "chat", mode: "scene" }));
-  assert.throws(() => validateRequest("mcp.save", { config: {} }));
+});
+
+test("MCP 配置支持全局、模块和工艺作用域", () => {
+  validateRequest("mcp.get", {});
+  validateRequest("mcp.get", { scope: "process" });
+  validateRequest("mcp.save", { moduleId: "planning", text: '{"mcpServers":{}}' });
+  validateRequest("mcp.save", { scope: "process", text: '{"mcpServers":{}}' });
+  assert.throws(() => validateRequest("mcp.get", { scope: "process", moduleId: "planning" }));
+  assert.throws(() => validateRequest("mcp.save", { moduleId: "../escape", text: "{}" }));
+  assert.throws(() => validateRequest("mcp.save", { projectId: "project", text: "{}" }));
+  assert.throws(() =>
+    validateRequest("project.create", { name: "工艺", mode: "process", path: "/tmp/project" }),
+  );
 });
 
 test("项目元数据不再携带旧 STEP 文件清单", () => {

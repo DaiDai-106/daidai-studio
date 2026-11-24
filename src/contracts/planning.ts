@@ -60,6 +60,8 @@ export type PlanningScene = Static<typeof PlanningSceneSchema>;
 
 export const maxPlanningAssetBytes = 32 * 1024 * 1024;
 export const planningCommands = {
+  "planning.process.get": object({ projectId: id }),
+  "planning.process.select": object({ projectId: id, server: Type.Union([id, Type.Null()]) }),
   "planning.load": object({
     projectId: id,
     kind: PlanningSourceSchema,
@@ -75,6 +77,12 @@ export const planningCommands = {
   }),
 };
 export const planningResults = {
+  "planning.process.get": object({
+    selected: Type.Union([id, Type.Null()]),
+    servers: Type.Array(object({ id, label: id, disabled: Type.Optional(Type.Literal(true)) })),
+    configError: Type.Optional(Type.String({ maxLength: 4000 })),
+  }),
+  "planning.process.select": Type.Null(),
   "planning.load": Type.Null(),
   "planning.get": Type.Union([PlanningSceneSchema, Type.Null()]),
   "planning.asset": Type.String({ maxLength: 4 * Math.ceil(maxPlanningAssetBytes / 3) }),

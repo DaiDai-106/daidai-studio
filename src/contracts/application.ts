@@ -5,9 +5,11 @@ import {
   CatalogTaskSchema,
   catalogCommands,
   catalogResults,
+  type PluginModule,
   PluginModuleSchema,
   PluginScopeSchema,
 } from "./catalog.ts";
+import { dwgParserCommands, dwgParserResults } from "./dwgparser.ts";
 import {
   PlanningSceneSchema,
   PlanningSourceSchema,
@@ -27,6 +29,8 @@ import { id, object } from "./schema.ts";
 
 const text = (maxLength = 200) => Type.String({ maxLength });
 const ProjectModeSchema = PluginModuleSchema;
+export const maxMcpConfigLength = 128 * 1024;
+export type McpScope = PluginModule | "process";
 
 // Pi 1.5 的 schema 使用 pi-schema；应用 IPC 仍使用 TypeBox 校验。
 const ModelThinkingLevelSchema = Type.Enum(MODEL_THINKING_LEVELS);
@@ -175,7 +179,16 @@ export type ApplicationEvent = Static<typeof EventSchema>;
 // 请求名和参数由前端、桌面进程与后端共同使用。
 const commands = {
   ...catalogCommands,
+  ...dwgParserCommands,
   ...planningCommands,
+  "mcp.get": Type.Union([
+    object({ moduleId: Type.Optional(PluginModuleSchema) }),
+    object({ scope: Type.Literal("process") }),
+  ]),
+  "mcp.save": Type.Union([
+    object({ moduleId: Type.Optional(PluginModuleSchema), text: text(maxMcpConfigLength) }),
+    object({ scope: Type.Literal("process"), text: text(maxMcpConfigLength) }),
+  ]),
   "workspace.get": object({ cursor: Type.Optional(text(4000)) }),
   "usage.dashboard": object({}),
   "provider.types": object({}),
@@ -497,7 +510,10 @@ const LoginInfoSchema = object({
 // 返回值也按请求名校验，防止不符合契约的数据传到界面。
 const resultSchemas = {
   ...catalogResults,
+  ...dwgParserResults,
   ...planningResults,
+  "mcp.get": text(maxMcpConfigLength),
+  "mcp.save": Type.Null(),
   "workspace.get": object({
     settings: SettingsInfoSchema,
     projects: Type.Array(ProjectInfoSchema, { maxItems: 100 }),
@@ -604,6 +620,7 @@ export function validateResult<K extends Method>(
 
 const EventSchema = Type.Union([
   object({ type: Type.Literal("catalog.task"), task: CatalogTaskSchema }),
+  object({ type: Type.Literal("mcp.process.changed"), projectId: Type.Optional(id) }),
   object({
     type: Type.Literal("extension.ui.notification"),
     conversationId: id,

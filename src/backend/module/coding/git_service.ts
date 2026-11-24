@@ -183,8 +183,8 @@ export function createCodingGitService(files: ReturnType<typeof createCodingFile
   }
 
   async function diff(projectId: string, path: string, kind: "staged" | "unstaged" | "untracked") {
-    safeRelativePath(path);
     if (kind === "untracked") {
+      safeRelativePath(path);
       const untracked = await withGit(projectId, path, async (git, prefix) =>
         (await status(git, path)).split("\0").includes(`?? ${prefix}${path}`),
       );
@@ -199,6 +199,7 @@ export function createCodingGitService(files: ReturnType<typeof createCodingFile
         untracked: true,
       };
     }
+    await files.requireReadableFile(projectId, path);
     return withGit(projectId, path, async (git) => ({
       patch: await git([
         "diff",

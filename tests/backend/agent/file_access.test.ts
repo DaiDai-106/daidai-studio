@@ -60,6 +60,61 @@ test("Pi 文件工具只允许访问项目目录和读取技能目录", async ()
       );
       await assert.rejects(validateFileToolPath({ ...base, path: "dangling", write: true }));
     }
+
+    const protectedWriteDirectory = await realpath(cwd).then((dir) => join(dir, ".dai", "mcp"));
+    const protectedPrivateKey = join(protectedWriteDirectory, "device.key");
+    const protectedPrivateKeys = new Set([protectedPrivateKey]);
+    await mkdir(protectedWriteDirectory, { recursive: true });
+    await writeFile(protectedPrivateKey, "test key", { mode: 0o600 });
+    await assert.rejects(
+      validateFileToolPath({
+        cwd,
+        protectedPrivateKeys,
+        path: protectedPrivateKey,
+        write: false,
+        allowOutsideProject: true,
+      }),
+      /MCP 设备私钥/u,
+    );
+    await assert.rejects(
+      validateFileToolPath({
+        cwd,
+        protectedPrivateKeys,
+        path: ".",
+        write: false,
+        recursiveSearch: true,
+      }),
+      /MCP 设备私钥/u,
+    );
+    await validateFileToolPath({
+      cwd,
+      protectedPrivateKeys,
+      path: "ok.txt",
+      write: false,
+      recursiveSearch: true,
+    });
+    const restricted = { cwd, protectedWriteDirectory, write: true };
+    await assert.rejects(
+      validateFileToolPath({ ...restricted, path: join(protectedWriteDirectory, "mcp.json") }),
+      /MCP 配置/u,
+    );
+    await validateFileToolPath({ ...restricted, path: "regular-project-file.txt" });
+    if (process.platform !== "win32") {
+      await symlink(protectedWriteDirectory, join(cwd, "mcp-link"), "dir");
+      await assert.rejects(
+        validateFileToolPath({
+          cwd,
+          protectedPrivateKeys,
+          path: "mcp-link/device.key",
+          write: false,
+        }),
+        /MCP 设备私钥/u,
+      );
+      await assert.rejects(
+        validateFileToolPath({ ...restricted, path: "mcp-link/mcp.json" }),
+        /MCP 配置/u,
+      );
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

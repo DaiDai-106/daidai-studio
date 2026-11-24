@@ -11,6 +11,7 @@ import { productName } from "../../../../shared/app_metadata.ts";
 import { Dialog } from "../../../shared/components/dialog.tsx";
 import { Icon } from "../../../shared/components/icon.tsx";
 import { type PluginSelection, usePluginCenter } from "../logic/use_plugin_center.ts";
+import { McpSettings } from "./mcp_settings.tsx";
 import { PluginConfirmation, type PluginConfirmationRequest } from "./plugin_confirmation.tsx";
 import { PluginDetail } from "./plugin_detail.tsx";
 import {
@@ -89,6 +90,7 @@ export function PluginCenter({
             ["discover", "发现插件"],
             ["installed", "已安装"],
             ["skills", "我的技能"],
+            ["mcp", "MCP"],
             ["builtins", "内置模块"],
           ] as const
         ).map(([id, label]) => (
@@ -161,6 +163,7 @@ export function PluginCenter({
         onConfirm={setConfirmation}
       />
       {center.tab === "skills" && <SkillLibrary moduleId={moduleId} userOnly />}
+      {center.tab === "mcp" && <McpSettings />}
       {center.tab === "builtins" && (
         <div role="tabpanel" aria-label="内置模块">
           <SettingRow

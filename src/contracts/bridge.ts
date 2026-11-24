@@ -37,6 +37,12 @@ export interface ApplicationBridge {
   packageAction(
     input: Arguments<"catalog.packageAction">,
   ): Promise<Results["catalog.packageAction"]>;
+  getMcpConfig(input: Arguments<"mcp.get">): Promise<Results["mcp.get"]>;
+  saveMcpConfig(input: Arguments<"mcp.save">): Promise<null>;
+  getDwgParserStatus(): Promise<Results["mcp.dwgparser.status"]>;
+  configureDwgParser(): Promise<Results["mcp.dwgparser.configure"] | null>;
+  refreshDwgParser(): Promise<Results["mcp.dwgparser.refresh"]>;
+  testDwgParser(): Promise<Results["mcp.dwgparser.test"]>;
   // 工作区、模型提供方和配置。
   getWorkspace(cursor?: string): Promise<WorkspaceInfo>;
   getUsageDashboard(): Promise<Results["usage.dashboard"]>;
@@ -75,6 +81,8 @@ export interface ApplicationBridge {
   cancelStep(projectId: string): Promise<null>;
   exportUrdf(projectId: string, expectedRevision: number): Promise<Results["scene.export"] | null>;
   readSceneAsset(projectId: string, asset: string): Promise<Results["scene.asset"]>;
+  getPlanningProcesses(projectId: string): Promise<Results["planning.process.get"]>;
+  selectPlanningProcess(projectId: string, server: string | null): Promise<null>;
   loadPlanningScene(projectId: string, kind: PlanningSource): Promise<Results["planning.load"]>;
   getPlanningScene(projectId: string): Promise<Results["planning.get"]>;
   choosePlanningSource(requestId: string, kind: PlanningSource): Promise<null>;

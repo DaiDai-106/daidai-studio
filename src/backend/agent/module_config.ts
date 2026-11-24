@@ -11,17 +11,16 @@ import { createPlanningTools, planningToolNames } from "./tool/planning.ts";
 import { createSceneTools, sceneToolNames } from "./tool/scene.ts";
 
 export type AgentModuleConfig = {
+  moduleId: ProjectInfo["mode"];
   systemPrompt: string;
   extensionFactories: ExtensionFactory[];
-  disabledBuiltinExtensions: string[];
   allowPackageExtensions?: true;
-  tools?: string[];
+  allowedTools?: string[];
   fullAccess?: () => boolean;
   literalFilePaths?: true;
 };
 
 const fileReadTools = ["read", "ls", "find", "grep"];
-const restrictedBuiltinExtensions = ["mcp", "codemode", "tool-search"];
 
 export function createAgentModuleConfig(
   {
@@ -48,10 +47,10 @@ export function createAgentModuleConfig(
   if (project.mode === "scene") {
     if (!scene) throw new Error("场景工具不可用。");
     return {
+      moduleId: project.mode,
       systemPrompt: scenePrompt,
       extensionFactories: [createSceneTools(scene, project.id, fullAccess)],
-      disabledBuiltinExtensions: restrictedBuiltinExtensions,
-      tools: [...fileReadTools, ...Object.values(sceneToolNames)],
+      allowedTools: [...fileReadTools, ...Object.values(sceneToolNames)],
     };
   }
 
@@ -65,10 +64,10 @@ export function createAgentModuleConfig(
           )
         : undefined;
     return {
+      moduleId: project.mode,
       systemPrompt: planningPrompt,
       extensionFactories: planningTools ? [planningTools, ...shellExtensions] : shellExtensions,
-      disabledBuiltinExtensions: restrictedBuiltinExtensions,
-      tools: [
+      allowedTools: [
         ...fileReadTools,
         "write",
         "edit",
@@ -81,9 +80,9 @@ export function createAgentModuleConfig(
   }
 
   return {
+    moduleId: project.mode,
     systemPrompt: codingPrompt,
     extensionFactories: shellExtensions,
-    disabledBuiltinExtensions: ["mcp"],
     allowPackageExtensions: true,
     fullAccess,
   };

@@ -65,6 +65,12 @@ test("Pi 场景工具沿用审批，等待确认期间的手动修改使旧版�
       tools?: Array<{ function?: { name: string } }>;
     };
     tools.push((body.tools ?? []).flatMap((tool) => (tool.function ? [tool.function.name] : [])));
+    const argumentsJson = JSON.stringify({
+      jointId: "joint-0",
+      position: 1,
+      expectedRevision: requestedRevision,
+    });
+    const throughCodeMode = requestedRevision === 2;
     const delta = nextCall
       ? {
           tool_calls: [
@@ -73,12 +79,12 @@ test("Pi 场景工具沿用审批，等待确认期间的手动修改使旧版�
               id: `joint-${requestedRevision}`,
               type: "function",
               function: {
-                name: "scene_set_joint_position",
-                arguments: JSON.stringify({
-                  jointId: "joint-0",
-                  position: 1,
-                  expectedRevision: requestedRevision,
-                }),
+                name: throughCodeMode ? "codemode" : "scene_set_joint_position",
+                arguments: throughCodeMode
+                  ? JSON.stringify({
+                      code: `return await tools.scene_set_joint_position(${argumentsJson});`,
+                    })
+                  : argumentsJson,
               },
             },
           ],
@@ -143,8 +149,8 @@ test("Pi 场景工具沿用审批，等待确认期间的手动修改使旧版�
   assert.equal(saved.document.robot?.joints[0]?.position, 1);
   assert.ok(tools[0]?.includes("scene_get"));
   assert.ok(tools[0]?.includes("scene_set_joint_position"));
-  for (const name of ["bash", "powershell", "write", "edit", "codemode"])
-    assert.ok(!tools[0]?.includes(name));
+  assert.ok(tools[0]?.includes("codemode"));
+  for (const name of ["bash", "powershell", "write", "edit"]) assert.ok(!tools[0]?.includes(name));
 
   requestedRevision = 3;
   nextCall = true;
@@ -160,6 +166,7 @@ test("Pi 场景工具沿用审批，等待确认期间的手动修改使旧版�
   await send(chat.id, "coding");
   await finished.promise;
   assert.ok(tools.at(-1)?.includes("edit"));
+  assert.ok(tools.at(-1)?.includes("codemode"));
   assert.ok(!tools.at(-1)?.includes("scene_get"));
 });
 

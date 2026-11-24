@@ -14,12 +14,55 @@ import { openProjectStore } from "../../../src/backend/projects/store.ts";
 import { createProviders } from "../../../src/backend/settings/providers.ts";
 import type { PackageLoad } from "../../../src/contracts/catalog.ts";
 
+test("恢复旧 Coding 会话时为历史工具清单追加 Code Mode", async (context) => {
+  const root = await mkdtemp(join(tmpdir(), "dai-pi-resume-"));
+  const dataRoot = join(root, "data");
+  const store = openProjectStore(dataRoot);
+  context.after(async () => {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const project = store.createProject({ name: "Coding", mode: "coding", path: root });
+  const { id } = store.createConversation(project.id);
+  const oldSession = createPiHistory(store, dataRoot).open(id);
+  oldSession.appendMessage({
+    role: "system",
+    content: "旧版本工具配置",
+    toolsAdded: ["read", "find"].map((name) => ({
+      name,
+      description: name,
+      parameters: { type: "object", properties: {} },
+    })),
+    timestamp: 1,
+  });
+  oldSession.appendMessage({ role: "user", content: "之前的消息", timestamp: 2 });
+  assert.ok(oldSession.isPersisted());
+
+  const session = await createPiAgent({
+    conversationId: id,
+    cwd: root,
+    dataRoot,
+    history: createPiHistory(store, dataRoot),
+    packages: createPackageService({ dataRoot, moduleId: "coding" }),
+    modelRuntime: await ModelRuntime.create({
+      credentials: new InMemoryCredentialStore(),
+      modelsPath: null,
+      refreshOnCreate: false,
+    }),
+    moduleConfig: createAgentModuleConfig({ project, conversationId: id }),
+  });
+  try {
+    assert.deepEqual([...session.getActiveToolNames()].sort(), ["codemode", "find", "read"]);
+  } finally {
+    session.dispose();
+  }
+});
+
 test("Pi agent 从授权包加载技能和扩展，并使用项目模式的系统提示", async () => {
   const root = await mkdtemp(join(tmpdir(), "dai-pi-agent-"));
   const dataRoot = join(root, "data");
   const cwd = join(root, "workspace");
   const source = join(root, "package");
-  const started = join(root, "server-started");
   const lifecycle = join(root, "extension-lifecycle");
   await mkdir(cwd);
   await mkdir(join(source, "extensions"), { recursive: true });
@@ -36,14 +79,6 @@ test("Pi agent 从授权包加载技能和扩展，并使用项目模式的系�
       execute: async () => ({content:[{type:"text",text:"ok"}],details:{}})
     });
   };`,
-  );
-  await writeFile(
-    join(source, "extensions", "server.ts"),
-    `export default pi => pi.registerMcpServer('fixture', {
-      command: ${JSON.stringify(process.execPath)},
-      args: ['-e', ${JSON.stringify(`require('fs').writeFileSync(${JSON.stringify(started)}, 'started')`)}],
-      exposure: 'direct'
-    });`,
   );
   await writeFile(
     join(source, "skills", "sample", "SKILL.md"),
@@ -91,15 +126,15 @@ test("Pi agent 从授权包加载技能和扩展，并使用项目模式的系�
         loads.every((item) => item.source === source && item.scope === "module" && !item.error),
       );
       assert.ok(session.getActiveToolNames().includes("read"));
+      assert.ok(session.getActiveToolNames().includes("codemode"));
       assert.ok(!session.getActiveToolNames().some((name) => name.startsWith("mcp__")));
-      await assert.rejects(readFile(started), { code: "ENOENT" });
       assert.match(session.systemPrompt, /coding instruction fixture/);
       assert.equal(await readFile(lifecycle, "utf8"), "start\n");
       await session.reload();
       assert.equal(await readFile(lifecycle, "utf8"), "start\nshutdown\nstart\n");
       assert.ok(session.getActiveToolNames().includes("sample_tool"));
+      assert.ok(session.getActiveToolNames().includes("codemode"));
       assert.ok(!session.getActiveToolNames().some((name) => name.startsWith("mcp__")));
-      await assert.rejects(readFile(started), { code: "ENOENT" });
     } finally {
       session.dispose();
     }

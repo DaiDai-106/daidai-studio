@@ -30,7 +30,8 @@ test("Git 差异按项目目录区分暂存、未暂存和未跟踪文件", asyn
     const store = openProjectStore(join(root, "data"));
     try {
       const project = store.createProject({ name: "代码", mode: "coding", path: projectDir });
-      const files = createCodingFileService(store);
+      const protectedKeys = new Set<string>();
+      const files = createCodingFileService(store, protectedKeys);
       const service = createCodingGitService(files);
       const result = await service.changes(project.id);
       assert.equal(result.entries.length, 2);
@@ -53,6 +54,15 @@ test("Git 差异按项目目录区分暂存、未暂存和未跟踪文件", asyn
       assert.match((await service.diff(project.id, "new[1].py", "untracked")).patch, /\+print/);
       git("add", "--", "sub/new[1].py");
       await assert.rejects(service.diff(project.id, "new[1].py", "untracked"), /不再是未跟踪文件/);
+
+      const oldKey = join(projectDir, "device.key");
+      await writeFile(oldKey, "dummy device key\n");
+      git("add", "--", "sub/device.key");
+      protectedKeys.add(oldKey);
+      await writeFile(oldKey, "modified dummy device key\n");
+      await assert.rejects(service.diff(project.id, "device.key", "unstaged"), /MCP 设备私钥/u);
+      await rm(oldKey);
+      await assert.rejects(service.diff(project.id, "device.key", "staged"), /MCP 设备私钥/u);
     } finally {
       store.close();
     }

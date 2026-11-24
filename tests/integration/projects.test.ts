@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { access, readFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { access, copyFile, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { chooseProject, launchTestApp, openTestProject } from "./support.ts";
@@ -18,6 +19,51 @@ test("新建规划项目显示规划图标并打开独立工作区", { timeout: 
 
   const planning = page.getByRole("region", { name: "规划工作区" });
   await planning.getByText("请加载 URDF 文件或 Package 目录。", { exact: true }).waitFor();
+  const processSelect = planning.getByRole("button", { name: "工艺 MCP", exact: true });
+  await processSelect.getByText("选择工艺 MCP", { exact: true }).waitFor();
+  await processSelect.click();
+  await page.getByRole("menuitemradio", { name: "非标图纸工艺（待配置）" }).click();
+  const certificateSetup = page.getByRole("dialog", { name: "配置非标图纸工艺" });
+  await application.evaluate(({ dialog }, directory) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+  }, profile);
+  await certificateSetup.getByRole("button", { name: "选择证书目录" }).click();
+  await certificateSetup
+    .getByRole("alert")
+    .getByText(/需要包含/u)
+    .waitFor();
+  await certificateSetup.getByRole("button", { name: "取消", exact: true }).click();
+  await processSelect.getByText("选择工艺 MCP", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "打开设置", exact: true }).click();
+  await page.getByRole("button", { name: "插件与技能", exact: true }).click();
+  await page.getByRole("tab", { name: "MCP", exact: true }).click();
+  const mcp = page.getByRole("tabpanel", { name: "MCP", exact: true });
+  await mcp.getByRole("button", { name: "MCP 作用域", exact: true }).click();
+  await page.getByRole("menuitemradio", { name: "工艺", exact: true }).click();
+  await mcp.getByText("内置服务 · 待配置设备证书", { exact: true }).waitFor();
+  await mcp.getByRole("button", { name: "测试连接", exact: true }).click();
+  await mcp.getByRole("textbox", { name: "MCP JSON 配置" }).fill(
+    JSON.stringify({
+      mcpServers: {
+        custom: { label: "自定义图纸工艺", url: "http://localhost/mcp/custom" },
+        weld: { label: "焊接工艺", url: "http://localhost/mcp/weld", enabled: false },
+      },
+    }),
+  );
+  await mcp.getByRole("button", { name: "保存配置", exact: true }).click();
+  await mcp
+    .getByRole("status")
+    .getByText(/已保存/u)
+    .waitFor();
+  await page.getByRole("button", { name: "返回工作台", exact: true }).click();
+  await processSelect.getByText("选择工艺 MCP", { exact: true }).waitFor();
+  await processSelect.click();
+  assert.deepEqual(await page.getByRole("menuitemradio").allTextContents(), [
+    "非标图纸工艺（待配置）",
+    "自定义图纸工艺",
+  ]);
+  await page.getByRole("menuitemradio", { name: "自定义图纸工艺", exact: true }).click();
+  await processSelect.getByText("自定义图纸工艺", { exact: true }).waitFor();
   assert.ok(await planning.getByRole("button", { name: "运行规划" }).isDisabled());
   await planning.getByRole("button", { name: "加载场景", exact: true }).click();
   const menu = page.getByRole("menu", { name: "加载场景" });
@@ -61,6 +107,74 @@ test("新建规划项目显示规划图标并打开独立工作区", { timeout: 
   await item.locator('.project-mode-icon[data-mode="planning"] svg').waitFor();
   await item.click();
   await planning.waitFor();
+  await processSelect.getByText("自定义图纸工艺", { exact: true }).waitFor();
+
+  await page.getByRole("button", { name: "返回项目主页", exact: true }).click();
+  await writeFile(join(profile, "data", "agent", "mcp", "process", "mcp.json"), "{invalid");
+  await item.click();
+  await planning
+    .getByRole("alert")
+    .getByText(/无法读取工艺 MCP 配置/u)
+    .waitFor();
+  await processSelect.getByText("所选工艺 MCP 不可用", { exact: true }).waitFor();
+  await processSelect.click();
+  await page.getByRole("menuitemradio", { name: "非标图纸工艺（待配置）" }).waitFor();
+  await page.getByRole("menuitemradio", { name: "清除选择", exact: true }).click();
+  await processSelect.getByText("选择工艺 MCP", { exact: true }).waitFor();
+
+  const certificates = join(profile, "certificates");
+  await mkdir(certificates);
+  const certificate = join(certificates, "device.crt");
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "ec",
+      "-pkeyopt",
+      "ec_paramgen_curve:prime256v1",
+      "-nodes",
+      "-keyout",
+      join(certificates, "device.key"),
+      "-out",
+      certificate,
+      "-days",
+      "1",
+      "-subj",
+      "/CN=dai-test",
+    ],
+    { stdio: "ignore" },
+  );
+  await copyFile(certificate, join(certificates, "server-ca.crt"));
+  await application.evaluate(({ dialog }, directory) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+  }, certificates);
+  await processSelect.click();
+  await page.getByRole("menuitemradio", { name: "非标图纸工艺（待配置）" }).click();
+  await certificateSetup.getByRole("button", { name: "选择证书目录" }).click();
+  await certificateSetup.waitFor({ state: "hidden" });
+  await processSelect.getByText("非标图纸工艺", { exact: true }).waitFor();
+  assert.deepEqual(
+    JSON.parse(await readFile(join(profile, "data", "agent", "mcp", "auth.json"), "utf8")),
+    {
+      dwgparser: {
+        certificateDirectory: await realpath(certificates),
+        protectedPrivateKeys: [
+          join(
+            await realpath(profile),
+            "data",
+            "agent",
+            "mcp",
+            "process",
+            "dwgparser",
+            "device.key",
+          ),
+          join(await realpath(certificates), "device.key"),
+        ],
+      },
+    },
+  );
 });
 
 test("projects sharing a directory keep separate identities and hidden projects restore their history", {

@@ -20,7 +20,9 @@ export type PluginSelection = Pick<
 
 const api = () => window.desktop.application;
 export function usePluginCenter(moduleId: PluginModule = "coding") {
-  const [tab, setTab] = useState<"discover" | "installed" | "skills" | "builtins">("discover");
+  const [tab, setTab] = useState<"discover" | "installed" | "skills" | "mcp" | "builtins">(
+    "discover",
+  );
   const [source, setSource] = useState<CatalogSourceId | "all">("all");
   const [query, setQuery] = useState("");
   const [groups, setGroups] = useState<CatalogGroup[]>([]);

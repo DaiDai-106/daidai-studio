@@ -81,6 +81,10 @@ export function openProjectStore(dataRoot: string) {
       id TEXT PRIMARY KEY, name TEXT NOT NULL, mode TEXT NOT NULL,
       path TEXT NOT NULL, created_at INTEGER NOT NULL, hidden INTEGER NOT NULL DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS planning_processes (
+      project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+      server TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS conversations (
       id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       title TEXT NOT NULL, model_id TEXT NOT NULL, draft TEXT NOT NULL DEFAULT '',
@@ -147,6 +151,22 @@ export function openProjectStore(dataRoot: string) {
     getProject: project,
     listProjects: () => listProjects(false),
     listHiddenProjects: () => listProjects(true),
+
+    getPlanningProcess(projectId: string): string | null {
+      const row = db
+        .prepare("SELECT server FROM planning_processes WHERE project_id = ?")
+        .get(projectId) as { server: string } | undefined;
+      return row?.server ?? null;
+    },
+
+    setPlanningProcess(projectId: string, server: string | null) {
+      if (server === null) {
+        db.prepare("DELETE FROM planning_processes WHERE project_id = ?").run(projectId);
+      } else {
+        db.prepare(`INSERT INTO planning_processes (project_id, server) VALUES (?, ?)
+          ON CONFLICT(project_id) DO UPDATE SET server = excluded.server`).run(projectId, server);
+      }
+    },
 
     hideProject(id: string) {
       requireProject(id);

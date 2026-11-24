@@ -41,7 +41,10 @@ export async function startBackend(context: BackendContext): Promise<void> {
         "runtime",
       ),
     ],
-    { serviceName: `${packageName}-backend` },
+    {
+      serviceName: `${packageName}-backend`,
+      env: { ...process.env, PI_CODING_AGENT_DIR: join(context.root, "agent") },
+    },
   );
 
   // 启动等待期间也要记录进程，确保用户此时退出可以关闭它。

@@ -37,7 +37,7 @@ Desktop 主进程通过 `package.list({ host: "desktop" })` 获取自己的安�
 
 ## 外部 Pi package
 
-第三方能力以 Pi package 格式从支持的本地目录、npm 或 Git 来源安装；一个包可提供多个 Extension、工具或 Skill。Dai 不装配 Pi 的 MCP 连接器，也不读取 MCP 配置。第三方 Extension 在宿主进程运行，仍可自行运行任意代码，不能视为对协议或网络访问的强制封禁。
+第三方能力以 Pi package 格式从支持的本地目录、npm 或 Git 来源安装。一个包可提供多个 Extension、工具或 Skill。第三方 Extension 在宿主进程运行，可通过 Pi API 注册当前会话的 MCP 服务。
 
 Pi package 是资源分发格式，不能假定任意包自动支持 Dai 的凭据、桌面交互或自定义 Runtime。Dai 需要明确用户配置和凭据如何提供给包，追踪 Extension、服务与工具的所属来源，处理同名、更新、失败和运行中停用。Extension 可在宿主进程运行代码；工具过滤不构成进程沙箱。安装、启用、会话加载和工具运行是不同状态，不能混同。
 
@@ -50,6 +50,14 @@ Pi 本地目录来源可能引用原路径，移动或删除会影响加载；np
 Pi 当前默认调用系统 `npm` 和 `git`，因此 npm/Git 来源分别需要目标系统提供对应工具；本地目录来源不需要。Electron 自带运行时不代表目标系统自动安装了 npm 或 Git。
 
 Dai 通过 Pi 的进度回调展示安装和更新阶段。当前 Pi package 安装和更新没有接入可取消句柄；应用正常退出会等待正在进行的安装或更新完成，遇到网络或 npm 脚本长时间挂起可能延迟退出。不得声称退出能中断第三方安装；后续需要 SDK 可取消接口或可安全终止并恢复的独立安装进程。
+
+## Code Mode 与 MCP
+
+所有 Agent 会话通过 Pi SDK 装配 Code Mode，使用 `on` 模式。脚本子调用沿用当前模块的工具清单、文件权限和审批。
+
+Dai MCP 设置使用 `agent/mcp/mcp.json` 与 `agent/mcp/modules/<模块 ID>/mcp.json`。全局与模块配置按服务命名空间合并，模块同名定义优先。仅包含 `enabled`、`exposure` 或 `toolExposure` 的模块条目可覆盖全局服务的对应字段。连接与工具发现由 Pi SDK 管理。配置来源为 Dai 数据目录与当前会话加载的扩展，用户项目的 `.pi/mcp.json` 不参与发现。保存配置前按作用域释放空闲会话，下一次发送会重新创建会话。
+
+模块配置读取或校验失败时暂停该模块的 MCP。全局配置异常影响所有模块。请求批准模式下，项目文件工具禁止写入 Dai 管理的 MCP 配置目录。Code Mode 截断结果时，仅生成该文件的会话可在项目目录外使用 `read` 读取完整输出。
 
 ## Skill
 

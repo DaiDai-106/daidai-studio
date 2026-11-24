@@ -3,6 +3,7 @@ import type { ApplicationEvent, Arguments, Method, Results } from "../../contrac
 import {
   APP_INFO_CHANNEL,
   type DesktopBridge,
+  DWGPARSER_DIRECTORY_CHANNEL,
   EVENT_CHANNEL,
   FILE_MESSAGE_CHANNEL,
   PLANNING_LOAD_CHANNEL,
@@ -75,6 +76,12 @@ const desktop: DesktopBridge = {
     catalogTasks: () => call("catalog.tasks", {}),
     installCatalog: (input) => call("catalog.install", input),
     packageAction: (input) => call("catalog.packageAction", input),
+    getMcpConfig: (input) => call("mcp.get", input),
+    saveMcpConfig: (input) => call("mcp.save", input),
+    getDwgParserStatus: () => call("mcp.dwgparser.status", {}),
+    configureDwgParser: () => ipcRenderer.invoke(DWGPARSER_DIRECTORY_CHANNEL),
+    refreshDwgParser: () => call("mcp.dwgparser.refresh", {}),
+    testDwgParser: () => call("mcp.dwgparser.test", {}),
     // 工作区、模型提供方、设置与认证。
     getWorkspace: (cursor) => call("workspace.get", cursor ? { cursor } : {}),
     getUsageDashboard: () => call("usage.dashboard", {}),
@@ -107,6 +114,9 @@ const desktop: DesktopBridge = {
     exportUrdf: (projectId, expectedRevision) =>
       ipcRenderer.invoke(SCENE_EXPORT_CHANNEL, projectId, expectedRevision),
     readSceneAsset: (projectId, asset) => call("scene.asset", { projectId, asset }),
+    getPlanningProcesses: (projectId) => call("planning.process.get", { projectId }),
+    selectPlanningProcess: (projectId, server) =>
+      call("planning.process.select", { projectId, server }),
     loadPlanningScene: (projectId, kind) =>
       ipcRenderer.invoke(PLANNING_LOAD_CHANNEL, projectId, kind),
     getPlanningScene: (projectId) => call("planning.get", { projectId }),

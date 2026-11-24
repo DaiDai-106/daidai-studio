@@ -11,6 +11,7 @@ import type {
 import type { PackageLoad, PluginModule } from "../../contracts/catalog.ts";
 import { splitChatAttachment, stepMessage, zipMessage } from "../../shared/chat_attachment.ts";
 import { isPlanningZipFile } from "../../shared/planning_zip.ts";
+import type { BuiltinMcpConnection } from "../extensions/mcp/extension.ts";
 import { createPackageService } from "../extensions/package_service.ts";
 import { createSkillService } from "../extensions/skill_service.ts";
 import { createCodingFileService } from "../module/coding/file_service.ts";
@@ -59,6 +60,8 @@ export function createConversations(options: {
   codingFiles?: ReturnType<typeof createCodingFileService>;
   scene?: ReturnType<typeof createSceneService>;
   planning?: ReturnType<typeof createPlanningService>;
+  builtinMcp?: (id: string) => BuiltinMcpConnection | undefined;
+  protectedPrivateKeys?: ReadonlySet<string> | undefined;
   publish: (event: ApplicationEvent) => void;
   shellApproval?: ReturnType<typeof createShellApproval>;
   extensionUi?: ReturnType<typeof createExtensionUi>;
@@ -267,6 +270,7 @@ export function createConversations(options: {
       { project, conversationId: id, fullAccess },
       options,
     );
+    const processServer = project.mode === "planning" ? store.getPlanningProcess(project.id) : null;
     const session = await createPiAgent({
       conversationId: id,
       onPackageLoad: (entries) => options.onPackageLoad?.(project.mode, entries),
@@ -276,6 +280,9 @@ export function createConversations(options: {
       packages: createPackageService({ dataRoot, moduleId: project.mode }),
       modelRuntime: settings.modelRuntime,
       moduleConfig,
+      processServer,
+      builtinMcp: processServer ? options.builtinMcp?.(processServer) : undefined,
+      protectedPrivateKeys: options.protectedPrivateKeys,
       beforePrompt() {
         if (state.run?.stopped) throw cancelledSend();
         state.run?.acceptSubmission?.();
@@ -758,12 +765,14 @@ export function createConversations(options: {
       return null;
     },
 
-    async invalidate(projectId?: string, moduleId?: PluginModule) {
+    async invalidate(projectId?: string, moduleId?: PluginModule, processServer?: string) {
       const matches = (id: string) => {
         const owner = store.getConversation(id)?.projectId;
         return (
           (!projectId || owner === projectId) &&
-          (!moduleId || store.getProject(owner ?? "")?.mode === moduleId)
+          (!moduleId || store.getProject(owner ?? "")?.mode === moduleId) &&
+          (!processServer ||
+            (owner !== undefined && store.getPlanningProcess(owner) === processServer))
         );
       };
       const affected = [...sessions].filter(

@@ -16,6 +16,7 @@ import type { Theme } from "../../contracts/desktop.ts";
 import {
   APP_INFO_CHANNEL,
   type AppInfo,
+  DWGPARSER_DIRECTORY_CHANNEL,
   FILE_MESSAGE_CHANNEL,
   PLANNING_LOAD_CHANNEL,
   PLANNING_PICK_CHANNEL,
@@ -152,6 +153,7 @@ export function registerDesktopIpc(context: DesktopIpcContext): void {
       throw new Error("项目路径只能由主进程创建或通过系统文件夹选择器授权。");
     if (method === "skill.library.import")
       throw new Error("技能目录只能通过系统选择器或拖拽授权。");
+    if (method === "mcp.dwgparser.configure") throw new Error("证书目录必须通过系统选择器授权。");
     if (
       method === "scene.import" ||
       method === "scene.importStep" ||
@@ -222,6 +224,15 @@ export function registerDesktopIpc(context: DesktopIpcContext): void {
     const path = await choosePlanningPath(kind);
     if (!path) return null;
     return backend.request("planning.load", { projectId, kind, path });
+  });
+
+  ipcMain.handle(DWGPARSER_DIRECTORY_CHANNEL, async (event) => {
+    const backend = trustedClient(event);
+    const directory = await choosePath({
+      title: "选择设备证书目录",
+      properties: ["openDirectory"],
+    });
+    return directory ? backend.request("mcp.dwgparser.configure", { directory }) : null;
   });
 
   ipcMain.handle(PLANNING_PICK_CHANNEL, async (event, requestId: string, kind: unknown) => {

@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdir } from "node:fs/promises";
+import { join } from "node:path";
+import { matchesProtectedFiles } from "../../../shared/node/file_access.ts";
 import {
   projectPathParts,
   readProjectFile,
@@ -34,7 +36,10 @@ function listEntries(root: string, path: string) {
   );
 }
 
-export function createCodingFileService(store: ReturnType<typeof openProjectStore>) {
+export function createCodingFileService(
+  store: ReturnType<typeof openProjectStore>,
+  protectedPrivateKeys?: ReadonlySet<string>,
+) {
   function projectPath(id: string) {
     const value = store.getProject(id);
     if (value?.mode !== "coding") throw new Error("Coding 项目不存在。");
@@ -63,11 +68,19 @@ export function createCodingFileService(store: ReturnType<typeof openProjectStor
     }
   }
 
+  async function requireReadableFile(projectId: string, path: string) {
+    const names = projectPathParts(path);
+    if (!names.length) throw new Error("请选择文件。");
+    const root = projectPath(projectId);
+    if (await matchesProtectedFiles(join(root, ...names), protectedPrivateKeys))
+      throw new Error("MCP 设备私钥不能作为项目文件读取。");
+    return { root, names };
+  }
+
   async function read(projectId: string, path: string) {
     try {
-      const names = projectPathParts(path);
-      if (!names.length) throw new Error("请选择文件。");
-      const data = await readProjectFile(projectPath(projectId), names, MAX_FILE_BYTES);
+      const { root, names } = await requireReadableFile(projectId, path);
+      const data = await readProjectFile(root, names, MAX_FILE_BYTES);
       if (data.includes(0)) throw new Error("不支持查看二进制文件。");
       let content: string;
       try {
@@ -124,5 +137,5 @@ export function createCodingFileService(store: ReturnType<typeof openProjectStor
     return { paths, truncated: false };
   }
 
-  return { list, read, search, projectPath };
+  return { list, read, search, projectPath, requireReadableFile };
 }

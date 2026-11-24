@@ -42,6 +42,26 @@ test("Pi package and standard skills can be managed and restored in the settings
     page.setDefaultTimeout(10000);
     await openTestProject(app, page, profile);
     await page.getByRole("button", { name: "插件与技能", exact: true }).click();
+    await page.getByRole("tab", { name: "MCP", exact: true }).click();
+    const mcp = page.getByRole("tabpanel", { name: "MCP", exact: true });
+    const mcpScope = mcp.getByRole("button", { name: "MCP 作用域", exact: true });
+    await mcpScope.click();
+    await page.getByRole("menuitemradio", { name: "规划", exact: true }).click();
+    const mcpConfig = '{"mcpServers":{"fixture":{"url":"http://localhost/mcp","enabled":false}}}';
+    await mcp.getByRole("textbox", { name: "MCP JSON 配置" }).fill(mcpConfig);
+    await mcp.getByRole("button", { name: "保存配置", exact: true }).click();
+    await mcp
+      .getByRole("status")
+      .getByText(/已保存/)
+      .waitFor();
+    assert.equal(
+      await page.evaluate(() => window.desktop.application.getMcpConfig({ moduleId: "planning" })),
+      mcpConfig,
+    );
+    assert.match(
+      await page.evaluate(() => window.desktop.application.getMcpConfig({})),
+      /"mcpServers": \{\}/,
+    );
     await page.getByRole("tab", { name: "内置模块", exact: true }).click();
     const builtins = page.getByRole("tabpanel", { name: "内置模块", exact: true });
     await builtins.getByText("Coding", { exact: true }).waitFor();

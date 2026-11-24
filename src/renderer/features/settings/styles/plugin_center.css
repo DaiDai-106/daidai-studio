@@ -720,3 +720,11 @@
     animation: none;
   }
 }
+.mcp-settings-form {
+  margin-top: 18px;
+}
+.mcp-settings-form textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--font-mono, monospace);
+}
