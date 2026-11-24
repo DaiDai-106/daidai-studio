@@ -4,10 +4,10 @@ import {
   JointPositionSchema,
   SceneRevisionSchema,
   StepAttachmentIdSchema,
-} from "../../contracts/scene.ts";
-import { object } from "../../contracts/schema.ts";
-import { jointPosition } from "../scene/document.ts";
-import type { createSceneService } from "../scene/service.ts";
+} from "../../../contracts/scene.ts";
+import { object } from "../../../contracts/schema.ts";
+import { jointPosition } from "../../../shared/scene/robot.ts";
+import type { createSceneService } from "../../module/scene/service.ts";
 
 export const sceneToolNames = {
   get: "scene_get",

@@ -13,14 +13,15 @@ import { createConversations } from "./agent/conversations.ts";
 import { createExtensionUi } from "./agent/extension_ui.ts";
 import { createShellApproval } from "./agent/shell_approval.ts";
 import { usageDashboard } from "./agent/usage_dashboard.ts";
-import { createCodingFileService } from "./coding/file_service.ts";
-import { createCodingGitService } from "./coding/git_service.ts";
 import { openOrCreateDataRoot } from "./data_root.ts";
 import { createCatalogService } from "./extensions/catalog_service.ts";
 import { createPackageService } from "./extensions/package_service.ts";
 import { createSkillHandlers } from "./extensions/skill_handlers.ts";
+import { createCodingFileService } from "./module/coding/file_service.ts";
+import { createCodingGitService } from "./module/coding/git_service.ts";
+import { createPlanningService } from "./module/planning/service.ts";
+import { createSceneService } from "./module/scene/service.ts";
 import { openProjectStore } from "./projects/store.ts";
-import { createSceneService } from "./scene/service.ts";
 import { createSettingsService } from "./settings/service.ts";
 import type { Handlers } from "./types.ts";
 
@@ -31,6 +32,7 @@ export async function openApplication(options: {
   dataRoot: string;
   expectedRoot?: DataRootIdentity;
   stepWorkerDirectory?: string;
+  planningWorkerDirectory?: string;
   publish: (event: ApplicationEvent) => void;
 }) {
   const { publish } = options;
@@ -52,6 +54,9 @@ export async function openApplication(options: {
   const store = openProjectStore(dataRoot);
   const coding = createCodingFileService(store);
   const codingGit = createCodingGitService(coding);
+  const planning = createPlanningService(options.planningWorkerDirectory, (projectId, snapshot) =>
+    publish({ type: "planning.scene", projectId, snapshot }),
+  );
   const scene = createSceneService({
     dataRoot,
     store,
@@ -71,6 +76,7 @@ export async function openApplication(options: {
     store,
     codingFiles: coding,
     scene,
+    planning,
     dataRoot,
     settings,
     publish,
@@ -102,6 +108,9 @@ export async function openApplication(options: {
   }
 
   let closing = false;
+  function requirePlanningProject(id: string) {
+    if (store.getProject(id)?.mode !== "planning") throw new Error("规划项目不存在。");
+  }
   const handlers: Handlers = {
     "package.list": ({ moduleId = "coding", host = "pi" }) =>
       createPackageService({ dataRoot, moduleId, host }).inspect(),
@@ -182,6 +191,7 @@ export async function openApplication(options: {
       await conversations.invalidate(id);
       store.hideProject(id);
       scene.forget(id);
+      planning.forget(id);
       changed();
       return null;
     },
@@ -275,6 +285,28 @@ export async function openApplication(options: {
     "scene.asset": async ({ projectId, asset }) =>
       (await scene.readAsset(projectId, asset)).toString("base64"),
 
+    async "planning.load"({ projectId, kind, path }) {
+      requirePlanningProject(projectId);
+      await planning.load(projectId, kind, path);
+      return null;
+    },
+    async "planning.get"({ projectId }) {
+      requirePlanningProject(projectId);
+      return planning.get(projectId);
+    },
+    async "planning.asset"({ projectId, revision, asset }) {
+      requirePlanningProject(projectId);
+      return planning.readAsset(projectId, revision, asset);
+    },
+    async "planning.source.check"({ requestId, kind }) {
+      extensionUi.checkPlanningSource(requestId, kind);
+      return null;
+    },
+    async "planning.source.respond"({ requestId, kind, path }) {
+      extensionUi.respondPlanningSource(requestId, kind, path);
+      return null;
+    },
+
     async "extension.ui.respond"(input) {
       extensionUi.respond(input);
       return null;
@@ -331,6 +363,7 @@ export async function openApplication(options: {
         const errors: unknown[] = [];
         for (const cleanup of [
           () => scene.close(),
+          () => planning.close(),
           () => catalog.close(),
           () => conversations.close(),
           () => settings.close(),

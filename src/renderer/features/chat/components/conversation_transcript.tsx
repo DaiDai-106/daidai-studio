@@ -16,7 +16,7 @@ import {
   finalReply,
   processItems,
 } from "../logic/transcript.ts";
-import { StepAttachmentTag } from "./step_attachment_tag.tsx";
+import { FileAttachmentTag } from "./file_attachment_tag.tsx";
 import { ToolCall } from "./tool_messages.tsx";
 import { ResponseUsage } from "./usage_details.tsx";
 import { UserMessage } from "./user_message.tsx";
@@ -202,7 +202,12 @@ const Turn = memo(function Turn({
       {turn.user && (
         <article className="message user">
           {turn.user.text && <UserMessage text={turn.user.text} />}
-          {turn.user.stepAttachment && <StepAttachmentTag name={turn.user.stepAttachment.name} />}
+          {turn.user.stepAttachment && (
+            <FileAttachmentTag name={turn.user.stepAttachment.name} kind="step" />
+          )}
+          {turn.user.zipAttachment && (
+            <FileAttachmentTag name={turn.user.zipAttachment.name} kind="zip" />
+          )}
           {turn.user.images?.length ? (
             <MessageImages images={turn.user.images} onOpen={onImagePreviewOpen} />
           ) : null}

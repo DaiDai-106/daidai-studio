@@ -34,6 +34,12 @@ export async function startBackend(context: BackendContext): Promise<void> {
       context.rootIdentity?.dev ?? "",
       context.rootIdentity?.ino ?? "",
       stepWorkerDirectory,
+      join(
+        app.isPackaged ? process.resourcesPath : app.getAppPath(),
+        "modules",
+        "planning",
+        "runtime",
+      ),
     ],
     { serviceName: `${packageName}-backend` },
   );

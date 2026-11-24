@@ -3,8 +3,8 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createCodingFileService } from "../../../src/backend/coding/file_service.ts";
-import { resolveFileReferences } from "../../../src/backend/coding/references.ts";
+import { createCodingFileService } from "../../../src/backend/module/coding/file_service.ts";
+import { resolveFileReferences } from "../../../src/backend/module/coding/references.ts";
 import { openProjectStore } from "../../../src/backend/projects/store.ts";
 
 test("搜索跳过链接与构建目录；引用只发送指定行的真实快照", async () => {

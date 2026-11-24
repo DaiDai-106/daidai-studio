@@ -27,7 +27,7 @@
 | `components/file_tree.tsx`、`file_search.tsx`、`changes_list.tsx` | 按需读取文件树、搜索和变更列表 |
 | `components/text_content_panel.tsx`、`code_view.tsx`、`diff_view.tsx` | 文本/diff 读取、刷新和展示 |
 | `components/web_preview.tsx` | 预览操作、状态事件及原生视图可见区域同步 |
-| `src/backend/coding/` | 受控文件访问、搜索、文件引用快照和 Git 查询 |
+| `src/backend/module/coding/` | 受控文件访问、搜索、文件引用快照和 Git 查询 |
 | `src/desktop/main/browser/` | 原生预览、来源限制及静态资源服务 |
 | `src/shared/file_references.ts`、`src/shared/node/file_access.ts` | 路径引用解析、Node 受控目录和文件读取 |
 

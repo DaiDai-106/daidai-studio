@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { openApplication } from "../../../src/backend/application.ts";
-import { editScene, validateScene, zeroOrigin } from "../../../src/backend/scene/document.ts";
-import { parseUrdf, writeUrdf } from "../../../src/backend/scene/urdf.ts";
+import { editScene, validateScene } from "../../../src/backend/module/scene/document.ts";
+import { parseUrdf, writeUrdf } from "../../../src/backend/module/scene/urdf.ts";
 import type { SceneDocument, SceneOperation, SceneRobot } from "../../../src/contracts/scene.ts";
 import { robotFrames } from "../../../src/shared/scene/frames.ts";
 import {
@@ -13,6 +13,7 @@ import {
   resolveSceneRobot,
   sourcePartIds,
 } from "../../../src/shared/scene/geometry.ts";
+import { zeroOrigin } from "../../../src/shared/scene/robot.ts";
 import { stepWorkerAvailable, writeStepFixture } from "../../support/step_fixture.ts";
 
 function fixture(): SceneDocument {

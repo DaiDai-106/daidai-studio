@@ -5,6 +5,8 @@ out/
 release/
 /modules/scene/build/
 /modules/scene/runtime/
+/modules/planning/build/
+/modules/planning/runtime/
 coverage/
 *.tsbuildinfo
 *.log

@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { openApplication } from "../../../src/backend/application.ts";
-import { validateScene } from "../../../src/backend/scene/document.ts";
-import { normalizeStl } from "../../../src/backend/scene/stl.ts";
-import { parseUrdf, writeUrdf } from "../../../src/backend/scene/urdf.ts";
+import { validateScene } from "../../../src/backend/module/scene/document.ts";
+import { parseUrdf, writeUrdf } from "../../../src/backend/module/scene/urdf.ts";
 import { type ApplicationEvent, validEvent } from "../../../src/contracts/application.ts";
+import { normalizeStl } from "../../../src/shared/node/stl.ts";
 import { testRobot } from "../../support/scene_fixture.ts";
 
 test("场景操作校验拓扑、支持版本冲突与重启恢复，导出时随 URDF 保存 STL", async (context) => {

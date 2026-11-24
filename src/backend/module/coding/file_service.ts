@@ -4,8 +4,8 @@ import {
   projectPathParts,
   readProjectFile,
   withProjectDirectory,
-} from "../projects/project_access.ts";
-import type { openProjectStore } from "../projects/store.ts";
+} from "../../projects/project_access.ts";
+import type { openProjectStore } from "../../projects/store.ts";
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 

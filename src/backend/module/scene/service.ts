@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join } from "node:path";
 import { Value } from "typebox/value";
-import type { ApplicationEvent } from "../../contracts/application.ts";
+import type { ApplicationEvent } from "../../../contracts/application.ts";
 import {
   maxSceneAssetBytes,
   maxUrdfBytes,
@@ -13,19 +13,19 @@ import {
   type SceneSnapshot,
   type StepAttachment,
   StepAttachmentIdSchema,
-} from "../../contracts/scene.ts";
-import { writeAtomic, writeJson } from "../../shared/node/write_json.ts";
-import { resolveSceneRobot } from "../../shared/scene/geometry.ts";
-import { isStepFile } from "../../shared/scene/step_attachment.ts";
+} from "../../../contracts/scene.ts";
+import { writeAtomic, writeJson } from "../../../shared/node/write_json.ts";
+import { resolveSceneRobot } from "../../../shared/scene/geometry.ts";
+import { isStepFile } from "../../../shared/scene/step_attachment.ts";
 import {
   projectPathParts,
   readProjectFile,
   withProjectDirectory,
-} from "../projects/project_access.ts";
-import type { openProjectStore } from "../projects/store.ts";
+} from "../../projects/project_access.ts";
+import type { openProjectStore } from "../../projects/store.ts";
 import { editScene, validateScene } from "./document.ts";
+import { createMeshBatch } from "./mesh_batch.ts";
 import { loadStepAssembly, readStepSource } from "./step_import.ts";
-import { createMeshBatch } from "./stl.ts";
 import { parseUrdf, writeUrdf } from "./urdf.ts";
 
 const documentLimit = 8 * maxUrdfBytes;

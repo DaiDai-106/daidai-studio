@@ -1,10 +1,53 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Mesh, Vector3 } from "three";
-import { parseUrdf } from "../../../src/backend/scene/urdf.ts";
-import { createRobotModel } from "../../../src/renderer/features/scene/logic/robot_model.ts";
+import { parseUrdf } from "../../../src/backend/module/scene/urdf.ts";
+import type { PlanningScene } from "../../../src/contracts/planning.ts";
+import type { SceneJoint } from "../../../src/contracts/scene.ts";
+import { createRobotModel } from "../../../src/renderer/features/robot/logic/robot_model.ts";
 import { robotFrames, sceneCoordinates } from "../../../src/shared/scene/frames.ts";
+import { planningPreviewRobot } from "../../../src/shared/scene/planning_preview.ts";
 import { testRobot } from "../../support/scene_fixture.ts";
+
+test("规划预览仅把超限的默认零位移到最近限位", () => {
+  const { robot } = parseUrdf(testRobot);
+  const joint = robot.joints[0];
+  assert.ok(joint);
+  const cases = [
+    { lower: 0.2, upper: 2, position: 0, expected: 0.2 },
+    { lower: -2, upper: -0.3, position: 0, expected: -0.3 },
+    { lower: -2, upper: 2, position: 0, expected: 0 },
+    { lower: 0.2, upper: 2, position: 0.8, expected: 0.8 },
+  ];
+  for (const { lower, upper, position, expected } of cases) {
+    const input: SceneJoint = {
+      ...joint,
+      limit: { effort: 10, velocity: 2, lower, upper },
+      position,
+    };
+    const preview = planningPreviewRobot({ ...robot, joints: [input] });
+    assert.equal(preview.joints[0]?.position, expected);
+    assert.equal(input.position, position);
+  }
+});
+
+test("碰撞视图用关联连杆的碰撞体替换视觉网格，并保留碰撞体局部位姿", () => {
+  const { robot } = parseUrdf(testRobot);
+  const arm = robot.links.find((link) => link.name === "arm");
+  assert.ok(arm);
+  const collision: PlanningScene["collisionGeometry"][number] = {
+    linkId: arm.id,
+    origin: { xyz: [0.3, 0, 0], rpy: [0, 0, 0] },
+    geometry: { type: "sphere", radius: 0.25 },
+  };
+  const preview = planningPreviewRobot(robot, [collision]);
+  assert.equal(planningPreviewRobot(robot).links, robot.links);
+  assert.equal(preview.links.find((link) => link.name === "base")?.visuals.length, 0);
+  const [visual] = preview.links.find((link) => link.id === arm.id)?.visuals ?? [];
+  assert.deepEqual(visual?.origin, collision.origin);
+  assert.deepEqual(visual?.geometry, collision.geometry);
+  assert.notDeepEqual(arm.visuals[0]?.geometry, collision.geometry);
+});
 
 test("预览在关节的局部坐标系中变换，清除预览恢复已提交位置", () => {
   const { robot } = parseUrdf(

@@ -16,17 +16,20 @@ import type { Theme } from "../../contracts/desktop.ts";
 import {
   APP_INFO_CHANNEL,
   type AppInfo,
+  FILE_MESSAGE_CHANNEL,
+  PLANNING_LOAD_CHANNEL,
+  PLANNING_PICK_CHANNEL,
   PROJECT_CREATE_CHANNEL,
   PROJECT_DIRECTORY_CHANNEL,
   REQUEST_CHANNEL,
   SCENE_EXPORT_CHANNEL,
   SCENE_IMPORT_CHANNEL,
-  SCENE_STEP_MESSAGE_CHANNEL,
   SKILL_IMPORT_CHANNEL,
   THEME_CHANNEL,
   THEMES_CHANNEL,
 } from "../../contracts/desktop.ts";
 import { type WindowPalette, WindowPaletteSchema } from "../../contracts/desktop_theme.ts";
+import { type PlanningSource, PlanningSourceSchema } from "../../contracts/planning.ts";
 import { directoryHandlesAvailable } from "../../shared/node/file_access.ts";
 import type { connectBackend } from "./backend.ts";
 import { createProjectDirectory } from "./project_directory.ts";
@@ -53,6 +56,7 @@ export function isTrustedFrame(
 // 注册渲染进程可调用的桌面接口，项目路径只能通过系统选择器授权。
 export function registerDesktopIpc(context: DesktopIpcContext): void {
   let selectedDirectory: { token: string; path: string; creating: boolean } | undefined;
+  const planningPickers = new Set<string>();
   // 只记住所选主题的来源，用于区分清单暂时缺失和实际移除。
   let selectedTheme: { id: string; source: string } | undefined;
 
@@ -85,6 +89,18 @@ export function registerDesktopIpc(context: DesktopIpcContext): void {
     if (!window) throw new Error("应用窗口不可用。");
     const { canceled, filePaths } = await dialog.showOpenDialog(window, options);
     if (!canceled) return filePaths[0];
+  }
+
+  function choosePlanningPath(kind: PlanningSource) {
+    return choosePath(
+      kind === "urdf"
+        ? {
+            title: "选择 URDF 文件",
+            properties: ["openFile"],
+            filters: [{ name: "URDF", extensions: ["urdf"] }],
+          }
+        : { title: "选择 Package 目录", properties: ["openDirectory"] },
+    );
   }
 
   ipcMain.handle(APP_INFO_CHANNEL, (event): AppInfo => {
@@ -136,10 +152,19 @@ export function registerDesktopIpc(context: DesktopIpcContext): void {
       throw new Error("项目路径只能由主进程创建或通过系统文件夹选择器授权。");
     if (method === "skill.library.import")
       throw new Error("技能目录只能通过系统选择器或拖拽授权。");
-    if (method === "scene.import" || method === "scene.importStep" || method === "scene.export")
+    if (
+      method === "scene.import" ||
+      method === "scene.importStep" ||
+      method === "scene.export" ||
+      method === "planning.load" ||
+      method === "planning.source.check" ||
+      method === "planning.source.respond"
+    )
       throw new Error("模型路径必须通过系统选择器授权。");
-    if (method === "conversation.send" && (args as Arguments<"conversation.send">).stepPath)
-      throw new Error("请选择或拖入本机 STEP 文件。");
+    if (method === "conversation.send") {
+      const { stepPath, zipPath } = args as Arguments<"conversation.send">;
+      if (stepPath || zipPath) throw new Error("请选择或拖入本机附件。");
+    }
 
     if (method === "auth.open") {
       const { id } = args as { id: string };
@@ -154,10 +179,11 @@ export function registerDesktopIpc(context: DesktopIpcContext): void {
     return backend.request(method, args as Arguments<Method>);
   });
 
-  ipcMain.handle(SCENE_STEP_MESSAGE_CHANNEL, (event, input: Arguments<"conversation.send">) => {
+  ipcMain.handle(FILE_MESSAGE_CHANNEL, (event, input: Arguments<"conversation.send">) => {
     const backend = trustedClient(event);
     validateRequest("conversation.send", input);
-    if (!input.stepPath) throw new Error("请选择或拖入本机 STEP 文件。");
+    if (Boolean(input.stepPath) === Boolean(input.zipPath))
+      throw new Error("请选择或拖入一个本机附件。");
     return backend.request("conversation.send", input);
   });
 
@@ -188,6 +214,34 @@ export function registerDesktopIpc(context: DesktopIpcContext): void {
       });
     },
   );
+
+  ipcMain.handle(PLANNING_LOAD_CHANNEL, async (event, projectId: string, kind: unknown) => {
+    const backend = trustedClient(event);
+    if (!Value.Check(PlanningSourceSchema, kind)) throw new Error("规划场景格式无效。");
+    validateRequest("planning.get", { projectId });
+    const path = await choosePlanningPath(kind);
+    if (!path) return null;
+    return backend.request("planning.load", { projectId, kind, path });
+  });
+
+  ipcMain.handle(PLANNING_PICK_CHANNEL, async (event, requestId: string, kind: unknown) => {
+    const backend = trustedClient(event);
+    if (!Value.Check(PlanningSourceSchema, kind)) throw new Error("规划场景格式无效。");
+    validateRequest("planning.source.check", { requestId, kind });
+    if (planningPickers.has(requestId)) throw new Error("正在选择规划场景。");
+    planningPickers.add(requestId);
+    try {
+      await backend.request("planning.source.check", { requestId, kind });
+      const path = await choosePlanningPath(kind);
+      return await backend.request("planning.source.respond", {
+        requestId,
+        kind,
+        ...(path ? { path } : {}),
+      });
+    } finally {
+      planningPickers.delete(requestId);
+    }
+  });
 
   ipcMain.handle(
     SCENE_EXPORT_CHANNEL,

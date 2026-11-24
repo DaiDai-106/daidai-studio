@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { chooseProject, launchTestApp, openTestProject } from "./support.ts";
@@ -25,20 +25,23 @@ test("新建规划项目显示规划图标并打开独立工作区", { timeout: 
     "选择 URDF 文件",
     "选择 Package 目录",
   ]);
-  await page.keyboard.press("Escape");
-  const urdf =
-    '<robot name="test"><link name="base"><visual><geometry><box size="1 1 1"/></geometry></visual></link></robot>';
-  await planning.getByLabel("规划 URDF 文件", { exact: true }).setInputFiles({
-    name: "robot.urdf",
-    mimeType: "application/xml",
-    buffer: Buffer.from(urdf),
+  const pickerCalls = await application.evaluateHandle(({ dialog }) => {
+    const calls: string[][] = [];
+    dialog.showOpenDialog = async (_window, options?: Electron.OpenDialogOptions) => {
+      calls.push(options?.properties ?? []);
+      return { canceled: true, filePaths: [] };
+    };
+    return calls;
   });
-  await planning.getByText("robot.urdf", { exact: true }).waitFor();
-  const robotPackage = join(profile, "robot-package");
-  await mkdir(join(robotPackage, "urdf"), { recursive: true });
-  await writeFile(join(robotPackage, "urdf", "package.urdf"), urdf);
-  await planning.getByLabel("规划 Package 目录", { exact: true }).setInputFiles(robotPackage);
-  await planning.getByText("robot-package/urdf/package.urdf", { exact: true }).waitFor();
+  await menu.getByRole("menuitem", { name: "选择 URDF 文件" }).click();
+  await planning.getByRole("button", { name: "加载场景", exact: true }).click();
+  await menu.getByRole("menuitem", { name: "选择 Package 目录" }).click();
+  await planning
+    .getByRole("button", { name: "加载场景", exact: true })
+    .and(planning.locator("button:enabled"))
+    .waitFor();
+  assert.deepEqual(await pickerCalls.jsonValue(), [["openFile"], ["openDirectory"]]);
+  await pickerCalls.dispose();
   assert.ok(await planning.getByRole("button", { name: "运行规划" }).isDisabled());
   await page
     .getByRole("navigation", { name: "项目", exact: true })

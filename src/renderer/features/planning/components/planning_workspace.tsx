@@ -1,12 +1,12 @@
-import { useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import type { ApplicationBridge } from "../../../../contracts/bridge.ts";
+import type { PlanningScene, PlanningSource } from "../../../../contracts/planning.ts";
 import { ActionMenu } from "../../../shared/components/action_menu.tsx";
-import { Dialog, Field } from "../../../shared/components/dialog.tsx";
 import { Icon } from "../../../shared/components/icon.tsx";
 import { Select } from "../../../shared/components/select.tsx";
 import { errorMessage } from "../../../shared/logic/error_message.ts";
-import { loadPlanningScene, type PlanningScene, sceneFilePath } from "../logic/planning_scene.ts";
 import { PlanningCanvas } from "./planning_canvas.tsx";
-import "../../scene/styles/scene.css";
+import "../../robot/styles/robot.css";
 import "../styles/planning.css";
 
 const processes = [
@@ -15,38 +15,66 @@ const processes = [
   { value: "steel", label: "型钢切割" },
   { value: "custom", label: "非标" },
 ] as const;
+const sceneViews = [
+  { value: "visual", label: "视觉模型" },
+  { value: "collision", label: "碰撞模型" },
+] as const;
 
-export function PlanningWorkspace() {
+export function PlanningWorkspace({
+  api,
+  projectId,
+}: {
+  api: ApplicationBridge;
+  projectId: string;
+}) {
   const [scene, setScene] = useState<PlanningScene>();
+  const [sceneView, setSceneView] = useState<(typeof sceneViews)[number]["value"]>("visual");
   const [process, setProcess] = useState<(typeof processes)[number]["value"]>("bevel");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [importError, setImportError] = useState("");
-  const [packageFiles, setPackageFiles] = useState<{ files: File[]; urdfs: File[] }>();
-  const [urdfChoice, setUrdfChoice] = useState("");
-  const urdfInput = useRef<HTMLInputElement>(null);
-  const packageInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    let current = true;
+    let receivedUpdate = false;
+    const unsubscribe = api.subscribe((event) => {
+      if (event.type !== "planning.scene" || event.projectId !== projectId) return;
+      receivedUpdate = true;
+      const { snapshot } = event;
+      // 进程退出时保留已显示的模型和相机。
+      setScene((current) =>
+        snapshot.status === "stale" && current?.revision === snapshot.revision
+          ? { ...current, status: "stale" }
+          : snapshot,
+      );
+      if (snapshot.status === "loaded") setImportError("");
+    });
+    void api
+      .getPlanningScene(projectId)
+      .then(
+        (snapshot) => {
+          if (current && !receivedUpdate && snapshot) setScene(snapshot);
+        },
+        (cause) => {
+          if (current && !receivedUpdate) setImportError(errorMessage(cause, "无法读取规划场景。"));
+        },
+      )
+      .finally(() => {
+        if (current) setLoading(false);
+      });
+    return () => {
+      current = false;
+      unsubscribe();
+    };
+  }, [api, projectId]);
 
-  async function importUrdf(urdf: File, files: File[]) {
+  async function loadScene(kind: PlanningSource) {
     setLoading(true);
     setImportError("");
     try {
-      setScene(await loadPlanningScene(urdf, files));
+      await api.loadPlanningScene(projectId, kind);
     } catch (cause) {
       setImportError(errorMessage(cause, "无法加载规划场景。"));
     } finally {
       setLoading(false);
-    }
-  }
-
-  function chooseFiles(files: File[]) {
-    if (!files.length) return;
-    const urdfs = files.filter((file) => /\.urdf$/iu.test(file.name));
-    const first = urdfs[0];
-    if (!first) setImportError("未找到 URDF 文件。");
-    else if (urdfs.length === 1) void importUrdf(first, files);
-    else {
-      setUrdfChoice(sceneFilePath(first));
-      setPackageFiles({ files, urdfs });
     }
   }
 
@@ -58,6 +86,13 @@ export function PlanningWorkspace() {
           <span>{scene?.name ?? "规划"}</span>
         </strong>
         <Select aria-label="工艺" value={process} options={processes} onValueChange={setProcess} />
+        <Select
+          aria-label="场景显示"
+          value={sceneView}
+          options={sceneViews}
+          onValueChange={setSceneView}
+          disabled={!scene}
+        />
         <ActionMenu
           label="加载场景"
           trigger={
@@ -66,40 +101,22 @@ export function PlanningWorkspace() {
             </button>
           }
           actions={[
-            { label: "选择 URDF 文件", onSelect: () => urdfInput.current?.click() },
-            { label: "选择 Package 目录", onSelect: () => packageInput.current?.click() },
+            { label: "选择 URDF 文件", onSelect: () => void loadScene("urdf") },
+            { label: "选择 Package 目录", onSelect: () => void loadScene("package") },
           ]}
         />
         <button type="button" disabled>
           运行规划
         </button>
       </header>
-      <input
-        ref={urdfInput}
-        type="file"
-        aria-label="规划 URDF 文件"
-        accept=".urdf,.stl"
-        multiple
-        hidden
-        onChange={(event) => {
-          chooseFiles(Array.from(event.currentTarget.files ?? []));
-          event.currentTarget.value = "";
-        }}
-      />
-      <input
-        ref={packageInput}
-        type="file"
-        aria-label="规划 Package 目录"
-        {...{ webkitdirectory: "" }}
-        hidden
-        onChange={(event) => {
-          chooseFiles(Array.from(event.currentTarget.files ?? []));
-          event.currentTarget.value = "";
-        }}
-      />
       {importError && (
         <p className="scene-notice error" role="alert">
           {importError}
+        </p>
+      )}
+      {scene?.status === "stale" && (
+        <p className="scene-notice" role="status">
+          One Punch 规划进程已停止。当前保留上一次场景，请重新加载。
         </p>
       )}
       {loading && (
@@ -107,56 +124,29 @@ export function PlanningWorkspace() {
           正在加载场景…
         </p>
       )}
-      {scene?.warnings.length ? (
-        <details className="scene-notice scene-import-warnings">
-          <summary>场景显示提示（{scene.warnings.length}）</summary>
-          <ul>
-            {scene.warnings.map((warning) => (
-              <li key={warning}>{warning}</li>
-            ))}
-          </ul>
-        </details>
-      ) : null}
+      {sceneView === "collision" && scene?.collisionGeometry.length === 0 && (
+        <p className="scene-notice" role="status">
+          此场景没有碰撞几何。
+        </p>
+      )}
       <div className="planning-stage">
         <aside className="scene-outliner planning-outliner" aria-label="轨迹结果">
           <h3>轨迹结果</h3>
-          <p>规划引擎待接入</p>
+          <p>轨迹规划待接入</p>
         </aside>
         {scene ? (
-          <PlanningCanvas scene={scene} />
+          <PlanningCanvas
+            scene={scene}
+            projectId={projectId}
+            api={api}
+            showCollision={sceneView === "collision"}
+          />
         ) : !loading ? (
           <p className="scene-empty" role="status">
             请加载 URDF 文件或 Package 目录。
           </p>
         ) : null}
       </div>
-      {packageFiles && (
-        <Dialog title="选择主 URDF" onClose={() => setPackageFiles(undefined)}>
-          <Field label="URDF 文件">
-            <select
-              value={urdfChoice}
-              onChange={(event) => setUrdfChoice(event.currentTarget.value)}
-            >
-              {packageFiles.urdfs.map((file) => (
-                <option key={sceneFilePath(file)}>{sceneFilePath(file)}</option>
-              ))}
-            </select>
-          </Field>
-          <div className="dialog-actions">
-            <button
-              type="button"
-              className="primary"
-              onClick={() => {
-                const urdf = packageFiles.urdfs.find((file) => sceneFilePath(file) === urdfChoice);
-                if (urdf) void importUrdf(urdf, packageFiles.files);
-                setPackageFiles(undefined);
-              }}
-            >
-              加载
-            </button>
-          </div>
-        </Dialog>
-      )}
     </section>
   );
 }

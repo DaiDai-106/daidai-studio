@@ -40,6 +40,12 @@ export const requestPolicy = {
   "scene.cancelStep": "interrupt",
   "scene.export": "mutation",
   "scene.asset": "read",
+  "planning.load": "start",
+  // 恢复场景可能需要等待原生加载结束，由子进程控制执行超时。
+  "planning.get": "start",
+  "planning.asset": "read",
+  "planning.source.check": "read",
+  "planning.source.respond": "interrupt",
   "extension.ui.respond": "interrupt",
   "skill.library.list": "read",
   "skill.library.read": "read",

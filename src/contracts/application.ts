@@ -9,6 +9,13 @@ import {
   PluginScopeSchema,
 } from "./catalog.ts";
 import {
+  PlanningSceneSchema,
+  PlanningSourceSchema,
+  PlanningZipAttachmentSchema,
+  planningCommands,
+  planningResults,
+} from "./planning.ts";
+import {
   maxSceneAssetBytes,
   SceneAssetSchema,
   SceneOperationSchema,
@@ -66,11 +73,12 @@ export type ManagedSkill = Static<typeof ManagedSkillSchema>;
 const ExtensionUiRequestSchema = object({
   requestId: id,
   conversationId: id,
-  kind: Type.Union([Type.Literal("confirm"), Type.Literal("select"), Type.Literal("input")]),
+  kind: Type.Enum(["confirm", "select", "input", "planning-source"]),
   title: text(1000),
   message: Type.Optional(text(8000)),
   options: Type.Optional(Type.Array(text(2000), { maxItems: 100 })),
   placeholder: Type.Optional(text(1000)),
+  planningKind: Type.Optional(PlanningSourceSchema),
 });
 export type ExtensionUiRequest = Static<typeof ExtensionUiRequestSchema>;
 
@@ -167,6 +175,7 @@ export type ApplicationEvent = Static<typeof EventSchema>;
 // 请求名和参数由前端、桌面进程与后端共同使用。
 const commands = {
   ...catalogCommands,
+  ...planningCommands,
   "workspace.get": object({ cursor: Type.Optional(text(4000)) }),
   "usage.dashboard": object({}),
   "provider.types": object({}),
@@ -283,6 +292,7 @@ const commands = {
     text: Type.String({ maxLength: 100000 }),
     images: Type.Optional(Type.Array(ChatImageSchema, { maxItems: 3 })),
     stepPath: Type.Optional(Type.String({ minLength: 1, maxLength: 4096 })),
+    zipPath: Type.Optional(Type.String({ minLength: 1, maxLength: 4096 })),
   }),
   "conversation.stop": object({ id }),
   "conversation.cancelQueued": object({ id, messageId: id }),
@@ -351,6 +361,7 @@ const MessageInfoSchema = object({
   text: text(4_000_000),
   images: Type.Optional(Type.Array(ChatImageSchema, { maxItems: 3 })),
   stepAttachment: Type.Optional(StepAttachmentSchema),
+  zipAttachment: Type.Optional(PlanningZipAttachmentSchema),
   failed: Type.Boolean(),
   response: Type.Optional(ResponseSchema),
   blocks: Type.Optional(Type.Array(MessageBlockSchema)),
@@ -435,6 +446,7 @@ const ConversationViewSchema = object({
         delivery: DeliveryModeSchema,
         imageCount: Type.Integer({ minimum: 0, maximum: 3 }),
         stepAttachment: Type.Optional(StepAttachmentSchema),
+        zipAttachment: Type.Optional(PlanningZipAttachmentSchema),
         delivering: Type.Boolean(),
         paused: Type.Boolean(),
       }),
@@ -485,6 +497,7 @@ const LoginInfoSchema = object({
 // 返回值也按请求名校验，防止不符合契约的数据传到界面。
 const resultSchemas = {
   ...catalogResults,
+  ...planningResults,
   "workspace.get": object({
     settings: SettingsInfoSchema,
     projects: Type.Array(ProjectInfoSchema, { maxItems: 100 }),
@@ -599,6 +612,7 @@ const EventSchema = Type.Union([
   }),
   object({ type: Type.Literal("extension.ui.request"), request: ExtensionUiRequestSchema }),
   object({ type: Type.Literal("extension.ui.dismissed"), requestId: id, conversationId: id }),
+  object({ type: Type.Literal("planning.scene"), projectId: id, snapshot: PlanningSceneSchema }),
   object({
     type: Type.Literal("scene.document"),
     projectId: id,

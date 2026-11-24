@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
-import { parseUrdf, writeUrdf } from "../../src/backend/scene/urdf.ts";
+import { parseUrdf, writeUrdf } from "../../src/backend/module/scene/urdf.ts";
 import { REQUEST_CHANNEL } from "../../src/contracts/desktop.ts";
 import { testRobot } from "../support/scene_fixture.ts";
 import { stepWorkerAvailable, writeStepFixture } from "../support/step_fixture.ts";

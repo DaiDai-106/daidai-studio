@@ -1,8 +1,8 @@
-import type { SceneJoint, SceneOrigin, SceneRobot, SceneVisual } from "../../contracts/scene.ts";
-import { maxUrdfBytes } from "../../contracts/scene.ts";
-import { importNotesPrefix } from "../../shared/scene/urdf.ts";
+import type { SceneJoint, SceneOrigin, SceneRobot, SceneVisual } from "../../../contracts/scene.ts";
+import { maxUrdfBytes } from "../../../contracts/scene.ts";
+import { importNotesPrefix } from "../../../shared/scene/urdf.ts";
 
-export { parseUrdf } from "../../shared/scene/urdf.ts";
+export { parseUrdf } from "../../../shared/scene/urdf.ts";
 
 const escapes: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
 const escapeXml = (value: string) =>

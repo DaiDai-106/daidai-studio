@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import type { ChatImage } from "../../../../contracts/application.ts";
 import type { ApplicationBridge } from "../../../../contracts/bridge.ts";
 import { maxStepBytes } from "../../../../contracts/scene.ts";
+import { isPlanningZipFile } from "../../../../shared/planning_zip.ts";
 import { isStepFile } from "../../../../shared/scene/step_attachment.ts";
 import { errorMessage } from "../../../shared/logic/error_message.ts";
 
-type AttachmentDraft = { images: ChatImage[]; step?: File | undefined; error: string };
+type AttachmentDraft = { images: ChatImage[]; file?: File | undefined; error: string };
 const emptyDraft: AttachmentDraft = { images: [], error: "" };
 const imageTypes: readonly string[] = ["image/png", "image/jpeg", "image/webp"];
 const maxImageBytes = 5 * 1024 * 1024;
@@ -27,13 +28,13 @@ export function useAttachmentDrafts(
   api: ApplicationBridge,
   conversationId: string | undefined,
   supportsImages: boolean,
-  supportsStep: boolean,
-  onSend: (images: ChatImage[], step?: File) => Promise<boolean>,
+  fileType: "step" | "zip" | undefined,
+  onSend: (images: ChatImage[], file?: File) => Promise<boolean>,
 ) {
   const reading = useRef(new Set<string>());
   const sending = useRef(new Set<string>());
   const [drafts, setDrafts] = useState<Record<string, AttachmentDraft>>({});
-  const { images, step, error } = (conversationId && drafts[conversationId]) || emptyDraft;
+  const { images, file, error } = (conversationId && drafts[conversationId]) || emptyDraft;
 
   useEffect(
     () =>
@@ -63,16 +64,19 @@ export function useAttachmentDrafts(
     if (!conversationId || !files.length || reading.current.has(conversationId)) return;
     reading.current.add(conversationId);
     try {
-      const [selected, extra] = supportsStep ? files.filter((file) => isStepFile(file.name)) : [];
-      if (extra) throw new Error("每条消息可附加一个 STEP 文件。");
-      if (selected && (!selected.size || selected.size > maxStepBytes))
-        throw new Error("请选择非空且不超过 128 MiB 的 STEP 文件。");
+      const matches =
+        fileType === "step" ? isStepFile : fileType === "zip" ? isPlanningZipFile : undefined;
+      const label = fileType?.toUpperCase();
+      const [selected, extra] = matches ? files.filter((item) => matches(item.name)) : [];
+      if (extra) throw new Error(`每条消息可附加一个 ${label} 文件。`);
+      if (fileType === "step" && selected && (!selected.size || selected.size > maxStepBytes))
+        throw new Error(`请选择非空且不超过 ${maxStepBytes / 1024 / 1024} MiB 的 STEP 文件。`);
       const pictures = files.filter((file) => file !== selected);
       if (images.length + pictures.length > 3) throw new Error("最多添加 3 张图片。");
       if (pictures.some((file) => !imageTypes.includes(file.type) || file.size > maxImageBytes))
         throw new Error(
-          supportsStep
-            ? "请选择 STEP 文件或不超过 5 MB 的 PNG、JPEG、WebP 图片。"
+          label
+            ? `请选择 ${label} 文件或不超过 5 MB 的 PNG、JPEG、WebP 图片。`
             : "请选择不超过 5 MB 的 PNG、JPEG 或 WebP 图片。",
         );
       const total =
@@ -83,7 +87,7 @@ export function useAttachmentDrafts(
       if (!reading.current.has(conversationId)) return;
       updateDraft((draft) => ({
         images: [...draft.images, ...added],
-        step: selected ?? draft.step,
+        file: selected ?? draft.file,
         error: "",
       }));
     } catch (cause) {
@@ -98,8 +102,8 @@ export function useAttachmentDrafts(
     updateDraft((draft) => ({ images: draft.images.filter((_, i) => i !== index) }));
   }
 
-  function removeStep() {
-    updateDraft(() => ({ step: undefined }));
+  function removeFile() {
+    updateDraft(() => ({ file: undefined }));
   }
 
   async function send() {
@@ -115,11 +119,11 @@ export function useAttachmentDrafts(
     }
     sending.current.add(conversationId);
     try {
-      if ((await onSend(images, step)) && sending.current.has(conversationId))
-        // 只移除本次发送的图片，保留发送期间新添加的草稿。
+      if ((await onSend(images, file)) && sending.current.has(conversationId))
+        // 保留发送期间新添加的草稿。
         updateDraft((draft) => ({
           images: draft.images.filter((image) => !images.includes(image)),
-          step: draft.step === step ? undefined : draft.step,
+          file: draft.file === file ? undefined : draft.file,
           error: draft.error === error ? "" : draft.error,
         }));
     } finally {
@@ -127,5 +131,14 @@ export function useAttachmentDrafts(
     }
   }
 
-  return { images, step, attachmentError: error, addFiles, removeImage, removeStep, send };
+  return {
+    images,
+    file,
+    fileType,
+    attachmentError: error,
+    addFiles,
+    removeImage,
+    removeFile,
+    send,
+  };
 }

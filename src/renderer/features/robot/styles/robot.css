@@ -1,0 +1,153 @@
+.scene-workspace {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.scene-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.scene-toolbar strong {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1 1 90px;
+  min-width: 0;
+}
+
+.scene-toolbar :where(strong) > svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.scene-toolbar :where(strong) > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scene-workspace button {
+  padding: 4px 9px;
+  font-size: 12px;
+}
+
+.scene-outliner {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--subtle);
+}
+
+.scene-view {
+  position: relative;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 50% 38%, var(--surface), var(--subtle));
+}
+
+.scene-canvas,
+.scene-axis-labels {
+  position: absolute;
+  inset: 0;
+}
+
+.scene-axis-labels {
+  isolation: isolate;
+  pointer-events: none;
+}
+
+.scene-canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.scene-view-actions {
+  position: absolute;
+  inset: 8px 8px auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+  pointer-events: none;
+}
+
+.scene-view-actions button {
+  gap: 5px;
+  min-height: 29px;
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+}
+
+.scene-axis-label {
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 5px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.scene-axis-origin {
+  padding: 2px 5px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.scene-axis-origin::before {
+  position: absolute;
+  bottom: 140%;
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  border: 1px solid var(--surface);
+  border-radius: 50%;
+  background: var(--text);
+  content: "";
+  transform: translate(-50%, 50%);
+}
+
+.scene-view-error {
+  position: absolute;
+  inset: auto auto 8px 8px;
+  max-width: calc(100% - 16px);
+  padding: 6px 8px;
+  background: var(--surface);
+  font-size: 12px;
+}
+
+.scene-notice {
+  margin: 6px 0;
+  padding: 0 12px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.scene-empty {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}

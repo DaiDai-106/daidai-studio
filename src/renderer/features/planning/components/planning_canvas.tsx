@@ -1,54 +1,60 @@
-import { useEffect, useRef, useState } from "react";
-import { Icon } from "../../../shared/components/icon.tsx";
-import { createSceneViewport, type ViewportIssue } from "../../scene/logic/scene_viewport.ts";
-import type { PlanningScene } from "../logic/planning_scene.ts";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ApplicationBridge } from "../../../../contracts/bridge.ts";
+import type { PlanningScene } from "../../../../contracts/planning.ts";
+import { planningPreviewRobot } from "../../../../shared/scene/planning_preview.ts";
+import { RobotViewport } from "../../robot/components/robot_viewport.tsx";
+import { createRobotViewport, type ViewportIssue } from "../../robot/logic/robot_viewport.ts";
 
-export function PlanningCanvas({ scene }: { scene: PlanningScene }) {
+const unavailable: ViewportIssue = { message: "当前环境无法启动 3D 显示。", blocked: true };
+
+export function PlanningCanvas({
+  scene,
+  projectId,
+  api,
+  showCollision,
+}: {
+  scene: PlanningScene;
+  projectId: string;
+  api: ApplicationBridge;
+  showCollision: boolean;
+}) {
   const host = useRef<HTMLDivElement>(null);
-  const viewport = useRef<ReturnType<typeof createSceneViewport>>(null);
+  const viewport = useRef<ReturnType<typeof createRobotViewport>>(null);
   const [issue, setIssue] = useState<ViewportIssue>();
+  const { revision, robot } = scene;
+  const collisionGeometry = showCollision ? scene.collisionGeometry : undefined;
+  const preview = useMemo(
+    () => planningPreviewRobot(robot, collisionGeometry),
+    [robot, collisionGeometry],
+  );
 
   useEffect(() => {
     if (!host.current) return;
     try {
-      const view = createSceneViewport(
+      viewport.current = createRobotViewport(
         host.current,
-        scene.readAsset,
-        () => {},
+        (asset) => api.readPlanningAsset(projectId, revision, asset),
         setIssue,
-        "3D 显示暂时中断。",
       );
-      viewport.current = view;
-      view.update(scene.robot, null);
     } catch {
-      setIssue({ message: "当前环境无法启动 3D 显示。", blocked: true });
+      setIssue(unavailable);
     }
     return () => {
       viewport.current?.dispose();
       viewport.current = null;
     };
-  }, [scene]);
+  }, [api, projectId, revision]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 上面的 effect 重建视口后需要同步当前模型。
+  useEffect(() => {
+    try {
+      viewport.current?.update(preview, null);
+    } catch {
+      setIssue(unavailable);
+    }
+  }, [api, projectId, revision, preview]);
 
   return (
-    <div className="scene-view planning-canvas">
-      <div className="scene-canvas" ref={host} />
-      {issue && (
-        <p className="scene-view-error" role="status">
-          {issue.message}
-        </p>
-      )}
-      {!issue?.blocked && (
-        <div className="scene-view-actions">
-          <button type="button" onClick={() => viewport.current?.fit()}>
-            <Icon name="fit" size={14} />
-            适应模型
-          </button>
-          <button type="button" onClick={() => viewport.current?.focusOrigin()}>
-            <Icon name="crosshair" size={14} />
-            定位原点
-          </button>
-        </div>
-      )}
-    </div>
+    <RobotViewport host={host} viewport={viewport} issue={issue} className="planning-canvas" />
   );
 }

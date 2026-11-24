@@ -1,15 +1,18 @@
 import { useState } from "react";
 import type { ExtensionUiRequest } from "../../../../contracts/application.ts";
+import type { PlanningSource } from "../../../../contracts/planning.ts";
 import { Dialog } from "../../../shared/components/dialog.tsx";
 
 export function ExtensionUiDialog({
   request,
   onRespond,
   onStop,
+  onChoosePlanningSource,
 }: {
   request: ExtensionUiRequest;
   onRespond: (response: { requestId: string; cancelled: boolean; value?: string }) => Promise<null>;
   onStop: () => Promise<null>;
+  onChoosePlanningSource: (requestId: string, kind: PlanningSource) => Promise<null>;
 }) {
   const [value, setValue] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
@@ -41,6 +44,19 @@ export function ExtensionUiDialog({
       await onStop();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "无法停止当前请求。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function choosePlanningSource(kind: PlanningSource) {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onChoosePlanningSource(request.requestId, kind);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "无法选择规划场景。");
     } finally {
       setBusy(false);
     }
@@ -97,6 +113,27 @@ export function ExtensionUiDialog({
             >
               确认
             </button>
+          </>
+        ) : request.kind === "planning-source" ? (
+          <>
+            {request.planningKind !== "package" && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void choosePlanningSource("urdf")}
+              >
+                选择 URDF 文件
+              </button>
+            )}
+            {request.planningKind !== "urdf" && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void choosePlanningSource("package")}
+              >
+                选择 Package 目录
+              </button>
+            )}
           </>
         ) : (
           <button

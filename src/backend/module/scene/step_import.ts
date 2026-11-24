@@ -13,12 +13,12 @@ import {
   maxStepBytes,
   SceneOriginSchema,
   type SceneRobot,
-} from "../../contracts/scene.ts";
-import { object } from "../../contracts/schema.ts";
-import { isStepFile } from "../../shared/scene/step_attachment.ts";
-import { readProjectFile } from "../projects/project_access.ts";
-import { zeroOrigin } from "./document.ts";
-import { createMeshBatch } from "./stl.ts";
+} from "../../../contracts/scene.ts";
+import { object } from "../../../contracts/schema.ts";
+import { zeroOrigin } from "../../../shared/scene/robot.ts";
+import { isStepFile } from "../../../shared/scene/step_attachment.ts";
+import { readProjectFile } from "../../projects/project_access.ts";
+import { createMeshBatch } from "./mesh_batch.ts";
 
 const run = promisify(execFile);
 const partId = Type.String({ pattern: "^part-[0-9]{1,3}$" });
@@ -111,7 +111,7 @@ export async function readStepSource(path: string, signal: AbortSignal) {
 export async function loadStepAssembly(
   path: string,
   signal: AbortSignal,
-  workerDirectory = fileURLToPath(new URL("../../../modules/scene/runtime", import.meta.url)),
+  workerDirectory = fileURLToPath(new URL("../../../../modules/scene/runtime", import.meta.url)),
 ) {
   signal.throwIfAborted();
   const staging = await mkdtemp(join(await realpath(tmpdir()), "dai-step-"));

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { editScene, validateScene } from "../../../src/backend/scene/document.ts";
-import { parseUrdf, writeUrdf } from "../../../src/backend/scene/urdf.ts";
+import { editScene, validateScene } from "../../../src/backend/module/scene/document.ts";
+import { parseUrdf, writeUrdf } from "../../../src/backend/module/scene/urdf.ts";
 import type { SceneDocument } from "../../../src/contracts/scene.ts";
 import { resolveSceneRobot } from "../../../src/shared/scene/geometry.ts";
 import {

@@ -13,6 +13,7 @@ import { useSceneWorkspace } from "../logic/use_scene_workspace.ts";
 import { SceneInspector, type SceneTarget } from "./scene_inspector.tsx";
 import { SceneSourceInspector } from "./scene_source_inspector.tsx";
 import { SceneTree } from "./scene_tree.tsx";
+import "../../robot/styles/robot.css";
 import "../styles/scene.css";
 
 const SceneCanvas = lazy(async () => ({

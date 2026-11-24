@@ -151,7 +151,7 @@ test("场景聊天选择和拖入 STEP，Agent 直接替换装配并导出 URDF"
     .getByRole("button", { name: "移除 STEP 附件 replacement.step", exact: true })
     .waitFor();
   await page.getByRole("button", { name: "发送消息", exact: true }).click();
-  await page.locator(".message.user .step-attachment").getByText("replacement.step").waitFor();
+  await page.locator(".message.user .file-attachment").getByText("replacement.step").waitFor();
   if (await mobileTab.isVisible()) await mobileTab.click();
   await scene.getByText("replacement", { exact: true }).waitFor();
   assert.equal(await linkName.inputValue(), "base_link");

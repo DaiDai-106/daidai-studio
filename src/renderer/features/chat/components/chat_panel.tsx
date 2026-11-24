@@ -28,7 +28,7 @@ import { type ChatPosition, useConversationHistory } from "../logic/use_conversa
 import { ConversationNavigation, type ConversationScrollPin } from "./conversation_navigation.tsx";
 import { ConversationTrace } from "./conversation_trace.tsx";
 import { ConversationTranscript } from "./conversation_transcript.tsx";
-import { StepAttachmentTag } from "./step_attachment_tag.tsx";
+import { FileAttachmentTag } from "./file_attachment_tag.tsx";
 import { ConversationUsage } from "./usage_details.tsx";
 
 interface Props {
@@ -131,9 +131,10 @@ export function ChatPanel(props: Props) {
   const appliedScroll = useRef<typeof history.scroll>(undefined);
   const picker = useRef<HTMLInputElement>(null);
   const { activeModel } = props;
-  const supportsStep = props.conversation.mode === "scene";
-  const { images, step, attachmentError, addFiles, removeImage, removeStep, send } =
+  const { images, file, fileType, attachmentError, addFiles, removeImage, removeFile, send } =
     props.attachments;
+  const allowedFileExtensions =
+    fileType === "step" ? ",.step,.stp" : fileType === "zip" ? ",.zip" : "";
   const thinkingLevels = activeModel?.thinkingLevels ?? ["off" as const];
   const thinkingLevel = thinkingLevels.includes(props.conversation.thinkingLevel ?? "off")
     ? (props.conversation.thinkingLevel ?? "off")
@@ -392,42 +393,46 @@ export function ChatPanel(props: Props) {
             </div>
             {!props.stream.busy && <p>未处理的消息已保存，不会自动重发。</p>}
             <ul>
-              {props.stream.queuedMessages.map((message) => (
-                <li key={message.id}>
-                  <span>
-                    {message.delivering
-                      ? "正在投递"
-                      : message.paused
-                        ? "已暂停"
-                        : message.delivery === "steer"
-                          ? "等待插话"
-                          : "完成后发送"}
-                  </span>
-                  <span className="queued-message-text" title={message.text}>
-                    {message.text || message.stepAttachment?.name || "图片消息"}
-                    {message.text && message.stepAttachment && `（${message.stepAttachment.name}）`}
-                    {message.imageCount > 0 && `（${message.imageCount} 张图片）`}
-                  </span>
-                  {props.stream?.busy &&
-                    !message.delivering &&
-                    !message.paused &&
-                    message.delivery === "followUp" && (
-                      <IconButton
-                        icon="arrow"
-                        label={`改为插话：${message.text || message.stepAttachment?.name || "图片消息"}`}
-                        onClick={() => props.onPromoteQueued(message.id)}
-                      />
-                    )}
-                  <button
-                    type="button"
-                    disabled={message.delivering}
-                    aria-label={`取消待处理消息：${message.text || message.stepAttachment?.name || "图片消息"}`}
-                    onClick={() => props.onCancelQueued(message.id)}
-                  >
-                    取消
-                  </button>
-                </li>
-              ))}
+              {props.stream.queuedMessages.map((message) => {
+                const filename = (message.stepAttachment ?? message.zipAttachment)?.name;
+                const summary = message.text || filename || "图片消息";
+                return (
+                  <li key={message.id}>
+                    <span>
+                      {message.delivering
+                        ? "正在投递"
+                        : message.paused
+                          ? "已暂停"
+                          : message.delivery === "steer"
+                            ? "等待插话"
+                            : "完成后发送"}
+                    </span>
+                    <span className="queued-message-text" title={message.text}>
+                      {summary}
+                      {message.text && filename && `（${filename}）`}
+                      {message.imageCount > 0 && `（${message.imageCount} 张图片）`}
+                    </span>
+                    {props.stream?.busy &&
+                      !message.delivering &&
+                      !message.paused &&
+                      message.delivery === "followUp" && (
+                        <IconButton
+                          icon="arrow"
+                          label={`改为插话：${summary}`}
+                          onClick={() => props.onPromoteQueued(message.id)}
+                        />
+                      )}
+                    <button
+                      type="button"
+                      disabled={message.delivering}
+                      aria-label={`取消待处理消息：${summary}`}
+                      onClick={() => props.onCancelQueued(message.id)}
+                    >
+                      取消
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           </section>
         )}
@@ -476,7 +481,7 @@ export function ChatPanel(props: Props) {
             }
           }}
         >
-          {(!!images.length || step) && (
+          {(!!images.length || file) && (
             <div className="composer-images">
               {images.map((image, index) => (
                 <div className="composer-image" key={image.data}>
@@ -493,7 +498,9 @@ export function ChatPanel(props: Props) {
                   </button>
                 </div>
               ))}
-              {step && <StepAttachmentTag name={step.name} onRemove={removeStep} />}
+              {file && fileType && (
+                <FileAttachmentTag name={file.name} kind={fileType} onRemove={removeFile} />
+              )}
             </div>
           )}
           {attachmentError && (
@@ -578,11 +585,7 @@ export function ChatPanel(props: Props) {
             <input
               ref={picker}
               type="file"
-              accept={
-                supportsStep
-                  ? "image/png,image/jpeg,image/webp,.step,.stp"
-                  : "image/png,image/jpeg,image/webp"
-              }
+              accept={`image/png,image/jpeg,image/webp${allowedFileExtensions}`}
               multiple
               hidden
               onChange={(event) => {
@@ -606,8 +609,8 @@ export function ChatPanel(props: Props) {
               />
             )}
             <IconButton
-              icon={supportsStep ? "file" : "image"}
-              label={supportsStep ? "添加附件" : "添加图片"}
+              icon={fileType ? "file" : "image"}
+              label={fileType ? "添加附件" : "添加图片"}
               onClick={() => picker.current?.click()}
             />
             <span className="composer-picker mode-button" title="项目模式">
@@ -615,20 +618,18 @@ export function ChatPanel(props: Props) {
               <span>{pluginModules[props.conversation.mode]}</span>
             </span>
             <div className="composer-spacer" />
-            {!planning && (
-              <div className="thinking-picker access-picker">
-                <Select
-                  aria-label="访问权限"
-                  value={props.conversation.accessMode ?? "ask"}
-                  disabled={!!props.stream?.busy || props.accessPending}
-                  options={[
-                    { value: "ask", label: "请求批准" },
-                    { value: "full", label: coding ? "完全访问" : "免确认调整场景" },
-                  ]}
-                  onValueChange={props.onAccessMode}
-                />
-              </div>
-            )}
+            <div className="thinking-picker access-picker">
+              <Select
+                aria-label="访问权限"
+                value={props.conversation.accessMode ?? "ask"}
+                disabled={!!props.stream?.busy || props.accessPending}
+                options={[
+                  { value: "ask", label: "请求批准" },
+                  { value: "full", label: coding || planning ? "完全访问" : "免确认调整场景" },
+                ]}
+                onValueChange={props.onAccessMode}
+              />
+            </div>
             <ActionMenu
               label="选择模型"
               side="top"
@@ -674,7 +675,7 @@ export function ChatPanel(props: Props) {
               className="send-button"
               aria-label="发送消息"
               disabled={
-                props.accessPending || (!props.conversation.draft.trim() && !images.length && !step)
+                props.accessPending || (!props.conversation.draft.trim() && !images.length && !file)
               }
               onClick={() => void send()}
             >

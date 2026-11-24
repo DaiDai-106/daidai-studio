@@ -14,6 +14,7 @@ import type {
   SettingsInfo,
   WorkspaceInfo,
 } from "./application.ts";
+import type { PlanningSource } from "./planning.ts";
 import type { SceneImportFormat } from "./scene.ts";
 
 export type CreateProjectInput = {
@@ -74,6 +75,10 @@ export interface ApplicationBridge {
   cancelStep(projectId: string): Promise<null>;
   exportUrdf(projectId: string, expectedRevision: number): Promise<Results["scene.export"] | null>;
   readSceneAsset(projectId: string, asset: string): Promise<Results["scene.asset"]>;
+  loadPlanningScene(projectId: string, kind: PlanningSource): Promise<Results["planning.load"]>;
+  getPlanningScene(projectId: string): Promise<Results["planning.get"]>;
+  choosePlanningSource(requestId: string, kind: PlanningSource): Promise<null>;
+  readPlanningAsset(projectId: string, revision: string, asset: string): Promise<string>;
 
   listCodingFiles(
     projectId: string,
@@ -121,7 +126,7 @@ export interface ApplicationBridge {
     text: string,
     images?: import("./application.ts").ChatImage[],
     delivery?: import("./application.ts").DeliveryMode,
-    step?: File,
+    attachment?: File,
   ): Promise<{ submissionId: string }>;
   stopConversation(id: string): Promise<null>;
   cancelQueuedMessage(id: string, messageId: string): Promise<null>;

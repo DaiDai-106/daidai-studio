@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/p
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createCodingFileService } from "../../../src/backend/coding/file_service.ts";
+import { createCodingFileService } from "../../../src/backend/module/coding/file_service.ts";
 import { openProjectStore } from "../../../src/backend/projects/store.ts";
 
 test("Coding 文件服务限制项目路径并安全读取文本", async () => {

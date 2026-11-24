@@ -74,13 +74,13 @@ export function ProjectWorkspace({
     application.api,
     active?.id,
     activeModel?.supportsImages ?? false,
-    active?.mode === "scene",
-    async (images, step) => {
+    active?.mode === "scene" ? "step" : active?.mode === "planning" ? "zip" : undefined,
+    async (images, file) => {
       if (!activeModel) {
         onConfigure();
         return false;
       }
-      return workbench.send(images, step);
+      return workbench.send(images, file);
     },
   );
   const [mobileTab, setMobileTab] = useState<"code" | "chat">("chat");
@@ -261,7 +261,7 @@ export function ProjectWorkspace({
             }
           >
             {planning ? (
-              <PlanningWorkspace key={project.id} />
+              <PlanningWorkspace key={project.id} projectId={project.id} api={application.api} />
             ) : (
               <SceneWorkspace key={project.id} projectId={project.id} api={application.api} />
             )}
@@ -295,6 +295,7 @@ export function ProjectWorkspace({
           key={extensionRequest.requestId}
           request={extensionRequest}
           onRespond={application.api.respondExtensionUi}
+          onChoosePlanningSource={application.api.choosePlanningSource}
           onStop={() => application.api.stopConversation(extensionRequest.conversationId)}
         />
       )}

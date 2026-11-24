@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { createAssistantMessageEventStream, InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createHistoryProjection } from "../../../src/backend/agent/history_projection.ts";
+import { createAgentModuleConfig } from "../../../src/backend/agent/module_config.ts";
 import { createPiAgent } from "../../../src/backend/agent/pi_agent.ts";
 import { createPiHistory } from "../../../src/backend/agent/pi_history.ts";
 import { createPackageService } from "../../../src/backend/extensions/package_service.ts";
@@ -76,6 +77,7 @@ test("Pi agent 从授权包加载技能和扩展，并使用项目模式的系�
       history: createPiHistory(store, dataRoot),
       packages,
       modelRuntime,
+      moduleConfig: createAgentModuleConfig({ project, conversationId: conversation.id }),
       onPackageLoad: (entries) => {
         loads = entries;
       },
@@ -109,7 +111,11 @@ test("Pi agent 从授权包加载技能和扩展，并使用项目模式的系�
       history: createPiHistory(store, dataRoot),
       packages,
       modelRuntime,
-      fullAccess: () => fullAccess,
+      moduleConfig: createAgentModuleConfig({
+        project,
+        conversationId: conversation.id,
+        fullAccess: () => fullAccess,
+      }),
     });
     try {
       const manager = coding.sessionManager;
@@ -246,4 +252,99 @@ test("Pi agent 从授权包加载技能和扩展，并使用项目模式的系�
     store.close();
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("规划 Agent 读写编辑全角空格文件时保留实际目标", async (context) => {
+  const root = await mkdtemp(join(tmpdir(), "dai-planning-file-path-"));
+  const dataRoot = join(root, "data");
+  const cwd = join(root, "workspace");
+  const store = openProjectStore(dataRoot);
+  let session: Awaited<ReturnType<typeof createPiAgent>> | undefined;
+  context.after(async () => {
+    session?.dispose();
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  await mkdir(cwd);
+  const file = "车间　参数.txt";
+  const other = "车间 参数.txt";
+  await writeFile(join(cwd, file), "目标文件");
+  await writeFile(join(cwd, other), "另一个文件");
+
+  const project = store.createProject({ name: "规划", mode: "planning", path: cwd });
+  const conversation = store.createConversation(project.id);
+  const credentials = new InMemoryCredentialStore();
+  const modelRuntime = await ModelRuntime.create({
+    credentials,
+    modelsPath: null,
+    refreshOnCreate: false,
+  });
+  modelRuntime.registerNativeProvider(
+    createProviders(credentials).create({
+      id: "planning-test",
+      name: "Planning test",
+      providerType: "local",
+      authMethod: "none",
+      endpoint: "http://127.0.0.1:1/v1",
+      enabled: true,
+      models: [{ id: "fixture", name: "Fixture", context: 4096, output: 1024, reasoning: "标准" }],
+    }),
+  );
+  const model = modelRuntime.getModel("planning-test", "fixture");
+  assert.ok(model);
+  session = await createPiAgent({
+    conversationId: conversation.id,
+    cwd,
+    dataRoot,
+    history: createPiHistory(store, dataRoot),
+    packages: createPackageService({ dataRoot, moduleId: "planning" }),
+    modelRuntime,
+    moduleConfig: createAgentModuleConfig({ project, conversationId: conversation.id }),
+    model,
+  });
+
+  const calls = [
+    { name: "read", arguments: { path: file } },
+    { name: "write", arguments: { path: file, content: "写入后" } },
+    { name: "edit", arguments: { path: file, edits: [{ oldText: "写入后", newText: "编辑后" }] } },
+  ];
+  session.agent.streamFunction = (selected) => {
+    const call = calls.shift();
+    const response = createAssistantMessageEventStream();
+    const message = {
+      role: "assistant" as const,
+      api: selected.api,
+      provider: selected.provider,
+      model: selected.id,
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      timestamp: Date.now(),
+      stopReason: call ? ("toolUse" as const) : ("stop" as const),
+      content: call
+        ? [{ type: "toolCall" as const, id: call.name, ...call }]
+        : [{ type: "text" as const, text: "完成" }],
+    };
+    response.push({ type: "done", reason: message.stopReason, message });
+    return response;
+  };
+  await session.prompt("读写并编辑指定文件");
+
+  const results = session.messages.filter((message) => message.role === "toolResult");
+  assert.deepEqual(
+    results.map(({ toolName, isError }) => [toolName, isError]),
+    [
+      ["read", false],
+      ["write", false],
+      ["edit", false],
+    ],
+  );
+  assert.deepEqual(results[0]?.content, [{ type: "text", text: "目标文件" }]);
+  assert.equal(await readFile(join(cwd, file), "utf8"), "编辑后");
+  assert.equal(await readFile(join(cwd, other), "utf8"), "另一个文件");
 });

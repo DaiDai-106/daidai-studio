@@ -6,14 +6,12 @@ import {
   type SceneJoint,
   type SceneOperation,
   type SceneRobot,
-} from "../../contracts/scene.ts";
-import { coordinates, robotFrames } from "../../shared/scene/frames.ts";
-import { sourcePartIds } from "../../shared/scene/geometry.ts";
-import { jointPosition, validateRobot, zeroOrigin } from "../../shared/scene/robot.ts";
-import { transparencyKey, transparencyTargets } from "../../shared/scene/transparency.ts";
-import { subtreeLinkIds } from "../../shared/scene/tree.ts";
-
-export { jointPosition, zeroOrigin } from "../../shared/scene/robot.ts";
+} from "../../../contracts/scene.ts";
+import { coordinates, robotFrames } from "../../../shared/scene/frames.ts";
+import { sourcePartIds } from "../../../shared/scene/geometry.ts";
+import { jointPosition, validateRobot, zeroOrigin } from "../../../shared/scene/robot.ts";
+import { transparencyKey, transparencyTargets } from "../../../shared/scene/transparency.ts";
+import { subtreeLinkIds } from "../../../shared/scene/tree.ts";
 
 export function validateScene(document: unknown): asserts document is SceneDocument {
   if (!Value.Check(SceneDocumentSchema, document)) throw new Error("场景文档格式无效。");

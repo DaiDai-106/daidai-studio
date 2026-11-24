@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { copyFile } from "node:fs/promises";
-import { splitStepMessage } from "../../src/shared/scene/step_attachment.ts";
+import { splitChatAttachment } from "../../src/shared/chat_attachment.ts";
 
 const executable = process.platform === "win32" ? "cad-import.exe" : "cad-import";
 export const stepWorkerAvailable = existsSync(
@@ -19,7 +19,7 @@ export function stepAgentReply(body: string, expectedRevision: number) {
   const content = last?.content;
   const text =
     typeof content === "string" ? content : (content?.map((part) => part.text).join("") ?? "");
-  const { stepAttachment } = splitStepMessage(text);
+  const { stepAttachment } = splitChatAttachment(text);
   const chunk = (delta: object, finish_reason: string | null) =>
     `data: ${JSON.stringify({ id: "step", object: "chat.completion.chunk", created: 1, model: "example", choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
   const reply =

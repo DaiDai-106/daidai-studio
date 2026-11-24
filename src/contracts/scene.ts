@@ -30,7 +30,7 @@ const positive = Type.Number({ exclusiveMinimum: 0 });
 const vec3 = Type.Tuple([number, number, number]);
 export const SceneOriginSchema = object({ xyz: vec3, rpy: vec3 });
 const channel = Type.Number({ minimum: 0, maximum: 1 });
-const geometry = Type.Union([
+export const SceneGeometrySchema = Type.Union([
   object({ type: Type.Literal("box"), size: Type.Tuple([positive, positive, positive]) }),
   object({ type: Type.Literal("sphere"), radius: positive }),
   object({ type: Type.Literal("cylinder"), radius: positive, length: positive }),
@@ -38,7 +38,7 @@ const geometry = Type.Union([
 ]);
 const visual = object({
   origin: SceneOriginSchema,
-  geometry,
+  geometry: SceneGeometrySchema,
   color: Type.Optional(Type.Tuple([channel, channel, channel, channel])),
 });
 const link = object({
@@ -68,7 +68,7 @@ const joint = object({
   position: number,
 });
 
-const SceneRobotSchema = object({
+export const SceneRobotSchema = object({
   name: id,
   rootLinkId: id,
   links: Type.Array(link, { minItems: 1, maxItems: 512 }),

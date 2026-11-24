@@ -38,3 +38,29 @@ test("扩展对话按会话排队，取消只影响该会话，空选项是合�
   assert.equal(manager.pending().length, 0);
   assert.ok(events.some((event) => event.type === "extension.ui.dismissed"));
 });
+
+test("规划场景选择绑定请求和类型，系统选择取消后释放等待", async () => {
+  const manager = createExtensionUi(() => {});
+  const picking = manager.choosePlanningSource("planning", "package");
+  const [request] = manager.pending();
+  assert.ok(request);
+  assert.equal(request.kind, "planning-source");
+  assert.equal(request.planningKind, "package");
+  assert.throws(() => manager.checkPlanningSource(request.requestId, "urdf"), /无效/);
+  assert.throws(
+    () =>
+      manager.respond({ requestId: request.requestId, cancelled: false, value: "/tmp/model.urdf" }),
+    /请选择本地规划场景/,
+  );
+  manager.checkPlanningSource(request.requestId, "package");
+  manager.respondPlanningSource(request.requestId, "package", "/tmp/robot-package");
+  assert.deepEqual(await picking, { kind: "package", path: "/tmp/robot-package" });
+  assert.throws(() => manager.checkPlanningSource(request.requestId, "package"), /已失效/);
+
+  const cancelled = manager.choosePlanningSource("planning");
+  const [next] = manager.pending();
+  assert.ok(next);
+  manager.respondPlanningSource(next.requestId, "urdf");
+  assert.equal(await cancelled, undefined);
+  assert.deepEqual(manager.pending(), []);
+});

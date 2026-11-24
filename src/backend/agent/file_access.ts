@@ -1,7 +1,7 @@
 import { lstat, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 
 type Options = {
@@ -54,19 +54,27 @@ async function canonicalTarget(path: string, allowMissing: boolean): Promise<str
   }
 }
 
-/** 只约束 Pi 基础文件工具；它不是已批准 shell 或第三方包的沙箱。 */
-export async function validateFileToolPath(options: Options & { path: string; write: boolean }) {
+/** 校验工具路径，可按字面值保留文件名中的空格和前缀。 */
+export async function validateFileToolPath(
+  options: Options & {
+    path: string;
+    write: boolean;
+    literal?: boolean;
+    allowOutsideProject?: boolean;
+  },
+) {
   if (!options.path || options.path.includes("\0")) throw new Error("文件路径无效。");
   const cwd = await realpath(options.cwd);
-  const target = await canonicalTarget(normalizeInput(options.path, cwd), options.write);
-  if (isWithinRoot(cwd, target)) return;
+  const input = options.literal ? resolve(cwd, options.path) : normalizeInput(options.path, cwd);
+  const target = await canonicalTarget(input, options.write);
+  if (options.allowOutsideProject || isWithinRoot(cwd, target)) return target;
 
   if (!options.write) {
     const roots =
       typeof options.skillRoots === "function" ? options.skillRoots() : (options.skillRoots ?? []);
     for (const path of roots) {
       try {
-        if (isWithinRoot(await realpath(path), target)) return;
+        if (isWithinRoot(await realpath(path), target)) return target;
       } catch {
         /* 失效的技能不授予访问。 */
       }
@@ -76,18 +84,31 @@ export async function validateFileToolPath(options: Options & { path: string; wr
   throw new Error("文件路径不在项目目录或明确授权的文件范围内。");
 }
 
-export function createFileAccess(options: Options): ExtensionFactory {
+export function createFileAccess(
+  options: Options & { literalFilePaths?: boolean },
+): ExtensionFactory {
   return (pi) => {
     pi.on("tool_call", async (event) => {
       const reading = ["read", "ls", "find", "grep"].includes(event.toolName);
       const writing = ["write", "edit"].includes(event.toolName);
       if (!reading && !writing) return;
-      const raw = (event.input as Record<string, unknown>).path;
+      const input = event.input as Record<string, unknown>;
+      const raw = input.path;
       const path = raw === undefined && ["ls", "find", "grep"].includes(event.toolName) ? "." : raw;
       if (typeof path !== "string") return { block: true, reason: "文件路径无效。" };
-      if (options.fullAccess?.()) return;
+      const literal = options.literalFilePaths === true && (writing || event.toolName === "read");
+      const fullAccess = options.fullAccess?.() === true;
+      if (fullAccess && !literal) return;
       try {
-        await validateFileToolPath({ ...options, path, write: writing });
+        const target = await validateFileToolPath({
+          ...options,
+          path: literal && path.startsWith("file://") ? fileURLToPath(path) : path,
+          write: writing,
+          literal,
+          allowOutsideProject: fullAccess,
+        });
+        // Pi 会先归一化空格再解码 file URL，编码后的路径能保留实际文件名。
+        if (literal) input.path = pathToFileURL(target).href;
       } catch {
         return { block: true, reason: "文件路径不在项目目录或明确授权的文件范围内。" };
       }

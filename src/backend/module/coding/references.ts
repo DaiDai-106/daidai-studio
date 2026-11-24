@@ -1,4 +1,4 @@
-import { FILE_SNAPSHOT_MARKER, fileReferences } from "../../shared/file_references.ts";
+import { FILE_SNAPSHOT_MARKER, fileReferences } from "../../../shared/file_references.ts";
 import type { createCodingFileService } from "./file_service.ts";
 
 /** 引用在发送时读取，聊天历史与模型接收同一份带哈希、行号的快照。 */

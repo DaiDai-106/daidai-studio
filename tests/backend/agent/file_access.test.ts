@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -18,6 +18,12 @@ test("Pi 文件工具只允许访问项目目录和读取技能目录", async ()
   const base = { cwd, skillRoots: [skill] };
   try {
     await validateFileToolPath({ ...base, path: "@ok.txt", write: false });
+    const literal = "@车间　一号";
+    await Promise.all([mkdir(join(cwd, literal)), mkdir(join(cwd, "车间 一号"))]);
+    assert.equal(
+      await validateFileToolPath({ cwd, path: literal, write: false, literal: true }),
+      await realpath(join(cwd, literal)),
+    );
     await validateFileToolPath({ ...base, path: "new/sub/file.txt", write: true });
     await validateFileToolPath({ ...base, path: join(skill, "SKILL.md"), write: false });
     await validateFileToolPath({
@@ -42,6 +48,10 @@ test("Pi 文件工具只允许访问项目目录和读取技能目录", async ()
       await symlink(join(outside, "new-target"), join(cwd, "dangling"));
       await assert.rejects(
         validateFileToolPath({ ...base, path: "escape/secret.txt", write: false }),
+        /授权/,
+      );
+      await assert.rejects(
+        validateFileToolPath({ cwd, path: "escape/secret.txt", write: false, literal: true }),
         /授权/,
       );
       await assert.rejects(

@@ -4,8 +4,8 @@ import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createCodingFileService } from "../../../src/backend/coding/file_service.ts";
-import { createCodingGitService } from "../../../src/backend/coding/git_service.ts";
+import { createCodingFileService } from "../../../src/backend/module/coding/file_service.ts";
+import { createCodingGitService } from "../../../src/backend/module/coding/git_service.ts";
 import { openProjectStore } from "../../../src/backend/projects/store.ts";
 
 test("Git 差异按项目目录区分暂存、未暂存和未跟踪文件", async () => {

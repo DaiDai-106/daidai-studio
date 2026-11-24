@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { basename, isAbsolute } from "node:path";
 import { contentText } from "@earendil-works/pi-ai";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type {
@@ -8,22 +9,23 @@ import type {
   ConversationView,
 } from "../../contracts/application.ts";
 import type { PackageLoad, PluginModule } from "../../contracts/catalog.ts";
-import type { StepAttachment } from "../../contracts/scene.ts";
-import { attachStepToMessage, splitStepMessage } from "../../shared/scene/step_attachment.ts";
-import { createCodingFileService } from "../coding/file_service.ts";
-import { resolveFileReferences } from "../coding/references.ts";
+import { splitChatAttachment, stepMessage, zipMessage } from "../../shared/chat_attachment.ts";
+import { isPlanningZipFile } from "../../shared/planning_zip.ts";
 import { createPackageService } from "../extensions/package_service.ts";
 import { createSkillService } from "../extensions/skill_service.ts";
+import { createCodingFileService } from "../module/coding/file_service.ts";
+import { resolveFileReferences } from "../module/coding/references.ts";
+import type { createPlanningService } from "../module/planning/service.ts";
+import type { createSceneService } from "../module/scene/service.ts";
 import type { openProjectStore, QueuedMessage, StoredConversation } from "../projects/store.ts";
-import type { createSceneService } from "../scene/service.ts";
 import type { createSettingsService } from "../settings/service.ts";
 import { conversationTitle } from "./conversation_title.ts";
 import type { createExtensionUi } from "./extension_ui.ts";
 import { createHistoryProjection } from "./history_projection.ts";
+import { createAgentModuleConfig } from "./module_config.ts";
 import { createPiAgent } from "./pi_agent.ts";
 import { createPiHistory } from "./pi_history.ts";
 import { projectTrace, traceDetail } from "./pi_trace.ts";
-import { createSceneTools } from "./scene_tools.ts";
 import type { createShellApproval } from "./shell_approval.ts";
 
 type Settings = Awaited<ReturnType<typeof createSettingsService>>;
@@ -56,6 +58,7 @@ export function createConversations(options: {
   settings: Settings;
   codingFiles?: ReturnType<typeof createCodingFileService>;
   scene?: ReturnType<typeof createSceneService>;
+  planning?: ReturnType<typeof createPlanningService>;
   publish: (event: ApplicationEvent) => void;
   shellApproval?: ReturnType<typeof createShellApproval>;
   extensionUi?: ReturnType<typeof createExtensionUi>;
@@ -191,11 +194,11 @@ export function createConversations(options: {
       historyKey: projected.historyKey,
       partial: state.partial ?? "",
       queuedMessages: queued(id, state).map((item) => {
-        const { text, stepAttachment } = splitStepMessage(item.text);
+        const { text, ...attachment } = splitChatAttachment(item.text);
         return {
           id: item.id,
           text: text.slice(0, 1000),
-          ...(stepAttachment ? { stepAttachment } : {}),
+          ...attachment,
           delivery: item.delivery,
           imageCount: item.images?.length ?? 0,
           delivering: state.delivery?.id === item.id,
@@ -260,8 +263,10 @@ export function createConversations(options: {
 
     const skills = await userSkills.list();
     const fullAccess = () => store.getConversation(id)?.accessMode === "full";
-    const scene = project.mode === "scene";
-    if (scene && !options.scene) throw new Error("场景工具不可用。");
+    const moduleConfig = createAgentModuleConfig(
+      { project, conversationId: id, fullAccess },
+      options,
+    );
     const session = await createPiAgent({
       conversationId: id,
       onPackageLoad: (entries) => options.onPackageLoad?.(project.mode, entries),
@@ -270,21 +275,12 @@ export function createConversations(options: {
       history,
       packages: createPackageService({ dataRoot, moduleId: project.mode }),
       modelRuntime: settings.modelRuntime,
+      moduleConfig,
       beforePrompt() {
         if (state.run?.stopped) throw cancelledSend();
         state.run?.acceptSubmission?.();
       },
       ...(options.extensionUi ? { uiContext: options.extensionUi.context(id) } : {}),
-      ...(scene && options.scene
-        ? { sceneTools: createSceneTools(options.scene, project.id, fullAccess) }
-        : project.mode === "planning"
-          ? { planning: true }
-          : {
-              fullAccess,
-              ...(options.shellApproval
-                ? { shellApproval: options.shellApproval.extension(id, fullAccess) }
-                : {}),
-            }),
       model,
       skillPaths: skills.skills.map((skill) => skill.filePath),
     });
@@ -412,7 +408,7 @@ export function createConversations(options: {
   }
 
   async function submitMessage(
-    input: Omit<Arguments<"conversation.send">, "stepPath"> & {
+    input: Omit<Arguments<"conversation.send">, "stepPath" | "zipPath"> & {
       queuedId?: string;
       stepAttachmentId?: string;
     },
@@ -616,46 +612,59 @@ export function createConversations(options: {
     },
 
     async send(input: Arguments<"conversation.send">): Promise<{ submissionId: string }> {
-      if (!input.text.trim() && !input.images?.length && !input.stepPath)
+      const { stepPath, zipPath, ...message } = input;
+      if (!input.text.trim() && !input.images?.length && !stepPath && !zipPath)
         throw new Error("请输入消息。");
+      if (stepPath && zipPath) throw new Error("每条消息只能附加一个文件。");
       const id = input.id;
       const conversation = requireConversation(id);
       const state = runtime(id);
       if (state.preparing) throw new Error("正在读取 STEP 附件。");
-      if (input.stepPath) {
+      if (zipPath) {
+        if (store.getProject(conversation.projectId)?.mode !== "planning")
+          throw new Error("只有规划对话可以附加 ZIP 文件。");
+        if (!isAbsolute(zipPath) || !isPlanningZipFile(zipPath) || zipPath.includes("\0"))
+          throw new Error("请选择本机 ZIP 文件。");
+        const name = basename(zipPath)
+          .replace(/\p{Cc}/gu, "_")
+          .slice(-255);
+        const text = zipMessage.attach(message.text, { name, path: zipPath });
+        return submitMessage({ ...message, text }, conversation, state);
+      }
+      if (stepPath) {
         const scene = options.scene;
         if (!scene || store.getProject(conversation.projectId)?.mode !== "scene")
           throw new Error("只有场景对话可以附加 STEP 文件。");
         const active = state.run;
         if (active?.stopped) throw cancelledSend();
         if (active && !input.delivery) throw new Error("此会话正在运行，请选择插话或完成后发送。");
-        const { stepPath, ...message } = input;
         const controller = new AbortController();
         const done = Promise.withResolvers<void>();
         const preparing = { controller, done: done.promise };
         state.preparing = preparing;
-        let attachment: StepAttachment | undefined;
+        let attachmentId: string | undefined;
         try {
           emit(id);
           publish({ type: "workspace" });
-          attachment = await scene.saveStepAttachment(
+          const attachment = await scene.saveStepAttachment(
             conversation.projectId,
             stepPath,
             controller.signal,
           );
+          attachmentId = attachment.id;
           controller.signal.throwIfAborted();
           delete state.preparing;
           return await submitMessage(
             {
               ...message,
-              text: attachStepToMessage(message.text, attachment),
+              text: stepMessage.attach(message.text, attachment),
               stepAttachmentId: attachment.id,
             },
             conversation,
             state,
           );
         } catch (error) {
-          if (attachment) await discardStepAttachment(conversation.projectId, attachment.id);
+          if (attachmentId) await discardStepAttachment(conversation.projectId, attachmentId);
           throw error;
         } finally {
           done.resolve();
@@ -666,7 +675,7 @@ export function createConversations(options: {
           }
         }
       }
-      return submitMessage(input, conversation, state);
+      return submitMessage(message, conversation, state);
     },
 
     async stop(id: string) {

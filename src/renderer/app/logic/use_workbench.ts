@@ -50,8 +50,12 @@ export function useWorkbench(application: ApplicationState) {
       });
   }
 
-  async function send(images: ChatImage[] = [], step?: File) {
-    if (!active || accessPendingRef.current || (!active.draft.trim() && !images.length && !step))
+  async function send(images: ChatImage[] = [], attachment?: File) {
+    if (
+      !active ||
+      accessPendingRef.current ||
+      (!active.draft.trim() && !images.length && !attachment)
+    )
       return false;
     const id = active.id;
     const draft = active.draft;
@@ -59,7 +63,7 @@ export function useWorkbench(application: ApplicationState) {
     const version = writer.version(id);
     const result = await application.run(async () => {
       await writer.flush();
-      await api.sendMessage(id, crypto.randomUUID(), text, images, "followUp", step);
+      await api.sendMessage(id, crypto.randomUUID(), text, images, "followUp", attachment);
       if (writer.version(id) === version) {
         writer.clear(id);
         setDrafts((items) => ({ ...items, [id]: "" }));

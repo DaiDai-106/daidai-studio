@@ -29,12 +29,14 @@ const worldAxes = [
 
 export type ViewportIssue = { message: string; blocked: boolean };
 
-export function createSceneViewport(
+export function createRobotViewport(
   host: HTMLElement,
   readAsset: (id: string) => Promise<string>,
-  onSelect: (id: string) => void,
   onIssue: (issue?: ViewportIssue) => void,
-  blockedMessage = "3D 显示暂时中断。仍可在结构树中编辑模型。",
+  {
+    onSelect,
+    blockedMessage = "3D 显示暂时中断。",
+  }: { onSelect?: (id: string) => void; blockedMessage?: string } = {},
 ) {
   const renderer = new WebGLRenderer({ alpha: true, antialias: true });
   const { domElement: canvas } = renderer;
@@ -135,18 +137,28 @@ export function createSceneViewport(
     frameView(new Vector3(), axisLength * 1.2);
   }
 
+  function isUsingModelFit() {
+    return (
+      !framingOrigin &&
+      camera.position.equals(orbit.position0) &&
+      orbit.target.equals(orbit.target0)
+    );
+  }
+
   function resize() {
     const { clientWidth: width, clientHeight: height } = host;
     if (!width || !height) return;
     renderer.setSize(width, height, false);
     labels.setSize(width, height);
-    camera.aspect = width / height;
+    const aspect = width / height;
+    const aspectChanged = camera.aspect !== aspect;
+    camera.aspect = aspect;
     camera.updateProjectionMatrix();
     if (!sized) {
       sized = true;
       if (framingOrigin) focusOrigin();
       else fit();
-    }
+    } else if (aspectChanged && model && isUsingModelFit()) fit();
     render();
   }
   function start(event: PointerEvent) {
@@ -155,7 +167,7 @@ export function createSceneViewport(
   function select(event: PointerEvent) {
     const down = pointer;
     pointer = undefined;
-    if (!event.isPrimary || event.button !== 0 || !down || !model || lost) return;
+    if (!onSelect || !event.isPrimary || event.button !== 0 || !down || !model || lost) return;
     if (down.distanceTo(new Vector2(event.clientX, event.clientY)) > 5) return;
     const bounds = canvas.getBoundingClientRect();
     if (!bounds.width || !bounds.height) return;
@@ -193,8 +205,10 @@ export function createSceneViewport(
   host.append(canvas, labels.domElement);
   observer.observe(host);
   orbit.addEventListener("change", render);
-  canvas.addEventListener("pointerdown", start);
-  canvas.addEventListener("pointerup", select);
+  if (onSelect) {
+    canvas.addEventListener("pointerdown", start);
+    canvas.addEventListener("pointerup", select);
+  }
   canvas.addEventListener("webglcontextlost", contextLost);
   canvas.addEventListener("webglcontextrestored", contextRestored);
   resize();
@@ -230,14 +244,7 @@ export function createSceneViewport(
           scene.add(current.root);
           needsFit = true;
           void current.ready.then(() => {
-            if (
-              !disposed &&
-              model === current &&
-              !framingOrigin &&
-              camera.position.equals(orbit.position0) &&
-              orbit.target.equals(orbit.target0)
-            )
-              fit();
+            if (!disposed && model === current && isUsingModelFit()) fit();
           });
         }
       }

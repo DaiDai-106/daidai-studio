@@ -4,6 +4,9 @@ import {
   APP_INFO_CHANNEL,
   type DesktopBridge,
   EVENT_CHANNEL,
+  FILE_MESSAGE_CHANNEL,
+  PLANNING_LOAD_CHANNEL,
+  PLANNING_PICK_CHANNEL,
   PROJECT_CREATE_CHANNEL,
   PROJECT_DIRECTORY_CHANNEL,
   QUIT_FLUSH_CHANNEL,
@@ -12,7 +15,6 @@ import {
   REQUEST_CHANNEL,
   SCENE_EXPORT_CHANNEL,
   SCENE_IMPORT_CHANNEL,
-  SCENE_STEP_MESSAGE_CHANNEL,
   SKILL_IMPORT_CHANNEL,
   THEME_CHANNEL,
   THEMES_CHANNEL,
@@ -25,6 +27,7 @@ import {
   PREVIEW_SHOW_CHANNEL,
   type PreviewEvent,
 } from "../../contracts/web_preview.ts";
+import { isPlanningZipFile } from "../../shared/planning_zip.ts";
 
 // 前端只能使用下方显式开放的方法，实际请求由主进程转发给后端。
 function call<K extends Method>(method: K, args: Arguments<K>): Promise<Results[K]> {
@@ -104,6 +107,13 @@ const desktop: DesktopBridge = {
     exportUrdf: (projectId, expectedRevision) =>
       ipcRenderer.invoke(SCENE_EXPORT_CHANNEL, projectId, expectedRevision),
     readSceneAsset: (projectId, asset) => call("scene.asset", { projectId, asset }),
+    loadPlanningScene: (projectId, kind) =>
+      ipcRenderer.invoke(PLANNING_LOAD_CHANNEL, projectId, kind),
+    getPlanningScene: (projectId) => call("planning.get", { projectId }),
+    choosePlanningSource: (requestId, kind) =>
+      ipcRenderer.invoke(PLANNING_PICK_CHANNEL, requestId, kind),
+    readPlanningAsset: (projectId, revision, asset) =>
+      call("planning.asset", { projectId, revision, asset }),
     listCodingFiles: (projectId, path, offset, snapshot) =>
       call("coding.list", { projectId, path, offset, ...(snapshot ? { snapshot } : {}) }),
     searchCodingFiles: (projectId, query) => call("coding.search", { projectId, query }),
@@ -131,7 +141,7 @@ const desktop: DesktopBridge = {
     readConversationHistory: (input) => call("conversation.history", input),
     getConversationTrace: (id) => call("conversation.trace", { id }),
     getTraceDetail: (id, entryId) => call("conversation.traceDetail", { id, entryId }),
-    async sendMessage(id, requestId, text, images, delivery, step) {
+    async sendMessage(id, requestId, text, images, delivery, attachment) {
       const input = {
         id,
         requestId,
@@ -139,10 +149,13 @@ const desktop: DesktopBridge = {
         ...(images?.length ? { images } : {}),
         ...(delivery ? { delivery } : {}),
       };
-      if (!step) return call("conversation.send", input);
-      const stepPath = webUtils.getPathForFile(step);
-      if (!stepPath) throw new Error("请选择本机上的 STEP 文件。");
-      return ipcRenderer.invoke(SCENE_STEP_MESSAGE_CHANNEL, { ...input, stepPath });
+      if (!attachment) return call("conversation.send", input);
+      const path = webUtils.getPathForFile(attachment);
+      if (!path) throw new Error("请选择本机上的附件。");
+      return ipcRenderer.invoke(FILE_MESSAGE_CHANNEL, {
+        ...input,
+        ...(isPlanningZipFile(path) ? { zipPath: path } : { stepPath: path }),
+      });
     },
     stopConversation: (id) => call("conversation.stop", { id }),
     cancelQueuedMessage: (id, messageId) => call("conversation.cancelQueued", { id, messageId }),

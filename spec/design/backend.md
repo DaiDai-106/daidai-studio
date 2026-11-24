@@ -27,15 +27,23 @@ Pi 会话拥有对话历史，Dai 保存项目索引、草稿和模型选择。`
 ```text
 src/desktop/        Electron 主进程和 preload
 src/renderer/       React 页面、聊天、项目、设置
+  features/robot/   场景搭建与规划共用的 3D 视口
 src/backend/
-  agent/            Pi 会话、工具适配与授权
-  coding/           项目文件、引用与 Git 只读服务
+  agent/            Pi 会话与授权
+    prompt/         各模块的系统提示词
+    tool/           按模块注册 Agent 工具
+    module_config.ts 各模块的提示词、工具和访问配置装配
+  module/           后端业务模块
+    coding/         项目文件、引用与 Git 只读服务
+    planning/       One Punch 进程与规划场景服务
+    scene/          场景编辑、URDF 和 STEP 导入
   extensions/       Package、Skill 服务与请求处理
   projects/         项目与会话元数据存储
   settings/         模型提供方、认证和应用设置
 src/contracts/      实际跨进程请求、响应及事件
 src/shared/         跨层纯逻辑；node/ 仅供 Node 进程使用的文件访问
 modules/scene/      独立 STEP 解析工具和 OCCT 构建配置
+modules/planning/   One Punch worker 和构建配置
 resources/icons/    桌面图标
 scripts/            构建辅助脚本
 tests/              测试入口、契约、后端和 Electron 测试
@@ -53,7 +61,7 @@ Pi 依赖固定为 `1.6.0`（`pi-ai`、`pi-coding-agent` 同步升级）。模�
 
 `backend_process.ts` 启动后端、等待就绪并处理异常退出，`backend.ts` 校验响应与事件，并用请求 ID 配对结果。查询和写入排队的等待上限为 30 秒，后端退出时主进程拒绝仍在等待的调用。关闭窗口通常隐藏到托盘，应用退出时由 `quit.ts` 协调草稿保存、后端清理与托盘关闭。Linux 用设备号和 inode 将桌面主进程和后端绑定到同一数据目录。
 
-网页预览按项目和标签身份隔离。`browser/controller.ts` 和 `browser/ipc.ts` 管理视图、矩形、生命周期和请求，`urls.ts` 与 `static_server.ts` 限制预览来源及项目内 HTML 的静态资源。初始化中的标签也计入数量上限。关闭标签或销毁窗口时取消未完成的初始化，取消标记只保留到初始化结束。浏览器通过后端确认项目身份，文件与 Git 由 `src/backend/coding/` 处理，共用的目录句柄和限量读取逻辑位于 `src/shared/node/file_access.ts`。 [Coding 工作区](coding_workspace.md#安全与平台边界)
+网页预览按项目和标签身份隔离。`browser/controller.ts` 和 `browser/ipc.ts` 管理视图、矩形、生命周期和请求，`urls.ts` 与 `static_server.ts` 限制预览来源及项目内 HTML 的静态资源。初始化中的标签也计入数量上限。关闭标签或销毁窗口时取消未完成的初始化，取消标记只保留到初始化结束。浏览器通过后端确认项目身份，文件与 Git 由 `src/backend/module/coding/` 处理，共用的目录句柄和限量读取逻辑位于 `src/shared/node/file_access.ts`。 [Coding 工作区](coding_workspace.md#安全与平台边界)
 
 ## 核心数据与请求流程
 

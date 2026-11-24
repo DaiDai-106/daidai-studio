@@ -6,7 +6,7 @@ import {
   type MessageInfo,
   type ResponseInfo,
 } from "../../contracts/application.ts";
-import { splitStepMessage } from "../../shared/scene/step_attachment.ts";
+import { splitChatAttachment } from "../../shared/chat_attachment.ts";
 import { type ModelContext, projectUsage } from "./pi_usage.ts";
 import { displayArguments } from "./presentation.ts";
 
@@ -64,7 +64,7 @@ export function projectPiHistory(
           id: entry.id,
           role: "user",
           ...content,
-          ...splitStepMessage(content.text),
+          ...splitChatAttachment(content.text),
           failed: false,
           timestamp: message.timestamp,
         });

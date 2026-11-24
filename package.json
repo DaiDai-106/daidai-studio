@@ -23,6 +23,7 @@
     "format": "biome format --write .",
     "build:icons": "node --experimental-strip-types scripts/icons.ts",
     "build:scene": "cmake -S modules/scene/cmake -B modules/scene/build/bootstrap && cmake --build modules/scene/build/bootstrap --config Release",
+    "build:planning": "cmake -S modules/planning -B modules/planning/build -DCMAKE_BUILD_TYPE=Release && cmake --build modules/planning/build --config Release && cmake --install modules/planning/build --config Release --prefix modules/planning/runtime",
     "build:package": "npm run build:scene && npm run build",
     "build": "npm run typecheck && npm run build:icons && electron-vite build",
     "test": "npm run build && node -e \"require('electron')\" && node tests/runners/test_runner.mjs",

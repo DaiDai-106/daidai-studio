@@ -46,17 +46,19 @@ test("画布每次初始化只同步一次，侧栏调宽不更新材质，透�
       initial
         .filter((fn) => fn.functionName === name)
         .reduce((count, fn) => count + (fn.ranges[0]?.count ?? 0), 0);
-    const created = calls("createSceneViewport");
+    const created = calls("createRobotViewport");
     assert.ok(created > 0, "应能观测视口创建，包含 StrictMode 的生命周期重放");
     assert.equal(calls("setOpacity"), created, "每个视口只执行一次初始材质同步");
     await scene.getByRole("button", { name: "base", exact: true }).click();
     await settle();
-    const materialUpdates = async () => {
+    const canvasUpdates = async () => {
       const { result } = await cdp.send("Profiler.takePreciseCoverage");
-      const setters = result.flatMap((script) =>
-        script.functions.filter((fn) => fn.functionName === "setOpacity"),
-      );
-      return setters.reduce((count, fn) => count + (fn.ranges[0]?.count ?? 0), 0);
+      const functions = result.flatMap((script) => script.functions);
+      const count = (name: string) =>
+        functions
+          .filter((fn) => fn.functionName === name)
+          .reduce((total, fn) => total + (fn.ranges[0]?.count ?? 0), 0);
+      return { opacity: count("setOpacity"), fit: count("fit") };
     };
     const opacity = scene.getByRole("slider", { name: "所选对象透明度" });
     await opacity.focus();
@@ -66,7 +68,7 @@ test("画布每次初始化只同步一次，侧栏调宽不更新材质，透�
         document.querySelector<HTMLInputElement>('[aria-label="所选对象透明度"]')?.value === "1",
     );
     await settle();
-    assert.ok((await materialUpdates()) > 0, "应能观测真实模型材质更新函数");
+    assert.ok((await canvasUpdates()).opacity > 0, "应能观测真实模型材质更新函数");
     const splitter = scene.getByRole("separator", { name: "调整属性与画布宽度" });
     const width = await splitter.getAttribute("aria-valuenow");
     await splitter.press("ArrowLeft");
@@ -78,7 +80,9 @@ test("画布每次初始化只同步一次，侧栏调宽不更新材质，透�
       width,
     );
     await settle();
-    assert.equal(await materialUpdates(), 0);
+    const resizing = await canvasUpdates();
+    assert.equal(resizing.opacity, 0);
+    assert.ok(resizing.fit > 0, "画布调宽后，默认视角重新适应模型");
     await opacity.focus();
     await opacity.press("ArrowRight");
     await page.waitForFunction(
@@ -86,7 +90,7 @@ test("画布每次初始化只同步一次，侧栏调宽不更新材质，透�
         document.querySelector<HTMLInputElement>('[aria-label="所选对象透明度"]')?.value === "2",
     );
     await settle();
-    assert.ok((await materialUpdates()) > 0);
+    assert.ok((await canvasUpdates()).opacity > 0);
   } finally {
     await cdp.send("Profiler.stopPreciseCoverage");
     await cdp.detach();
