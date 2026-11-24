@@ -277,12 +277,14 @@ export function createConversations(options: {
       ...(options.extensionUi ? { uiContext: options.extensionUi.context(id) } : {}),
       ...(scene && options.scene
         ? { sceneTools: createSceneTools(options.scene, project.id, fullAccess) }
-        : {
-            fullAccess,
-            ...(options.shellApproval
-              ? { shellApproval: options.shellApproval.extension(id, fullAccess) }
-              : {}),
-          }),
+        : project.mode === "planning"
+          ? { planning: true }
+          : {
+              fullAccess,
+              ...(options.shellApproval
+                ? { shellApproval: options.shellApproval.extension(id, fullAccess) }
+                : {}),
+            }),
       model,
       skillPaths: skills.skills.map((skill) => skill.filePath),
     });

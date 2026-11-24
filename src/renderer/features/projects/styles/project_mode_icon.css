@@ -10,3 +10,6 @@
 .project-mode-icon[data-mode="scene"] {
   color: color-mix(in srgb, #9560b7 72%, var(--text));
 }
+.project-mode-icon[data-mode="planning"] {
+  color: color-mix(in srgb, #23836c 72%, var(--text));
+}

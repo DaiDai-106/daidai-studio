@@ -10,9 +10,16 @@ const CatalogResourceSchema = Type.Enum(["extension", "skill", "prompt", "theme"
 export const pluginModules = {
   coding: "Coding",
   scene: "场景搭建",
+  planning: "规划",
 } as const;
-export const PluginModuleSchema = Type.Enum(["coding", "scene"]);
-export type PluginModule = Static<typeof PluginModuleSchema>;
+export type PluginModule = keyof typeof pluginModules;
+export const pluginModuleIds = Object.keys(pluginModules) as PluginModule[];
+export const PluginModuleSchema = Type.Enum(pluginModuleIds);
+
+export function isPluginModule(value: unknown): value is PluginModule {
+  return typeof value === "string" && Object.hasOwn(pluginModules, value);
+}
+
 export const PluginScopeSchema = Type.Enum(["global", "module"]);
 export type PluginScope = Static<typeof PluginScopeSchema>;
 // 同一来源可同时装在全局与模块，诊断必须保留实际生效的范围。

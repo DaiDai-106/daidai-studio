@@ -1,6 +1,8 @@
 import { useState } from "react";
 import type { CreateProjectInput } from "../../../../contracts/bridge.ts";
+import { isPluginModule, pluginModuleIds, pluginModules } from "../../../../contracts/catalog.ts";
 import { Dialog, Field } from "../../../shared/components/dialog.tsx";
+import { ProjectModeIcon } from "./project_mode_icon.tsx";
 import "../styles/create_project.css";
 
 // 工作目录的选择交给主进程，界面不会自行提交未授权的绝对路径。
@@ -62,18 +64,25 @@ export function CreateProjectDialog({
         <Field label="项目名称">
           <input value={name} onChange={(event) => setName(event.target.value)} maxLength={80} />
         </Field>
-        <Field label="项目类型">
-          <select
-            value={mode}
-            onChange={(event) =>
-              setMode(event.currentTarget.value === "scene" ? "scene" : "coding")
-            }
-            disabled={submitting || selecting}
-          >
-            <option value="coding">Coding</option>
-            <option value="scene">场景搭建</option>
-          </select>
-        </Field>
+        <div className="project-mode-choice">
+          <Field label="项目类型">
+            <select
+              value={mode}
+              onChange={(event) => {
+                const next = event.currentTarget.value;
+                if (isPluginModule(next)) setMode(next);
+              }}
+              disabled={submitting || selecting}
+            >
+              {pluginModuleIds.map((value) => (
+                <option key={value} value={value}>
+                  {pluginModules[value]}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <ProjectModeIcon mode={mode} />
+        </div>
         {mode === "coding" && (
           <div className="project-directory-choice">
             <span className="project-directory-label">项目文件夹</span>

@@ -171,6 +171,10 @@ export function PluginCenter({
             title={pluginModules.scene}
             description="在场景项目中导入 STEP 或 URDF，编辑连杆和关节、预览运动，并导出 URDF 和 STL 网格。"
           />
+          <SettingRow
+            title={pluginModules.planning}
+            description="在规划项目中选择工艺，加载并预览 URDF 或 Package。"
+          />
         </div>
       )}
       {center.detailState && (

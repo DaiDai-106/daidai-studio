@@ -103,6 +103,7 @@ export function ChatPanel(props: Props) {
   const [view, setView] = useState<"chat" | "trace">("chat");
   const [mention, setMention] = useState<ReturnType<typeof fileMention>>(null);
   const coding = props.conversation.mode === "coding";
+  const planning = props.conversation.mode === "planning";
   const referenceOpen = coding && mention !== null;
   const [activeOption, setActiveOption] = useState<string | undefined>(undefined);
   const referencePicker = useRef<FileReferencePickerHandle>(null);
@@ -360,13 +361,15 @@ export function ChatPanel(props: Props) {
             <div className="welcome-symbol">
               <Icon name="file" size={30} />
             </div>
-            <h1>{coding ? "从代码任务开始" : "从场景任务开始"}</h1>
+            <h1>{planning ? "从规划任务开始" : coding ? "从代码任务开始" : "从场景任务开始"}</h1>
             <p>
-              {coding
-                ? activeModel
-                  ? "描述需要分析、编写或修改的代码。"
-                  : "配置并选择模型后，开始讨论代码任务。"
-                : "在场景工作区导入 URDF，然后与助手讨论模型和关节。"}
+              {planning
+                ? "与助手讨论工艺路径和规划参数。"
+                : coding
+                  ? activeModel
+                    ? "描述需要分析、编写或修改的代码。"
+                    : "配置并选择模型后，开始讨论代码任务。"
+                  : "在场景工作区导入 URDF，然后与助手讨论模型和关节。"}
             </p>
           </div>
         ) : null}
@@ -514,7 +517,13 @@ export function ChatPanel(props: Props) {
           <textarea
             ref={props.inputRef}
             aria-label="消息内容"
-            placeholder={coding ? "描述你的代码任务…" : "拖入 STEP 或描述你的场景任务…"}
+            placeholder={
+              planning
+                ? "描述下一轮规划目标…"
+                : coding
+                  ? "描述你的代码任务…"
+                  : "拖入 STEP 或描述你的场景任务…"
+            }
             aria-controls={referenceOpen ? "file-reference-options" : undefined}
             aria-activedescendant={referenceOpen ? activeOption : undefined}
             aria-autocomplete={coding ? "list" : undefined}
@@ -606,18 +615,20 @@ export function ChatPanel(props: Props) {
               <span>{pluginModules[props.conversation.mode]}</span>
             </span>
             <div className="composer-spacer" />
-            <div className="thinking-picker access-picker">
-              <Select
-                aria-label="访问权限"
-                value={props.conversation.accessMode ?? "ask"}
-                disabled={!!props.stream?.busy || props.accessPending}
-                options={[
-                  { value: "ask", label: "请求批准" },
-                  { value: "full", label: coding ? "完全访问" : "免确认调整场景" },
-                ]}
-                onValueChange={props.onAccessMode}
-              />
-            </div>
+            {!planning && (
+              <div className="thinking-picker access-picker">
+                <Select
+                  aria-label="访问权限"
+                  value={props.conversation.accessMode ?? "ask"}
+                  disabled={!!props.stream?.busy || props.accessPending}
+                  options={[
+                    { value: "ask", label: "请求批准" },
+                    { value: "full", label: coding ? "完全访问" : "免确认调整场景" },
+                  ]}
+                  onValueChange={props.onAccessMode}
+                />
+              </div>
+            )}
             <ActionMenu
               label="选择模型"
               side="top"

@@ -1,8 +1,64 @@
 import assert from "node:assert/strict";
-import { access, readFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { chooseProject, launchTestApp, openTestProject } from "./support.ts";
+
+test("新建规划项目显示规划图标并打开独立工作区", { timeout: 30_000 }, async (context) => {
+  const { application, page, profile } = await launchTestApp(context);
+  await application.evaluate(({ app }, directory) => app.setPath("documents", directory), profile);
+  await page.setViewportSize({ width: 1360, height: 860 });
+  await page.getByRole("button", { name: "新建项目", exact: true }).first().click();
+  const dialog = page.getByRole("dialog", { name: "新建项目" });
+  await dialog.getByLabel("项目名称").fill("坡口切割规划");
+  await dialog.getByLabel("项目类型").selectOption("planning");
+  await dialog.locator('.project-mode-icon[data-mode="planning"] svg').waitFor();
+  assert.equal(await dialog.getByRole("button", { name: "选择文件夹" }).count(), 0);
+  await dialog.getByRole("button", { name: "创建项目", exact: true }).click();
+
+  const planning = page.getByRole("region", { name: "规划工作区" });
+  await planning.getByText("请加载 URDF 文件或 Package 目录。", { exact: true }).waitFor();
+  assert.ok(await planning.getByRole("button", { name: "运行规划" }).isDisabled());
+  await planning.getByRole("button", { name: "加载场景", exact: true }).click();
+  const menu = page.getByRole("menu", { name: "加载场景" });
+  assert.deepEqual(await menu.getByRole("menuitem").allTextContents(), [
+    "选择 URDF 文件",
+    "选择 Package 目录",
+  ]);
+  await page.keyboard.press("Escape");
+  const urdf =
+    '<robot name="test"><link name="base"><visual><geometry><box size="1 1 1"/></geometry></visual></link></robot>';
+  await planning.getByLabel("规划 URDF 文件", { exact: true }).setInputFiles({
+    name: "robot.urdf",
+    mimeType: "application/xml",
+    buffer: Buffer.from(urdf),
+  });
+  await planning.getByText("robot.urdf", { exact: true }).waitFor();
+  const robotPackage = join(profile, "robot-package");
+  await mkdir(join(robotPackage, "urdf"), { recursive: true });
+  await writeFile(join(robotPackage, "urdf", "package.urdf"), urdf);
+  await planning.getByLabel("规划 Package 目录", { exact: true }).setInputFiles(robotPackage);
+  await planning.getByText("robot-package/urdf/package.urdf", { exact: true }).waitFor();
+  assert.ok(await planning.getByRole("button", { name: "运行规划" }).isDisabled());
+  await page
+    .getByRole("navigation", { name: "项目", exact: true })
+    .locator('.project-mode-icon[data-mode="planning"] svg')
+    .waitFor();
+  await page.locator(".assistant-navigation").getByRole("button", { name: "新建对话" }).click();
+  await page.getByPlaceholder("描述下一轮规划目标…").waitFor();
+  const { projects, conversations } = await page.evaluate(() =>
+    window.desktop.application.getWorkspace(),
+  );
+  const project = projects.find(({ name }) => name === "坡口切割规划");
+  assert.equal(project?.mode, "planning");
+  assert.equal(conversations.find(({ projectId }) => projectId === project?.id)?.mode, "planning");
+
+  await page.getByRole("button", { name: "返回项目主页", exact: true }).click();
+  const item = page.getByRole("button", { name: "打开项目 坡口切割规划", exact: true });
+  await item.locator('.project-mode-icon[data-mode="planning"] svg').waitFor();
+  await item.click();
+  await planning.waitFor();
+});
 
 test("projects sharing a directory keep separate identities and hidden projects restore their history", {
   timeout: 60_000,

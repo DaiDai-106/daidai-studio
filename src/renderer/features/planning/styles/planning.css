@@ -1,0 +1,28 @@
+.planning-stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(125px, 38%) minmax(0, 1fr);
+}
+
+.planning-outliner {
+  gap: 6px;
+  overflow: auto;
+  padding: 10px 11px;
+  border-right: 1px solid var(--border);
+}
+
+.planning-outliner h3,
+.planning-outliner p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.planning-outliner p {
+  color: var(--muted);
+}
+
+.planning-canvas {
+  min-width: 0;
+  min-height: 0;
+}

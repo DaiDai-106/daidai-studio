@@ -19,7 +19,7 @@ import {
 import { id, object } from "./schema.ts";
 
 const text = (maxLength = 200) => Type.String({ maxLength });
-const ProjectModeSchema = Type.Enum(["coding", "scene"]);
+const ProjectModeSchema = PluginModuleSchema;
 
 // Pi 1.5 的 schema 使用 pi-schema；应用 IPC 仍使用 TypeBox 校验。
 const ModelThinkingLevelSchema = Type.Enum(MODEL_THINKING_LEVELS);

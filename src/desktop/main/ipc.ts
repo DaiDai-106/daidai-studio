@@ -11,6 +11,7 @@ import {
 } from "electron";
 import { Value } from "typebox/value";
 import { type Arguments, type Method, validateRequest } from "../../contracts/application.ts";
+import { isPluginModule } from "../../contracts/catalog.ts";
 import type { Theme } from "../../contracts/desktop.ts";
 import {
   APP_INFO_CHANNEL,
@@ -221,8 +222,8 @@ export function registerDesktopIpc(context: DesktopIpcContext): void {
       typeof name !== "string" ||
       !name.trim() ||
       (directoryToken !== undefined && typeof directoryToken !== "string") ||
-      (mode !== "coding" && mode !== "scene") ||
-      (mode === "scene" && directoryToken !== undefined)
+      !isPluginModule(mode) ||
+      (mode !== "coding" && directoryToken !== undefined)
     )
       throw new Error("无效的项目配置。");
 

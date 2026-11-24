@@ -14,7 +14,7 @@ test("同一目录的不同项目和会话相互独立并在重启后恢复", ()
   try {
     let store = openProjectStore(data);
     const first = store.createProject({ name: "代码项目", mode: "coding", path: directory });
-    const second = store.createProject({ name: "另一个项目", mode: "coding", path: directory });
+    const second = store.createProject({ name: "规划项目", mode: "planning", path: directory });
     assert.notEqual(first.id, second.id);
     const a = store.createConversation(first.id);
     const b = store.createConversation(first.id);
@@ -49,6 +49,8 @@ test("同一目录的不同项目和会话相互独立并在重启后恢复", ()
     assert.equal(store.getProject(first.id), undefined);
     assert.equal(store.getConversation(a.id)?.draft, "只属于 A");
     assert.equal(store.getProject(second.id)?.path, directory);
+    assert.equal(store.getProject(second.id)?.mode, "planning");
+    assert.equal(store.getConversation(c.id)?.projectId, second.id);
     assert.equal(readFileSync(join(directory, "user.txt"), "utf8"), "用户文件");
     store.close();
   } finally {

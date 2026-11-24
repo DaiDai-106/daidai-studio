@@ -34,6 +34,7 @@ export function createSceneViewport(
   readAsset: (id: string) => Promise<string>,
   onSelect: (id: string) => void,
   onIssue: (issue?: ViewportIssue) => void,
+  blockedMessage = "3D 显示暂时中断。仍可在结构树中编辑模型。",
 ) {
   const renderer = new WebGLRenderer({ alpha: true, antialias: true });
   const { domElement: canvas } = renderer;
@@ -169,7 +170,7 @@ export function createSceneViewport(
     if (hit) onSelect(hit.object.userData.linkId);
   }
   function reportIssue() {
-    if (lost) onIssue({ message: "3D 显示暂时中断。仍可在结构树中编辑模型。", blocked: true });
+    if (lost) onIssue({ message: blockedMessage, blocked: true });
     else if (missingMesh) onIssue({ message: "有 STL 网格无法显示。", blocked: false });
     else onIssue();
   }

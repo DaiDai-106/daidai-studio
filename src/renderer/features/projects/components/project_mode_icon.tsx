@@ -2,7 +2,10 @@ import type { ProjectInfo } from "../../../../contracts/application.ts";
 import { Icon, type IconName } from "../../../shared/components/icon.tsx";
 import "../styles/project_mode_icon.css";
 
-const icons = { coding: "code", scene: "box" } satisfies Record<ProjectInfo["mode"], IconName>;
+const icons = { coding: "code", scene: "box", planning: "route" } satisfies Record<
+  ProjectInfo["mode"],
+  IconName
+>;
 
 export function ProjectModeIcon({
   mode,

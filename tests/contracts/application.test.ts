@@ -8,6 +8,7 @@ test("项目模式在创建时由严格的请求契约校验", () => {
     validateRequest("project.create", { name: "旧项目", mode: "robot", path: "/tmp/project" }),
   );
   validateRequest("project.create", { name: "场景", mode: "scene", path: "/tmp/project" });
+  validateRequest("project.create", { name: "规划", mode: "planning", path: "/tmp/project" });
   assert.throws(() =>
     validateRequest("project.create", { name: "机器人", mode: "unknown", path: "/tmp/project" }),
   );
@@ -68,7 +69,7 @@ test("插件范围独立于项目，市场与模块标识严格校验", () => {
     source: "npm:demo",
     scope: "global",
   });
-  for (const moduleId of ["coding", "scene"])
+  for (const moduleId of ["coding", "scene", "planning"])
     validateRequest("catalog.packageAction", {
       action: "install",
       source: "npm:demo",

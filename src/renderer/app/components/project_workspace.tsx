@@ -27,6 +27,10 @@ import type { useWorkbench } from "../logic/use_workbench.ts";
 const SceneWorkspace = lazy(async () => ({
   default: (await import("../../features/scene/components/scene_workspace.tsx")).SceneWorkspace,
 }));
+const PlanningWorkspace = lazy(async () => ({
+  default: (await import("../../features/planning/components/planning_workspace.tsx"))
+    .PlanningWorkspace,
+}));
 
 function sceneWidth(projectId: string) {
   try {
@@ -61,6 +65,10 @@ export function ProjectWorkspace({
 }) {
   const { active, project } = workbench;
   const { models } = configuration;
+  const scene = project?.mode === "scene";
+  const planningId = project?.mode === "planning" ? project.id : undefined;
+  const planning = Boolean(planningId);
+  const robotWorkspace = scene || planning;
   const activeModel = models.find((model) => model.id === active?.modelId);
   const attachments = useAttachmentDrafts(
     application.api,
@@ -81,13 +89,12 @@ export function ProjectWorkspace({
   const extensionRequest = application.workspace?.extensionUiRequests?.find(
     (item) => item.conversationId === active?.id,
   );
-  const scene = project?.mode === "scene";
-  const sceneId = scene ? project.id : "";
+  const sceneId = robotWorkspace ? (project?.id ?? "") : "";
   const [scenePane, setScenePane] = useState({ id: sceneId, width: sceneWidth(sceneId) });
   if (scenePane.id !== sceneId) setScenePane({ id: sceneId, width: sceneWidth(sceneId) });
-  const coding = useCodingWorkspace(!scene ? (project?.id ?? "") : "");
-  const panelOpen = scene || coding.state.open;
-  const panelWidth = scene ? scenePane.width : coding.state.width;
+  const coding = useCodingWorkspace(project?.mode === "coding" ? project.id : "");
+  const panelOpen = robotWorkspace || coding.state.open;
+  const panelWidth = robotWorkspace ? scenePane.width : coding.state.width;
   const workspaceTab = panelOpen ? mobileTab : "chat";
 
   useEffect(() => {
@@ -101,7 +108,8 @@ export function ProjectWorkspace({
   const activeId = active?.id;
   useEffect(() => {
     if (activeId) setMobileTab("chat");
-  }, [activeId]);
+    else if (planningId) setMobileTab("code");
+  }, [activeId, planningId]);
   useImperativeHandle(
     ref,
     () => ({
@@ -113,7 +121,7 @@ export function ProjectWorkspace({
     [],
   );
   function showWorkspacePanel(open: boolean) {
-    if (!scene) coding.update({ open });
+    if (!robotWorkspace) coding.update({ open });
     setMobileTab(open ? "code" : "chat");
   }
   const paneStyle: CSSProperties & { "--workspace-width": string } = {
@@ -134,8 +142,8 @@ export function ProjectWorkspace({
   );
   if (!project) return null;
   return (
-    <CodingOpenContext.Provider value={scene ? null : openContent}>
-      {!scene && coding.error && (
+    <CodingOpenContext.Provider value={robotWorkspace ? null : openContent}>
+      {!robotWorkspace && coding.error && (
         <p className="bridge-error" role="alert">
           {coding.error}
         </p>
@@ -147,7 +155,7 @@ export function ProjectWorkspace({
           aria-selected={workspaceTab === "code"}
           onClick={() => showWorkspacePanel(true)}
         >
-          {scene ? "场景" : "代码"}
+          {planning ? "规划" : scene ? "场景" : "代码"}
         </button>
         <button
           type="button"
@@ -159,7 +167,7 @@ export function ProjectWorkspace({
         </button>
       </div>
       <div
-        className={scene ? "workspace scene-mode" : "workspace coding-mode"}
+        className={robotWorkspace ? "workspace scene-mode" : "workspace coding-mode"}
         data-mobile-tab={workspaceTab}
         data-coding-open={panelOpen}
         style={paneStyle}
@@ -226,27 +234,37 @@ export function ProjectWorkspace({
         </div>
         {panelOpen && (
           <PaneSplitter
-            label={scene ? "调整聊天与场景工作区宽度" : "调整聊天与代码工作区宽度"}
+            label={
+              planning
+                ? "调整聊天与规划工作区宽度"
+                : scene
+                  ? "调整聊天与场景工作区宽度"
+                  : "调整聊天与代码工作区宽度"
+            }
             width={panelWidth}
-            min={scene ? 30 : 20}
+            min={robotWorkspace ? 30 : 20}
             max={80}
             onWidth={(change) => {
               const width = typeof change === "function" ? change(panelWidth) : change;
-              if (scene) setScenePane({ id: sceneId, width });
+              if (robotWorkspace) setScenePane({ id: sceneId, width });
               else coding.update({ width });
             }}
             unit="percent"
           />
         )}
-        {scene ? (
+        {robotWorkspace ? (
           <Suspense
             fallback={
               <p className="scene-workspace notice" role="status">
-                正在加载场景工作区…
+                {planning ? "正在加载规划工作区…" : "正在加载场景工作区…"}
               </p>
             }
           >
-            <SceneWorkspace key={project.id} projectId={project.id} api={application.api} />
+            {planning ? (
+              <PlanningWorkspace key={project.id} />
+            ) : (
+              <SceneWorkspace key={project.id} projectId={project.id} api={application.api} />
+            )}
           </Suspense>
         ) : (
           <CodingWorkspace

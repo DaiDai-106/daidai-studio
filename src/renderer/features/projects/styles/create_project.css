@@ -1,3 +1,31 @@
+.project-mode-choice {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 8px 0;
+  margin: 18px 0;
+  font-size: 12px;
+}
+
+.project-mode-choice .field {
+  display: contents;
+}
+
+.project-mode-choice label {
+  grid-column: 1 / -1;
+}
+
+.project-mode-choice select {
+  grid-area: 2 / 1 / 3 / -1;
+  padding-inline-start: 34px;
+}
+
+.project-mode-choice > .project-mode-icon {
+  grid-area: 2 / 1;
+  justify-self: center;
+  z-index: 1;
+  pointer-events: none;
+}
+
 .project-directory-choice {
   display: grid;
   gap: 8px;
